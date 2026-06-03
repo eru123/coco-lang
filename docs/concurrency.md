@@ -16,7 +16,7 @@ Key primitives:
 - `coro { ... }` — spawn coroutine
 - `select { case ... }` — multiplex channels/events
 - `chan<T>(capacity)` — typed channel
-- `atomic(value)` — atomic operations
+- `new Atomic<T>(value)` — atomic operations
 - `synchronized { ... }` — mutual exclusion block
 
 ---
@@ -126,7 +126,7 @@ select {
 ## Atomics
 
 ```coco
-let counter = atomic(0);
+const counter = new Atomic<int>(0);
 
 await parallel {
     run { counter.add(1); }
@@ -170,7 +170,7 @@ await parallel {
 Accepted alternatives:
 ```coco
 // Atomics:
-let total = atomic(0);
+const total = new Atomic<int>(0);
 await parallel {
     run { total.add(expensiveA()); }
     run { total.add(expensiveB()); }

@@ -234,7 +234,7 @@ Help: use an atomic value, a channel, or a synchronized block.
 Safe version:
 
 ```coco
-let counter = atomic(0);
+const counter = new Atomic<int>(0);
 
 await parallel {
     run {
@@ -322,4 +322,3 @@ Ship it as a fast native binary.
 ```
 
 Simple surface. Strict underneath. That is Coco.
-::: 

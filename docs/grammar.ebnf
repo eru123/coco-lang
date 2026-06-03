@@ -12,7 +12,7 @@ import_decl = "import" , ( named_import | namespace_import ) , "from" , string_l
 named_import = "{" , identifier , { "," , identifier } , [ "," ] , "}" ;
 namespace_import = "*" , "as" , identifier ;
 
-export_decl = "export" , ( class_decl | fn_decl | interface_decl | trait_decl | enum_decl | const_decl ) ;
+export_decl = "export" , ( class_decl | fn_decl | interface_decl | trait_decl | enum_decl | const_decl | type_alias ) ;
 
 (* === Declarations === *)
 
@@ -25,10 +25,13 @@ declaration = const_decl
             | enum_decl
             | type_alias ;
 
-const_decl = "const" , identifier , [ ":" , type_expr ] , "=" , expression , ";" ;
-let_decl = "let" , identifier , [ ":" , type_expr ] , [ "=" , expression ] , ";" ;
+const_decl = "const" , ( identifier | destructure_pattern ) , [ ":" , type_expr ] , "=" , expression , ";" ;
+let_decl = "let" , ( identifier | destructure_pattern ) , [ ":" , type_expr ] , [ "=" , expression ] , ";" ;
 
-fn_decl = [ "async" ] , "fn" , identifier , [ type_params ] , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , block ;
+destructure_pattern = "[" , identifier , { "," , identifier } , [ "," ] , "]"
+                    | "{" , identifier , { "," , identifier } , [ "," ] , "}" ;
+
+fn_decl = [ "async" ] , ( "function" | "fn" | "f" ) , identifier , [ type_params ] , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , block ;
 
 type_alias = "type" , identifier , [ type_params ] , "=" , type_expr , ";" ;
 
@@ -54,9 +57,9 @@ constructor_decl = "constructor" , "(" , [ constructor_param_list ] , ")" , bloc
 constructor_param_list = constructor_param , { "," , constructor_param } , [ "," ] ;
 constructor_param = { modifier } , identifier , [ ":" , type_expr ] , [ "=" , expression ] ;
 
-modifier = "public" | "private" | "protected" | "readonly" ;
+modifier = "public" | "private" | "protected" | "readonly" | "static" ;
 
-method_decl = [ "async" ] , [ "fn" ] , identifier , [ type_params ] , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , block ;
+method_decl = { modifier } , [ "async" ] , [ "function" | "fn" | "f" ] , identifier , [ type_params ] , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , block ;
 
 property_decl = { modifier } , identifier , ":" , type_expr , [ "=" , expression ] , ";" ;
 
@@ -69,7 +72,7 @@ use_trait = "use" , identifier , { "," , identifier } , ";" ;
 interface_decl = "interface" , identifier , [ type_params ] , [ extends_clause ] , interface_body ;
 interface_body = "{" , { interface_member } , "}" ;
 interface_member = method_signature | property_signature ;
-method_signature = [ "async" ] , [ "fn" ] , identifier , [ type_params ] , "(" , [ param_list ] , ")" , ":" , type_expr , ";" ;
+method_signature = [ "async" ] , [ "function" | "fn" | "f" ] , identifier , [ type_params ] , "(" , [ param_list ] , ")" , ":" , type_expr , ";" ;
 property_signature = identifier , ":" , type_expr , ";" ;
 
 (* === Traits === *)
@@ -183,13 +186,15 @@ bitwise_or_expr = bitwise_xor_expr , { "|" , bitwise_xor_expr } ;
 bitwise_xor_expr = bitwise_and_expr , { "^" , bitwise_and_expr } ;
 bitwise_and_expr = equality_expr , { "&" , equality_expr } ;
 equality_expr = comparison_expr , { ( "==" | "!=" ) , comparison_expr } ;
-comparison_expr = shift_expr , { ( "<" | ">" | "<=" | ">=" | "<=>" ) , shift_expr } ;
+comparison_expr = range_expr , { ( "<" | ">" | "<=" | ">=" | "<=>" ) , range_expr } ;
+
+range_expr = shift_expr , [ ( ".." | "..=" ) , shift_expr ] ;
 shift_expr = additive_expr , { ( "<<" | ">>" ) , additive_expr } ;
 additive_expr = multiplicative_expr , { ( "+" | "-" ) , multiplicative_expr } ;
 multiplicative_expr = exponent_expr , { ( "*" | "/" | "%" ) , exponent_expr } ;
 exponent_expr = unary_expr , [ "**" , exponent_expr ] ;
 
-unary_expr = ( "!" | "~" | "-" | "typeof" | "new" | "await" | "lazy" ) , unary_expr
+unary_expr = ( "!" | "~" | "-" | "typeof" | "new" | "await" | "lazy" | "async" ) , unary_expr
            | postfix_expr ;
 
 postfix_expr = primary_expr , { postfix_op } ;
@@ -200,7 +205,8 @@ postfix_op = "." , identifier
            | "!"
            | "?"
            | "++"
-           | "--" ;
+           | "--"
+           | "as" , type_expr ;
 
 argument_list = argument , { "," , argument } , [ "," ] ;
 argument = [ identifier , ":" ] , expression ;
@@ -208,15 +214,21 @@ argument = [ identifier , ":" ] , expression ;
 primary_expr = identifier
              | literal
              | "this"
+             | "$"
+             | "super"
              | "(" , expression , ")"
              | array_literal
              | object_literal
              | arrow_fn
              | match_expr
-             | "fn" , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , ( "=>" , expression | block ) ;
+             | [ "async" ] , ( "function" | "fn" | "f" ) , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , ( "=>" , expression | block )
+             | call_expr ;
 
-arrow_fn = "(" , [ param_list ] , ")" , [ ":" , type_expr ] , "=>" , ( expression | block )
-         | identifier , "=>" , ( expression | block ) ;
+arrow_fn = [ "async" ] , "(" , [ param_list ] , ")" , [ ":" , type_expr ] , "=>" , ( expression | block )
+         | [ "async" ] , identifier , "=>" , ( expression | block ) ;
+
+call_expr = identifier , [ type_args ] , "(" , [ argument_list ] , ")" ;
+type_args = "<" , type_expr , { "," , type_expr } , ">" ;
 
 match_expr = "match" , expression , "{" , { match_arm } , "}" ;
 match_arm = pattern , "=>" , ( expression , "," | block , [ "," ] ) ;
@@ -246,8 +258,7 @@ float_literal = digit , { digit } , "." , digit , { digit } , [ exponent_part ]
               | digit , { digit } , exponent_part ;
 exponent_part = ( "e" | "E" ) , [ "+" | "-" ] , digit , { digit } ;
 
-string_literal = '"' , { string_char } , '"'
-               | "'" , { char_content } , "'" ;
+string_literal = '"' , { string_char } , '"' ;
 string_char = ? any character except '"' and '\' ?
             | escape_sequence ;
 

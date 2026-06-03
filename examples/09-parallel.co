@@ -31,7 +31,7 @@ async fn getUserDashboard(userId: int): Result<string, Error> {
 
 // Parallel with atomics (safe shared counter):
 async fn countParallel(): int {
-    let total = atomic(0);
+    const total = new Atomic<int>(0);
 
     await parallel {
         run { total.add(computePartA()); }
