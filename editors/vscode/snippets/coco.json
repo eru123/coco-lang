@@ -1,0 +1,365 @@
+{
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params}): ${3:void} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Named function"
+  },
+  "Async Function": {
+    "prefix": "afn",
+    "body": [
+      "async fn ${1:name}(${2:params}): ${3:Result<void, Error>} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Async function"
+  },
+  "Arrow Function": {
+    "prefix": "arrow",
+    "body": "(${1:params}) => ${0}",
+    "description": "Arrow function"
+  },
+  "Arrow Function Block": {
+    "prefix": "arrowb",
+    "body": [
+      "(${1:params}) => {",
+      "    $0",
+      "}"
+    ],
+    "description": "Arrow function with block body"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "    constructor(",
+      "        ${2:public readonly id: int},",
+      "    ) {}",
+      "",
+      "    $0",
+      "}"
+    ],
+    "description": "Class with constructor"
+  },
+  "Class Extends": {
+    "prefix": "classex",
+    "body": [
+      "class ${1:Name} extends ${2:Base} {",
+      "    constructor(${3:params}) {",
+      "        super($3);",
+      "    }",
+      "",
+      "    $0",
+      "}"
+    ],
+    "description": "Class extending another"
+  },
+  "Class Implements": {
+    "prefix": "classim",
+    "body": [
+      "class ${1:Name} implements ${2:Interface} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Class implementing interface"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Name} {",
+      "    ${2:method}(${3:params}): ${4:void};",
+      "    $0",
+      "}"
+    ],
+    "description": "Interface definition"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "    ${2:property}: ${3:type} = ${4:default};",
+      "",
+      "    ${5:method}(): void {",
+      "        $0",
+      "    }",
+      "}"
+    ],
+    "description": "Trait with state"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "    ${2:Variant1},",
+      "    ${3:Variant2},",
+      "    $0",
+      "}"
+    ],
+    "description": "Enum definition"
+  },
+  "Enum Backed": {
+    "prefix": "enumb",
+    "body": [
+      "enum ${1:Name}: ${2:string} {",
+      "    ${3:Variant1} = ${4:\"value1\"},",
+      "    ${5:Variant2} = ${6:\"value2\"},",
+      "    $0",
+      "}"
+    ],
+    "description": "Backed enum with values"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:expr} {",
+      "    ${2:pattern} => ${3:value},",
+      "    _ => ${0:default},",
+      "}"
+    ],
+    "description": "Match expression"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "If statement"
+  },
+  "If Else": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition} {",
+      "    $2",
+      "} else {",
+      "    $0",
+      "}"
+    ],
+    "description": "If-else statement"
+  },
+  "For In": {
+    "prefix": "forin",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "    $0",
+      "}"
+    ],
+    "description": "For-in loop"
+  },
+  "For Indexed": {
+    "prefix": "forindex",
+    "body": [
+      "for (${1:index}, ${2:item}) in ${3:collection}.entries() {",
+      "    $0",
+      "}"
+    ],
+    "description": "For loop with index"
+  },
+  "While": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Loop": {
+    "prefix": "loop",
+    "body": [
+      "loop {",
+      "    $0",
+      "}"
+    ],
+    "description": "Infinite loop"
+  },
+  "Try Catch": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "    $1",
+      "} catch (${2:e}: ${3:Error}) {",
+      "    $0",
+      "}"
+    ],
+    "description": "Try-catch block"
+  },
+  "Try Catch Finally": {
+    "prefix": "tryf",
+    "body": [
+      "try {",
+      "    $1",
+      "} catch (${2:e}: ${3:Error}) {",
+      "    $4",
+      "} finally {",
+      "    $0",
+      "}"
+    ],
+    "description": "Try-catch-finally block"
+  },
+  "Result Ok": {
+    "prefix": "ok",
+    "body": "return Ok(${0});",
+    "description": "Return Ok result"
+  },
+  "Result Err": {
+    "prefix": "err",
+    "body": "return Err(${0});",
+    "description": "Return Err result"
+  },
+  "Parallel": {
+    "prefix": "parallel",
+    "body": [
+      "const [${1:a}, ${2:b}] = await parallel {",
+      "    run ${3:taskA}();",
+      "    run ${4:taskB}();",
+      "};$0"
+    ],
+    "description": "Parallel execution block"
+  },
+  "Channel": {
+    "prefix": "chan",
+    "body": "const ${1:ch} = chan<${2:type}>(${3:100});$0",
+    "description": "Create a channel"
+  },
+  "Select": {
+    "prefix": "select",
+    "body": [
+      "select {",
+      "    case ${1:msg} = ${2:ch}.recv():",
+      "        $3",
+      "    case _ = ${4:ctx.cancelled()}:",
+      "        $0",
+      "}"
+    ],
+    "description": "Select statement"
+  },
+  "Coro": {
+    "prefix": "coro",
+    "body": [
+      "coro {",
+      "    $0",
+      "}"
+    ],
+    "description": "Coroutine spawn"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": "import { ${1:name} } from \"${2:module}\";$0",
+    "description": "Import statement"
+  },
+  "Import Namespace": {
+    "prefix": "importns",
+    "body": "import * as ${1:name} from \"${2:module}\";$0",
+    "description": "Namespace import"
+  },
+  "Export Function": {
+    "prefix": "efn",
+    "body": [
+      "export fn ${1:name}(${2:params}): ${3:void} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Exported function"
+  },
+  "Export Class": {
+    "prefix": "eclass",
+    "body": [
+      "export class ${1:Name} {",
+      "    constructor(${2:params}) {}",
+      "",
+      "    $0",
+      "}"
+    ],
+    "description": "Exported class"
+  },
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "fn main(): int {",
+      "    $0",
+      "    return 0;",
+      "}"
+    ],
+    "description": "Main entry point"
+  },
+  "Async Main": {
+    "prefix": "amain",
+    "body": [
+      "async fn main(): int {",
+      "    $0",
+      "    return 0;",
+      "}"
+    ],
+    "description": "Async main entry point"
+  },
+  "HTTP Server": {
+    "prefix": "httpserver",
+    "body": [
+      "import { Server, Response } from \"std/http\";",
+      "",
+      "async fn main(): int {",
+      "    const app = new Server();",
+      "",
+      "    app.get(\"/${1:path}\", async (req) => {",
+      "        $0",
+      "        return Response.json({ \"message\": \"ok\" });",
+      "    });",
+      "",
+      "    await app.listen(${2:3000});",
+      "    return 0;",
+      "}"
+    ],
+    "description": "HTTP server boilerplate"
+  },
+  "Unsafe Block": {
+    "prefix": "unsafe",
+    "body": [
+      "unsafe {",
+      "    $0",
+      "}"
+    ],
+    "description": "Unsafe block"
+  },
+  "Synchronized": {
+    "prefix": "sync",
+    "body": [
+      "synchronized {",
+      "    $0",
+      "}"
+    ],
+    "description": "Synchronized block"
+  },
+  "Constructor": {
+    "prefix": "ctor",
+    "body": [
+      "constructor(",
+      "    ${1:public readonly id: int},",
+      "    ${2:public name: string},",
+      ") {}$0"
+    ],
+    "description": "Constructor with property promotion"
+  },
+  "Magic toString": {
+    "prefix": "__tostring",
+    "body": [
+      "__toString(): string {",
+      "    return `${0}`;",
+      "}"
+    ],
+    "description": "__toString magic method"
+  },
+  "Magic compare": {
+    "prefix": "__compare",
+    "body": [
+      "__compare(other: ${1:Type}): int {",
+      "    return this.${2:field} <=> other.${2:field};",
+      "}"
+    ],
+    "description": "__compare magic method"
+  }
+}
