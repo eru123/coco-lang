@@ -1,0 +1,238 @@
+// Pipe Operator Examples
+// Demonstrates left-to-right and right-to-left piping
+
+import { readFile } from "std/fs";
+import { parse } from "std/json";
+
+// ============================================================================
+// Basic Piping (Left-to-Right)
+// ============================================================================
+
+// Example 1: Array transformations with |>
+fn example1(): void {
+    const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    // Using |> operator:
+    const result1 = numbers
+        |> (a) => a.map(n => n * 2)
+        |> (a) => a.filter(n => n > 10)
+        |> (a) => a.reduce((sum, n) => sum + n, 0);
+
+    print(`Result with |>: ${result1}`);  // 60
+
+    // Equivalent with method chaining:
+    const result2 = numbers
+        .map(n => n * 2)
+        .filter(n => n > 10)
+        .reduce((sum, n) => sum + n, 0);
+
+    print(`Result with methods: ${result2}`);  // 60
+}
+
+// Example 2: Using -> operator (alternative syntax)
+fn example2(): void {
+    const words = ["hello", "world", "coco", "language"];
+
+    const result = words
+        -> (w) => w.filter(s => s.length > 4)
+        -> (w) => w.map(s => s.toUpperCase())
+        -> (w) => w.join(" ");
+
+    print(`Result: ${result}`);  // "HELLO WORLD LANGUAGE"
+}
+
+// ============================================================================
+// Right-to-Left Piping
+// ============================================================================
+
+// Example 3: Reverse data flow with <|
+fn example3(): void {
+    // Right-to-left composition (useful for function composition)
+    const result = (a) => a.join(", ")
+        <| (a) => a.map(n => `#${n}`)
+        <| (a) => a.filter(n => n % 2 == 0)
+        <| [1, 2, 3, 4, 5, 6];
+
+    print(`Result: ${result}`);  // "#2, #4, #6"
+}
+
+// Example 4: Using <- operator (alternative syntax)
+fn example4(): void {
+    const result = (s) => s.trim()
+        <- (s) => s.toUpperCase()
+        <- (s) => s.replace("_", " ")
+        <- "hello_world";
+
+    print(`Result: ${result}`);  // "HELLO WORLD"
+}
+
+// ============================================================================
+// Complex Data Processing
+// ============================================================================
+
+// Example 5: Processing API response data
+interface User {
+    id: int;
+    name: string;
+    age: int;
+    active: bool;
+}
+
+async fn processUserData(apiUrl: string): Result<list<string>, Error> {
+    const response = await fetch(apiUrl)?;
+    const data = await response.json()?;
+
+    // Complex transformation pipeline
+    const activeUserNames = data
+        |> (d) => parse<list<User>>(d)?
+        |> (users) => users.filter(u => u.active)
+        |> (users) => users.filter(u => u.age >= 18)
+        |> (users) => users.map(u => u.name.toUpperCase())
+        |> (names) => names.sort();
+
+    return Ok(activeUserNames);
+}
+
+// Example 6: Text processing pipeline
+fn processLogFile(path: string): Result<map<string, int>, Error> {
+    const content = readFile(path)?;
+
+    // Count error occurrences by type
+    const errorCounts = content
+        |> (text) => text.split("\n")
+        |> (lines) => lines.filter(line => line.contains("ERROR"))
+        |> (errors) => errors.map(line => extractErrorType(line))
+        |> (types) => types.reduce((counts, type) => {
+            counts[type] = (counts[type] ?? 0) + 1;
+            return counts;
+        }, {});
+
+    return Ok(errorCounts);
+}
+
+fn extractErrorType(line: string): string {
+    const parts = line.split(":");
+    return parts.length > 1 ? parts[1].trim() : "Unknown";
+}
+
+// ============================================================================
+// Comparison: Nested vs Piped vs Method Chain
+// ============================================================================
+
+fn example7(): void {
+    const data = [1, 2, 3, 4, 5];
+
+    // Nested function calls (hard to read):
+    const nested = sum(
+        filter(
+            map(data, n => n * 2),
+            n => n > 4
+        )
+    );
+
+    // Piped (clear data flow):
+    const piped = data
+        |> (a) => map(a, n => n * 2)
+        |> (a) => filter(a, n => n > 4)
+        |> (a) => sum(a);
+
+    // Method chaining (cleanest when methods exist):
+    const chained = data
+        .map(n => n * 2)
+        .filter(n => n > 4)
+        .reduce((s, n) => s + n, 0);
+
+    print(`Nested: ${nested}, Piped: ${piped}, Chained: ${chained}`);
+}
+
+// Helper functions for example 7
+fn map<T, U>(items: list<T>, fn: (T) => U): list<U> {
+    return items.map(fn);
+}
+
+fn filter<T>(items: list<T>, fn: (T) => bool): list<T> {
+    return items.filter(fn);
+}
+
+fn sum(items: list<int>): int {
+    return items.reduce((s, n) => s + n, 0);
+}
+
+// ============================================================================
+// Advanced: Mixing with Other Operators
+// ============================================================================
+
+// Example 8: Combining pipes with Result propagation
+fn example8(): Result<string, Error> {
+    const result = "  some data  "
+        |> (s) => s.trim()
+        |> (s) => parseJson(s)?        // ? propagates errors
+        |> (data) => validate(data)?    // ? propagates errors
+        |> (valid) => format(valid);
+
+    return Ok(result);
+}
+
+// Example 9: Pipes with async/await
+async fn example9(): Result<list<string>, Error> {
+    const result = await fetchUsers()
+        |> async (users) => await enrichWithProfiles(users)
+        |> async (enriched) => await filterByPermissions(enriched)
+        |> async (filtered) => filtered.map(u => u.name);
+
+    return Ok(result);
+}
+
+// ============================================================================
+// Invalid Examples (Syntax Errors)
+// ============================================================================
+
+// These would cause compilation errors:
+
+// fn invalidExample1(): void {
+//     const result = [1, 2, 3]
+//         |> (a) => a.map(n => n * 2)
+//         <- (a) => a.filter(n => n > 4);  // ❌ Cannot mix |> and <-
+// }
+
+// fn invalidExample2(): void {
+//     const result = [1, 2, 3]
+//         -> (a) => a.map(n => n * 2)
+//         <| (a) => a.filter(n => n > 4);  // ❌ Cannot mix -> and <|
+// }
+
+// fn invalidExample3(): void {
+//     const result = [1, 2, 3]
+//         |> (a) => a.map(n => n * 2)
+//         -> (a) => a.filter(n => n > 4);  // ❌ Cannot mix |> and ->
+// }
+
+// ============================================================================
+// Main Function
+// ============================================================================
+
+fn main(): int {
+    print("=== Pipe Operator Examples ===\n");
+
+    example1();
+    example2();
+    example3();
+    example4();
+    example7();
+
+    print("\nFor complex examples (5, 6, 8, 9), see the function definitions above.");
+
+    return 0;
+}
+
+// Stub functions for compilation (would be real in actual code)
+fn parseJson(s: string): Result<mixed, Error> { return Ok({}); }
+fn validate(data: mixed): Result<mixed, Error> { return Ok(data); }
+fn format(data: mixed): string { return "formatted"; }
+async fn fetchUsers(): list<User> { return []; }
+async fn enrichWithProfiles(users: list<User>): list<User> { return users; }
+async fn filterByPermissions(users: list<User>): list<User> { return users; }
+async fn fetch(url: string): Result<Response, Error> { return Err(new Error("stub")); }
+class Response {
+    async fn json(): Result<mixed, Error> { return Ok({}); }
+}

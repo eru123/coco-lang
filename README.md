@@ -86,6 +86,15 @@ async fn main(): int {
         return Response.json(user);
     });
 
+    // Data transformation with pipe operators:
+    app.get("/users", async (req) => {
+        const activeUsers = await db.users.findAll()
+            |> (users) => users.filter(u => u.active)
+            |> (users) => users.map(u => ({ id: u.id, name: u.name }));
+
+        return Response.json(activeUsers);
+    });
+
     await app.listen(3000);
     return 0;
 }

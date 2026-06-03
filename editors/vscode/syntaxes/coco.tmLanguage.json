@@ -185,6 +185,10 @@
     "operators": {
       "patterns": [
         {
+          "name": "keyword.operator.pipe.coco",
+          "match": "\\|>|<\\||->|<-"
+        },
+        {
           "name": "keyword.operator.comparison.coco",
           "match": "<=>|[!=]=|[<>]=?"
         },

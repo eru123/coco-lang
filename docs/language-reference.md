@@ -655,6 +655,106 @@ select {
 | `!` (postfix) | Non-null assertion |
 | `?` (postfix) | Result propagation |
 | `+` (string) | Concatenation (when one operand is string) |
+| `\|>` `->` | Pipe (left-to-right) |
+| `<\|` `<-` | Pipe (right-to-left) |
+
+---
+
+## Pipe Operator
+
+The pipe operator (inspired by HHVM) allows threading values through a sequence of function calls, making data transformations more readable:
+
+### Left-to-Right Piping
+
+```coco
+// Using |> operator:
+const result = [1, 2, 3]
+    |> (a) => a.map(n => n * 2)
+    |> (a) => a.filter(n => n > 4);
+
+// Using -> operator (alternative syntax):
+const result = [1, 2, 3]
+    -> (a) => a.map(n => n * 2)
+    -> (a) => a.filter(n => n > 4);
+
+// Both are equivalent to:
+const result = [1, 2, 3].map(n => n * 2).filter(n => n > 4);
+```
+
+### Right-to-Left Piping
+
+```coco
+// Using <| operator:
+const result = (a) => a.filter(n => n > 4)
+    <| (a) => a.map(n => n * 2)
+    <| [1, 2, 3];
+
+// Using <- operator (alternative syntax):
+const result = (a) => a.filter(n => n > 4)
+    <- (a) => a.map(n => n * 2)
+    <- [1, 2, 3];
+```
+
+### Pipe Operator Rules
+
+**Valid syntax:**
+```coco
+// Same direction throughout:
+x |> f |> g |> h    // ✅ All left-to-right
+x -> f -> g -> h    // ✅ All left-to-right
+h <| g <| f <| x    // ✅ All right-to-left
+h <- g <- f <- x    // ✅ All right-to-left
+```
+
+**Invalid syntax (mixing directions):**
+```coco
+x |> f <- g         // ❌ Error: Cannot mix |> and <-
+x -> f <| g         // ❌ Error: Cannot mix -> and <|
+x |> f -> g         // ❌ Error: Cannot mix |> and ->
+x <- f <| g         // ❌ Error: Cannot mix <- and <|
+```
+
+**Error message:**
+```
+SyntaxError: Cannot mix pipe operator directions in the same expression.
+Use either left-to-right (|>, ->) or right-to-left (<|, <-), not both.
+```
+
+### When to Use Pipe Operators
+
+**Use pipes when:**
+- Chaining multiple transformations makes a long method chain
+- The intermediate steps benefit from explicit parameter names
+- You want to emphasize the data flow direction
+
+**Prefer method chaining when:**
+- The chain is short (2-3 calls)
+- Methods are well-named and self-documenting
+- No intermediate transformation logic needed
+
+**Example with complex transformations:**
+```coco
+// Without pipes (nested):
+const result = filterInvalid(
+    sortByDate(
+        mapToUsers(
+            fetchData(apiUrl)
+        )
+    )
+);
+
+// With pipes (clearer data flow):
+const result = fetchData(apiUrl)
+    |> (data) => mapToUsers(data)
+    |> (users) => sortByDate(users)
+    |> (sorted) => filterInvalid(sorted);
+
+// Or concise with method chaining:
+const result = fetchData(apiUrl)
+    .then(mapToUsers)
+    .then(sortByDate)
+    .then(filterInvalid);
+```
 
 ---
 
