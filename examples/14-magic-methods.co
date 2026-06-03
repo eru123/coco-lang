@@ -1,0 +1,86 @@
+// Magic methods in Coco
+
+class Money {
+    constructor(private cents: int) {}
+
+    static php(amount: float): Money {
+        return new Money(cents: (amount * 100) as int);
+    }
+
+    static fromCents(cents: int): Money {
+        return new Money(cents: cents);
+    }
+
+    __toString(): string {
+        const whole = this.cents / 100;
+        const frac = (this.cents % 100).toString().padStart(2, "0");
+        return `₱${whole}.${frac}`;
+    }
+
+    __compare(other: Money): int {
+        return this.cents <=> other.cents;
+    }
+
+    add(other: Money): Money {
+        return Money.fromCents(this.cents + other.cents);
+    }
+
+    subtract(other: Money): Money {
+        return Money.fromCents(this.cents - other.cents);
+    }
+}
+
+class DynamicConfig {
+    private data: map<string, string> = {};
+
+    __get(key: string): string|null {
+        return this.data[key] ?? null;
+    }
+
+    __set(key: string, value: string): void {
+        this.data[key] = value;
+    }
+
+    __invoke(key: string): bool {
+        return this.data.has(key);
+    }
+}
+
+class Handler {
+    __call(method: string, args: list<mixed>): mixed {
+        print(`Called: ${method} with ${args.length} args`);
+        return null;
+    }
+}
+
+fn main(): int {
+    // __toString:
+    const price = Money.php(49.99);
+    print(`Price: ${price}`);
+    print("Total: " + price);
+
+    // __compare (spaceship):
+    const cheap = Money.php(10.00);
+    const expensive = Money.php(99.99);
+    print(cheap <=> expensive);
+    print(expensive <=> cheap);
+
+    const total = cheap.add(expensive);
+    print(`Total: ${total}`);
+
+    // __get / __set:
+    const config = new DynamicConfig();
+    config.host = "localhost";
+    config.port = "8080";
+    print(config.host);
+
+    // __invoke:
+    print(config("host"));
+    print(config("missing"));
+
+    // __call:
+    const handler = new Handler();
+    handler.anyMethod("arg1", "arg2");
+
+    return 0;
+}

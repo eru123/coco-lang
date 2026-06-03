@@ -1,0 +1,116 @@
+// CLI tool in Coco
+
+import { args, exit } from "std/process";
+import { readFile, writeFile, exists } from "std/fs";
+
+enum Command {
+    Init(string),
+    Add(string, string),
+    List,
+    Remove(string),
+    Help,
+}
+
+fn parseArgs(argv: list<string>): Result<Command, string> {
+    if argv.length < 2 {
+        return Ok(Command.Help);
+    }
+
+    return match argv[1] {
+        "init" => {
+            const name = argv[2] ?? "project";
+            Ok(Command.Init(name));
+        },
+        "add" => {
+            if argv.length < 4 {
+                return Err("usage: add <key> <value>");
+            }
+            Ok(Command.Add(argv[2], argv[3]));
+        },
+        "list" => Ok(Command.List),
+        "remove" => {
+            if argv.length < 3 {
+                return Err("usage: remove <key>");
+            }
+            Ok(Command.Remove(argv[2]));
+        },
+        "help" => Ok(Command.Help),
+        _ => Err(`unknown command: ${argv[1]}`),
+    };
+}
+
+fn printHelp(): void {
+    print("coco-kv — a simple key-value store CLI");
+    print("");
+    print("Commands:");
+    print("  init [name]     Initialize a new store");
+    print("  add <k> <v>     Add a key-value pair");
+    print("  list            List all entries");
+    print("  remove <key>    Remove an entry");
+    print("  help            Show this message");
+}
+
+const STORE_FILE = ".kv-store.json";
+
+fn loadStore(): Result<map<string, string>, string> {
+    if !exists(STORE_FILE) {
+        return Err("store not initialized. Run 'init' first.");
+    }
+    const content = readFile(STORE_FILE)?;
+    return Ok(JSON.parse(content));
+}
+
+fn saveStore(store: map<string, string>): Result<void, string> {
+    return writeFile(STORE_FILE, JSON.stringify(store, indent: 2));
+}
+
+fn main(): int {
+    const cmd = parseArgs(args());
+    if cmd is Err(msg) {
+        print(`Error: ${msg}`);
+        return 1;
+    }
+
+    match cmd.unwrap() {
+        Command.Init(name) => {
+            if exists(STORE_FILE) {
+                print("Store already exists.");
+                return 1;
+            }
+            saveStore({}) ?: {
+                print("Failed to create store");
+                return 1;
+            };
+            print(`Initialized store '${name}'`);
+        },
+        Command.Add(key, value) => {
+            let store = loadStore() ?: { print("Error loading store"); return 1; };
+            store[key] = value;
+            saveStore(store)?;
+            print(`Set ${key} = ${value}`);
+        },
+        Command.List => {
+            const store = loadStore() ?: { print("Error loading store"); return 1; };
+            if store.isEmpty() {
+                print("(empty)");
+            } else {
+                for (key, value) in store {
+                    print(`  ${key} = ${value}`);
+                }
+            }
+        },
+        Command.Remove(key) => {
+            let store = loadStore() ?: { print("Error loading store"); return 1; };
+            if !store.has(key) {
+                print(`Key '${key}' not found`);
+                return 1;
+            }
+            store.remove(key);
+            saveStore(store)?;
+            print(`Removed '${key}'`);
+        },
+        Command.Help => printHelp(),
+    };
+
+    return 0;
+}

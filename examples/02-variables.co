@@ -1,0 +1,30 @@
+// Variables and bindings in Coco
+
+fn main(): int {
+    // Immutable binding:
+    const pi = 3.14159;
+    const language = "Coco";
+
+    // Mutable binding:
+    let counter = 0;
+    counter += 1;
+    counter += 1;
+
+    // Typed bindings:
+    let age: int = 28;
+    let name: string = "Jericho";
+    let active: bool = true;
+
+    // Untyped (gradual):
+    let anything = "could be anything";
+    anything = 42;
+
+    // Null:
+    let user: string|null = null;
+    user = "found";
+
+    print(`${language} counter: ${counter}`);
+    print(`${name}, age ${age}, active: ${active}`);
+
+    return 0;
+}

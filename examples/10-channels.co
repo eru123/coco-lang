@@ -1,0 +1,54 @@
+// Channels in Coco
+
+class Job {
+    constructor(public id: int, public payload: string) {}
+}
+
+class JobResult {
+    constructor(public jobId: int, public output: string) {}
+}
+
+async fn worker(id: int, jobs: Receiver<Job>, results: Sender<JobResult>): void {
+    for job in jobs {
+        print(`Worker ${id} processing job ${job.id}`);
+        const output = `processed: ${job.payload}`;
+        results.send(new JobResult(jobId: job.id, output: output));
+    }
+    print(`Worker ${id} done`);
+}
+
+async fn producer(jobs: Sender<Job>, count: int): void {
+    for i in 0..count {
+        jobs.send(new Job(id: i, payload: `task-${i}`));
+    }
+    jobs.close();
+}
+
+async fn main(): int {
+    const jobs = chan<Job>(10);
+    const results = chan<JobResult>(10);
+
+    const numWorkers = 3;
+    const numJobs = 10;
+
+    // Spawn workers:
+    await parallel {
+        run producer(jobs, numJobs);
+        run worker(1, jobs, results);
+        run worker(2, jobs, results);
+        run worker(3, jobs, results);
+    }
+
+    results.close();
+
+    // Collect results:
+    let processed = 0;
+    for result in results {
+        print(`Result: job ${result.jobId} -> ${result.output}`);
+        processed += 1;
+    }
+
+    print(`Processed ${processed} jobs with ${numWorkers} workers`);
+
+    return 0;
+}

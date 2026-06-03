@@ -1,0 +1,71 @@
+// HTTP server in Coco
+
+import { Server, Request, Response, Middleware } from "std/http";
+import { db } from "./database";
+
+class User {
+    constructor(
+        public readonly id: int,
+        public name: string,
+        public email: string,
+    ) {}
+
+    static fromRow(row): User {
+        return new User(
+            id: row["id"],
+            name: row["name"],
+            email: row["email"],
+        );
+    }
+}
+
+fn logger(): Middleware {
+    return (req, next) => {
+        const start = DateTime.now();
+        const response = next(req);
+        const duration = DateTime.now() - start;
+        print(`${req.method} ${req.path} ${response.status} ${duration}ms`);
+        return response;
+    };
+}
+
+async fn main(): int {
+    const app = new Server();
+
+    app.use(logger());
+
+    app.get("/", (req) => {
+        return Response.json({ "message": "Welcome to Coco API" });
+    });
+
+    app.get("/users", async (req) => {
+        const users = await db.query("SELECT * FROM users")?;
+        return Response.json(users);
+    });
+
+    app.get("/users/:id", async (req) => {
+        const id = int.parse(req.params.id) ?: return Response.badRequest("invalid id");
+        const row = await db.queryOne("SELECT * FROM users WHERE id = ?", [id])?;
+
+        if row == null {
+            return Response.notFound("user not found");
+        }
+
+        return Response.json(User.fromRow(row));
+    });
+
+    app.post("/users", async (req) => {
+        const body = req.json()?;
+        const name = body["name"] ?: return Response.badRequest("name required");
+        const email = body["email"] ?: return Response.badRequest("email required");
+
+        const id = await db.insert("INSERT INTO users (name, email) VALUES (?, ?)", [name, email])?;
+
+        return Response.created(User.fromRow({ "id": id, "name": name, "email": email }));
+    });
+
+    print("Server listening on :3000");
+    await app.listen(3000);
+
+    return 0;
+}

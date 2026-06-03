@@ -1,0 +1,79 @@
+// Match expressions in Coco
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+    Custom(int, int, int),
+}
+
+enum Shape {
+    Circle(float),
+    Rectangle(float, float),
+    Triangle(float, float, float),
+    Point,
+}
+
+fn colorToHex(color: Color): string {
+    return match color {
+        Color.Red => "#FF0000",
+        Color.Green => "#00FF00",
+        Color.Blue => "#0000FF",
+        Color.Custom(r, g, b) => `#${r.toHex()}${g.toHex()}${b.toHex()}`,
+    };
+}
+
+fn area(shape: Shape): float {
+    return match shape {
+        Shape.Circle(r) => 3.14159 * r * r,
+        Shape.Rectangle(w, h) => w * h,
+        Shape.Triangle(a, b, c) => {
+            const s = (a + b + c) / 2.0;
+            return (s * (s - a) * (s - b) * (s - c)).sqrt();
+        },
+        Shape.Point => 0.0,
+    };
+}
+
+fn describeNumber(n: int): string {
+    return match n {
+        0 => "zero",
+        1 => "one",
+        is int if n < 0 => "negative",
+        is int if n > 100 => "large",
+        _ => "some number",
+    };
+}
+
+fn httpMessage(status: int): string {
+    return match status {
+        200 => "OK",
+        201 => "Created",
+        301 => "Moved Permanently",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => `Status ${status}`,
+    };
+}
+
+fn main(): int {
+    print(colorToHex(Color.Red));
+    print(colorToHex(Color.Custom(128, 64, 255)));
+
+    print(area(Shape.Circle(5.0)));
+    print(area(Shape.Rectangle(3.0, 4.0)));
+    print(area(Shape.Point));
+
+    print(describeNumber(0));
+    print(describeNumber(-5));
+    print(describeNumber(200));
+    print(describeNumber(42));
+
+    const message = httpMessage(404);
+    print(message);
+
+    return 0;
+}

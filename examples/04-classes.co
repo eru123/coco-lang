@@ -1,0 +1,77 @@
+// Classes in Coco
+
+class Animal {
+    constructor(
+        public readonly species: string,
+        public name: string,
+        private sound: string,
+    ) {}
+
+    speak(): string {
+        return `${this.name} says ${this.sound}`;
+    }
+
+    fn rename(name: string): void {
+        this.name = name;
+    }
+
+    static dog(name: string): Animal {
+        return new Animal(species: "Dog", name: name, sound: "woof");
+    }
+
+    static cat(name: string): Animal {
+        return new Animal(species: "Cat", name: name, sound: "meow");
+    }
+}
+
+class Pet extends Animal {
+    constructor(
+        species: string,
+        name: string,
+        sound: string,
+        public owner: string,
+    ) {
+        super(species, name, sound);
+    }
+
+    introduce(): string {
+        return `${this.name} belongs to ${this.owner}`;
+    }
+}
+
+interface Feedable {
+    feed(food: string): void;
+    isHungry(): bool;
+}
+
+class HomePet extends Pet implements Feedable {
+    private hunger: int = 50;
+
+    feed(food: string): void {
+        this.hunger -= 20;
+        print(`${this.name} eats ${food}`);
+    }
+
+    isHungry(): bool {
+        return this.hunger > 70;
+    }
+}
+
+fn main(): int {
+    const dog = Animal.dog("Rex");
+    print(dog.speak());
+
+    dog.rename("Max");
+    print(dog.speak());
+
+    const pet = new Pet(
+        species: "Bird",
+        name: "Tweety",
+        sound: "chirp",
+        owner: "Jericho",
+    );
+    print(pet.introduce());
+    print(pet.speak());
+
+    return 0;
+}

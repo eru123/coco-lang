@@ -1,0 +1,150 @@
+// Queue worker in Coco
+
+import { db } from "std/db";
+import { sleep } from "std/time";
+import { Context } from "std/context";
+import { signal } from "std/process";
+
+enum JobStatus: string {
+    Pending = "pending",
+    Processing = "processing",
+    Completed = "completed",
+    Failed = "failed",
+}
+
+class Job {
+    constructor(
+        public readonly id: int,
+        public type: string,
+        public payload: string,
+        public status: JobStatus = JobStatus.Pending,
+        public attempts: int = 0,
+        public maxAttempts: int = 3,
+        public error: string|null = null,
+    ) {}
+
+    static fromRow(row): Job {
+        return new Job(
+            id: row["id"],
+            type: row["type"],
+            payload: row["payload"],
+            status: JobStatus.from(row["status"]),
+            attempts: row["attempts"],
+            maxAttempts: row["max_attempts"],
+            error: row["error"],
+        );
+    }
+}
+
+class Worker {
+    constructor(
+        private id: int,
+        private pollInterval: int = 1000,
+    ) {}
+
+    async fn run(ctx: Context): void {
+        print(`Worker ${this.id} started`);
+
+        loop {
+            select {
+                case _ = ctx.cancelled():
+                    print(`Worker ${this.id} shutting down`);
+                    return;
+                case _ = sleep(this.pollInterval):
+                    await this.poll();
+            }
+        }
+    }
+
+    private async fn poll(): void {
+        const job = await this.claimJob();
+        if job == null { return; }
+
+        print(`Worker ${this.id}: processing job ${job.id} (${job.type})`);
+
+        const result = await this.process(job);
+        match result {
+            is Ok(_) => {
+                await this.markCompleted(job);
+                print(`Worker ${this.id}: job ${job.id} completed`);
+            },
+            is Err(e) => {
+                await this.markFailed(job, e);
+                print(`Worker ${this.id}: job ${job.id} failed: ${e}`);
+            },
+        };
+    }
+
+    private async fn claimJob(): Job|null {
+        const row = await db.queryOne(
+            "UPDATE jobs SET status = ?, attempts = attempts + 1 WHERE status = ? LIMIT 1 RETURNING *",
+            [JobStatus.Processing, JobStatus.Pending],
+        )?;
+        if row == null { return null; }
+        return Job.fromRow(row);
+    }
+
+    private async fn process(job: Job): Result<void, string> {
+        return match job.type {
+            "email" => await this.sendEmail(job.payload),
+            "report" => await this.generateReport(job.payload),
+            "cleanup" => await this.runCleanup(job.payload),
+            _ => Err(`unknown job type: ${job.type}`),
+        };
+    }
+
+    private async fn sendEmail(payload: string): Result<void, string> {
+        await sleep(100);
+        return Ok();
+    }
+
+    private async fn generateReport(payload: string): Result<void, string> {
+        await sleep(500);
+        return Ok();
+    }
+
+    private async fn runCleanup(payload: string): Result<void, string> {
+        await sleep(200);
+        return Ok();
+    }
+
+    private async fn markCompleted(job: Job): void {
+        await db.execute(
+            "UPDATE jobs SET status = ? WHERE id = ?",
+            [JobStatus.Completed, job.id],
+        );
+    }
+
+    private async fn markFailed(job: Job, error: string): void {
+        const newStatus = job.attempts >= job.maxAttempts
+            ? JobStatus.Failed
+            : JobStatus.Pending;
+
+        await db.execute(
+            "UPDATE jobs SET status = ?, error = ? WHERE id = ?",
+            [newStatus, error, job.id],
+        );
+    }
+}
+
+async fn main(): int {
+    const ctx = Context.withCancel();
+    const numWorkers = 4;
+
+    signal.on("SIGINT", () => {
+        print("\nShutting down gracefully...");
+        ctx.cancel();
+    });
+
+    print(`Starting ${numWorkers} workers...`);
+
+    await parallel {
+        run new Worker(1).run(ctx);
+        run new Worker(2).run(ctx);
+        run new Worker(3).run(ctx);
+        run new Worker(4).run(ctx);
+    }
+
+    print("All workers stopped. Goodbye.");
+    return 0;
+}

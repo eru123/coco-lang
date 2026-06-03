@@ -1,0 +1,68 @@
+// Parallel execution in Coco
+
+import { db } from "std/db";
+
+async fn getUser(id: int): Result<string, Error> {
+    return await db.query("SELECT name FROM users WHERE id = ?", [id]);
+}
+
+async fn getPosts(userId: int): Result<list<string>, Error> {
+    return await db.query("SELECT title FROM posts WHERE user_id = ?", [userId]);
+}
+
+async fn getNotifications(userId: int): Result<int, Error> {
+    return await db.query("SELECT COUNT(*) FROM notifications WHERE user_id = ?", [userId]);
+}
+
+// Structured parallel execution:
+async fn getUserDashboard(userId: int): Result<string, Error> {
+    const [user, posts, notifCount] = await parallel {
+        run getUser(userId);
+        run getPosts(userId);
+        run getNotifications(userId);
+    };
+
+    const name = user?;
+    const postList = posts?;
+    const count = notifCount?;
+
+    return Ok(`${name}: ${postList.length} posts, ${count} notifications`);
+}
+
+// Parallel with atomics (safe shared counter):
+async fn countParallel(): int {
+    let total = atomic(0);
+
+    await parallel {
+        run { total.add(computePartA()); }
+        run { total.add(computePartB()); }
+        run { total.add(computePartC()); }
+    }
+
+    return total.load();
+}
+
+fn computePartA(): int { return 10; }
+fn computePartB(): int { return 20; }
+fn computePartC(): int { return 30; }
+
+// This would be REJECTED by the compiler:
+// async fn unsafeExample(): void {
+//     let counter = 0;
+//     await parallel {
+//         run { counter += 1; }  // ERROR: mutable capture
+//     }
+// }
+
+async fn main(): int {
+    const dashboard = await getUserDashboard(1);
+    match dashboard {
+        is Ok(msg) => print(msg),
+        is Err(e) => print(`Error: ${e.message}`),
+    };
+
+    const total = await countParallel();
+    print(`Total: ${total}`);
+
+    return 0;
+}

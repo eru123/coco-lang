@@ -1,0 +1,89 @@
+// Generics in Coco
+
+class Stack<T> {
+    private items: list<T> = [];
+
+    push(item: T): void {
+        this.items.push(item);
+    }
+
+    pop(): T|null {
+        return this.items.pop();
+    }
+
+    peek(): T|null {
+        if this.items.isEmpty() { return null; }
+        return this.items[this.items.length - 1];
+    }
+
+    size(): int {
+        return this.items.length;
+    }
+
+    isEmpty(): bool {
+        return this.items.length == 0;
+    }
+}
+
+class Pair<A, B> {
+    constructor(public first: A, public second: B) {}
+
+    swap(): Pair<B, A> {
+        return new Pair(first: this.second, second: this.first);
+    }
+}
+
+fn identity<T>(value: T): T {
+    return value;
+}
+
+fn max<T: Comparable>(a: T, b: T): T {
+    return (a <=> b) >= 0 ? a : b;
+}
+
+fn filter<T>(items: list<T>, predicate: (T) => bool): list<T> {
+    let result: list<T> = [];
+    for item in items {
+        if predicate(item) {
+            result.push(item);
+        }
+    }
+    return result;
+}
+
+fn map<T, U>(items: list<T>, transform: (T) => U): list<U> {
+    let result: list<U> = [];
+    for item in items {
+        result.push(transform(item));
+    }
+    return result;
+}
+
+fn main(): int {
+    // Stack usage:
+    const stack = new Stack<int>();
+    stack.push(1);
+    stack.push(2);
+    stack.push(3);
+    print(`Top: ${stack.peek()}`);
+    print(`Pop: ${stack.pop()}`);
+    print(`Size: ${stack.size()}`);
+
+    // Pair:
+    const pair = new Pair(first: "hello", second: 42);
+    const swapped = pair.swap();
+    print(`${swapped.first}, ${swapped.second}`);
+
+    // Generic functions:
+    const bigger = max(10, 20);
+    print(`Max: ${bigger}`);
+
+    const names = ["Alice", "Bob", "Charlie", "Dave"];
+    const long = filter(names, (n) => n.length > 3);
+    print(`Long names: ${long}`);
+
+    const lengths = map(names, (n) => n.length);
+    print(`Lengths: ${lengths}`);
+
+    return 0;
+}

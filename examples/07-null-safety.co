@@ -1,0 +1,70 @@
+// Null safety in Coco
+
+class Profile {
+    constructor(
+        public displayName: string|null = null,
+        public bio: string|null = null,
+        public avatarUrl: string|null = null,
+    ) {}
+}
+
+class User {
+    constructor(
+        public name: string,
+        public profile: Profile|null = null,
+    ) {}
+}
+
+fn getAvatarUrl(user: User|null): string {
+    return user?.profile?.avatarUrl ?? "/default-avatar.png";
+}
+
+fn getDisplayName(user: User|null): string {
+    return user?.profile?.displayName ?: user?.name ?: "Anonymous";
+}
+
+fn processUser(user: User|null): void {
+    if user == null {
+        print("No user provided");
+        return;
+    }
+
+    // user is now User (narrowed)
+    print(`User: ${user.name}`);
+
+    if user.profile != null {
+        // user.profile is now Profile (narrowed)
+        print(`Bio: ${user.profile.bio ?? "No bio"}`);
+    }
+}
+
+fn main(): int {
+    const userWithProfile = new User(
+        name: "Jericho",
+        profile: new Profile(
+            displayName: "J",
+            bio: "Coco creator",
+            avatarUrl: "/img/jericho.png",
+        ),
+    );
+
+    const userNoProfile = new User(name: "Guest");
+    const nullUser: User|null = null;
+
+    print(getAvatarUrl(userWithProfile));
+    print(getAvatarUrl(userNoProfile));
+    print(getAvatarUrl(nullUser));
+
+    print(getDisplayName(userWithProfile));
+    print(getDisplayName(userNoProfile));
+    print(getDisplayName(nullUser));
+
+    processUser(userWithProfile);
+    processUser(nullUser);
+
+    // Non-null assertion (use sparingly):
+    const definitelyExists: User = userWithProfile!;
+    print(definitelyExists.name);
+
+    return 0;
+}

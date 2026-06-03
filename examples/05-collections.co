@@ -1,0 +1,65 @@
+// Collections in Coco
+
+fn main(): int {
+    // Lists:
+    const numbers: list<int> = [1, 2, 3, 4, 5];
+    let fruits = ["apple", "banana", "cherry"];
+
+    fruits.push("date");
+    const first = fruits[0];
+    const length = fruits.length;
+
+    // Map/filter/reduce:
+    const doubled = numbers.map((n) => n * 2);
+    const evens = numbers.filter((n) => n % 2 == 0);
+    const sum = numbers.reduce(0, (acc, n) => acc + n);
+
+    print(`Doubled: ${doubled}`);
+    print(`Evens: ${evens}`);
+    print(`Sum: ${sum}`);
+
+    // Maps:
+    const scores: map<string, int> = {
+        "alice": 95,
+        "bob": 87,
+        "carol": 92,
+    };
+
+    let config = {
+        "host": "localhost",
+        "port": "8080",
+    };
+
+    config["debug"] = "true";
+
+    const host = config["host"];
+    const hasAlice = scores.has("alice");
+
+    print(`Host: ${host}`);
+    print(`Has alice: ${hasAlice}`);
+
+    // Iterating:
+    for fruit in fruits {
+        print(`Fruit: ${fruit}`);
+    }
+
+    for (key, value) in scores {
+        print(`${key}: ${value}`);
+    }
+
+    // Tuples:
+    const point: tuple<int, int> = (10, 20);
+    const record: tuple<string, int, bool> = ("item", 42, true);
+
+    // Copy-on-write behavior:
+    const original = [1, 2, 3];
+    let copy = original;
+    copy.push(4);
+    // original is still [1, 2, 3]
+    // copy is [1, 2, 3, 4]
+
+    print(`Original: ${original}`);
+    print(`Copy: ${copy}`);
+
+    return 0;
+}

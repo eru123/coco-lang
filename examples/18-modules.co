@@ -1,0 +1,82 @@
+// Module system in Coco
+// This file demonstrates multi-file module structure.
+
+// --- File: src/models/user.co ---
+
+export class User {
+    constructor(
+        public readonly id: int,
+        public name: string,
+        public email: string,
+    ) {}
+
+    fn displayName(): string {
+        return this.name;
+    }
+}
+
+export type UserId = int;
+
+export fn createUser(name: string, email: string): User {
+    return new User(id: generateId(), name: name, email: email);
+}
+
+fn generateId(): int {
+    return Math.randomInt(1, 999999);
+}
+
+// --- File: src/services/user-service.co ---
+
+import { User, UserId, createUser } from "../models/user";
+import { db } from "std/db";
+import * as validate from "../utils/validate";
+
+export class UserService {
+    async fn find(id: UserId): Result<User|null, DbError> {
+        const row = await db.queryOne("SELECT * FROM users WHERE id = ?", [id])?;
+        if row == null { return Ok(null); }
+        return Ok(new User(id: row["id"], name: row["name"], email: row["email"]));
+    }
+
+    async fn create(name: string, email: string): Result<User, ValidationError> {
+        validate.notEmpty(name, "name")?;
+        validate.email(email)?;
+
+        const user = createUser(name, email);
+        await db.insert("INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+            [user.id, user.name, user.email])?;
+
+        return Ok(user);
+    }
+
+    async fn list(limit: int = 50, offset: int = 0): Result<list<User>, DbError> {
+        const rows = await db.query(
+            "SELECT * FROM users LIMIT ? OFFSET ?",
+            [limit, offset],
+        )?;
+
+        return Ok(rows.map((row) => new User(
+            id: row["id"],
+            name: row["name"],
+            email: row["email"],
+        )));
+    }
+}
+
+// --- File: src/main.co ---
+
+import { UserService } from "./services/user-service";
+import { Server, Response } from "std/http";
+
+async fn main(): int {
+    const users = new UserService();
+    const app = new Server();
+
+    app.get("/users", async (req) => {
+        const list = await users.list()?;
+        return Response.json(list);
+    });
+
+    await app.listen(3000);
+    return 0;
+}

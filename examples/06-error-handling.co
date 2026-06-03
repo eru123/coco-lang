@@ -1,0 +1,75 @@
+// Error handling in Coco
+
+class ValidationError {
+    constructor(public field: string, public message: string) {}
+
+    __toString(): string {
+        return `${this.field}: ${this.message}`;
+    }
+}
+
+fn validateAge(input: string): Result<int, ValidationError> {
+    if input.isEmpty() {
+        return Err(new ValidationError("age", "cannot be empty"));
+    }
+
+    const age = int.parse(input) ?: return Err(
+        new ValidationError("age", "must be a number")
+    );
+
+    if age < 0 || age > 150 {
+        return Err(new ValidationError("age", "must be between 0 and 150"));
+    }
+
+    return Ok(age);
+}
+
+fn validateName(input: string): Result<string, ValidationError> {
+    if input.isEmpty() {
+        return Err(new ValidationError("name", "cannot be empty"));
+    }
+    if input.length < 2 {
+        return Err(new ValidationError("name", "must be at least 2 characters"));
+    }
+    return Ok(input.trim());
+}
+
+fn processForm(name: string, ageStr: string): Result<string, ValidationError> {
+    const validName = validateName(name)?;
+    const validAge = validateAge(ageStr)?;
+    return Ok(`Welcome, ${validName} (age ${validAge})`);
+}
+
+// Exceptions for unexpected errors:
+fn loadConfig(path: string): map<string, string> {
+    if !fs.exists(path) {
+        throw new RuntimeError(`config file not found: ${path}`);
+    }
+    return fs.readJson(path);
+}
+
+fn main(): int {
+    // Result handling:
+    match processForm("Jericho", "28") {
+        is Ok(msg) => print(msg),
+        is Err(e) => print(`Error: ${e}`),
+    };
+
+    // Chained propagation:
+    const result = processForm("", "abc");
+    if result is Err(e) {
+        print(`Validation failed: ${e}`);
+    }
+
+    // Exception handling:
+    try {
+        const config = loadConfig("/etc/app/config.json");
+        print(`Loaded ${config.size()} settings`);
+    } catch (e: RuntimeError) {
+        print(`Fatal: ${e.message}`);
+    } finally {
+        print("Config loading attempted");
+    }
+
+    return 0;
+}

@@ -1,0 +1,100 @@
+// Enums in Coco
+
+// Simple enum:
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+// Backed enum (with values):
+enum Planet: string {
+    Mercury = "mercury",
+    Venus = "venus",
+    Earth = "earth",
+    Mars = "mars",
+}
+
+// Enum with associated data:
+enum Token {
+    Number(float),
+    String(string),
+    Identifier(string),
+    Operator(string),
+    LeftParen,
+    RightParen,
+    Eof,
+}
+
+// Enum with methods:
+enum Suit {
+    Hearts,
+    Diamonds,
+    Clubs,
+    Spades,
+
+    fn isRed(): bool {
+        return match this {
+            Suit.Hearts => true,
+            Suit.Diamonds => true,
+            _ => false,
+        };
+    }
+
+    fn symbol(): string {
+        return match this {
+            Suit.Hearts => "♥",
+            Suit.Diamonds => "♦",
+            Suit.Clubs => "♣",
+            Suit.Spades => "♠",
+        };
+    }
+}
+
+fn navigate(dir: Direction, x: int, y: int): tuple<int, int> {
+    return match dir {
+        Direction.North => (x, y + 1),
+        Direction.South => (x, y - 1),
+        Direction.East => (x + 1, y),
+        Direction.West => (x - 1, y),
+    };
+}
+
+fn tokenize(input: string): list<Token> {
+    let tokens: list<Token> = [];
+    for char in input {
+        match char {
+            '(' => tokens.push(Token.LeftParen),
+            ')' => tokens.push(Token.RightParen),
+            '+' => tokens.push(Token.Operator("+")),
+            '-' => tokens.push(Token.Operator("-")),
+            _ => {},
+        };
+    }
+    tokens.push(Token.Eof);
+    return tokens;
+}
+
+fn main(): int {
+    const pos = navigate(Direction.North, 0, 0);
+    print(`Position: ${pos}`);
+
+    print(`Planet: ${Planet.Earth}`);
+
+    const suit = Suit.Hearts;
+    print(`${suit.symbol()} red: ${suit.isRed()}`);
+
+    const tokens = tokenize("(a + b)");
+    for token in tokens {
+        match token {
+            Token.LeftParen => print("("),
+            Token.RightParen => print(")"),
+            Token.Operator(op) => print(`op: ${op}`),
+            Token.Eof => print("EOF"),
+            _ => {},
+        };
+    }
+
+    return 0;
+}

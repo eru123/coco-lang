@@ -1,0 +1,104 @@
+// Iterators in Coco
+
+interface Iterator<T> {
+    next(): T|null;
+    hasNext(): bool;
+}
+
+interface Iterable<T> {
+    iterator(): Iterator<T>;
+}
+
+class RangeIterator implements Iterator<int> {
+    private current: int;
+
+    constructor(private start: int, private end: int, private step: int = 1) {
+        this.current = start;
+    }
+
+    next(): int|null {
+        if this.current >= this.end { return null; }
+        const value = this.current;
+        this.current += this.step;
+        return value;
+    }
+
+    hasNext(): bool {
+        return this.current < this.end;
+    }
+}
+
+class Range implements Iterable<int> {
+    constructor(
+        private start: int,
+        private end: int,
+        private step: int = 1,
+    ) {}
+
+    iterator(): Iterator<int> {
+        return new RangeIterator(this.start, this.end, this.step);
+    }
+}
+
+class Fibonacci implements Iterable<int> {
+    constructor(private limit: int) {}
+
+    iterator(): Iterator<int> {
+        return new FibIterator(this.limit);
+    }
+}
+
+class FibIterator implements Iterator<int> {
+    private a: int = 0;
+    private b: int = 1;
+    private count: int = 0;
+
+    constructor(private limit: int) {}
+
+    next(): int|null {
+        if this.count >= this.limit { return null; }
+        const value = this.a;
+        const temp = this.b;
+        this.b = this.a + this.b;
+        this.a = temp;
+        this.count += 1;
+        return value;
+    }
+
+    hasNext(): bool {
+        return this.count < this.limit;
+    }
+}
+
+fn main(): int {
+    // Range iteration:
+    const range = new Range(0, 10, 2);
+    for n in range {
+        print(`${n}`);
+    }
+
+    // Fibonacci:
+    const fib = new Fibonacci(10);
+    let fibNumbers: list<int> = [];
+    for n in fib {
+        fibNumbers.push(n);
+    }
+    print(`Fib: ${fibNumbers}`);
+
+    // Built-in list iteration with chaining:
+    const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const result = numbers
+        .filter((n) => n % 2 == 0)
+        .map((n) => n * n)
+        .filter((n) => n > 10);
+
+    print(`Result: ${result}`);
+
+    // for...in with destructuring:
+    const fruits = ["apple", "banana", "cherry"];
+    for (index, fruit) in fruits.entries() {
+        print(`${index}: ${fruit}`);
+    }
+
+    return 0;
+}

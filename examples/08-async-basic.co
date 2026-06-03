@@ -1,0 +1,48 @@
+// Basic async in Coco
+
+import { http } from "std/http";
+
+class ApiClient {
+    constructor(private baseUrl: string) {}
+
+    async fn get(path: string): Result<string, HttpError> {
+        const response = await http.get(`${this.baseUrl}${path}`)?;
+        return Ok(response.body);
+    }
+
+    async fn post(path: string, body: string): Result<string, HttpError> {
+        const response = await http.post(`${this.baseUrl}${path}`, body)?;
+        return Ok(response.body);
+    }
+}
+
+async fn fetchUserData(id: int): Result<string, HttpError> {
+    const client = new ApiClient("https://api.example.com");
+    const data = await client.get(`/users/${id}`)?;
+    return Ok(data);
+}
+
+async fn main(): int {
+    // Eager execution (starts immediately):
+    const userPromise = fetchUserData(1);
+
+    // Do other work while fetch is in flight:
+    print("Fetching user data...");
+
+    // Collect result:
+    const result = await userPromise;
+    match result {
+        is Ok(data) => print(`Got: ${data}`),
+        is Err(e) => print(`Failed: ${e.message}`),
+    };
+
+    // Lazy execution (deferred):
+    const lazyFetch = lazy fetchUserData(2);
+    print("Lazy fetch created but not started");
+
+    // NOW it starts:
+    const user2 = await lazyFetch;
+    print("Lazy fetch completed");
+
+    return 0;
+}

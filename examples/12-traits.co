@@ -1,0 +1,81 @@
+// Traits in Coco
+
+trait Timestamps {
+    createdAt: DateTime|null = null;
+    updatedAt: DateTime|null = null;
+
+    touch(): void {
+        this.updatedAt = DateTime.now();
+    }
+
+    wasModified(): bool {
+        return this.updatedAt != null;
+    }
+}
+
+trait SoftDelete {
+    deletedAt: DateTime|null = null;
+
+    softDelete(): void {
+        this.deletedAt = DateTime.now();
+    }
+
+    restore(): void {
+        this.deletedAt = null;
+    }
+
+    isDeleted(): bool {
+        return this.deletedAt != null;
+    }
+}
+
+trait Sluggable {
+    slug: string = "";
+
+    generateSlug(source: string): void {
+        this.slug = source.toLowerCase().replace(" ", "-").replace("[^a-z0-9-]", "");
+    }
+}
+
+class Article {
+    use Timestamps, SoftDelete, Sluggable;
+
+    constructor(
+        public readonly id: int,
+        public title: string,
+        public body: string,
+    ) {
+        this.generateSlug(title);
+        this.createdAt = DateTime.now();
+    }
+
+    update(title: string, body: string): void {
+        this.title = title;
+        this.body = body;
+        this.generateSlug(title);
+        this.touch();
+    }
+}
+
+fn main(): int {
+    const article = new Article(
+        id: 1,
+        title: "Hello Coco World",
+        body: "This is an article about Coco.",
+    );
+
+    print(`Slug: ${article.slug}`);
+    print(`Modified: ${article.wasModified()}`);
+
+    article.update("Updated Title", "New body");
+    print(`Modified: ${article.wasModified()}`);
+    print(`New slug: ${article.slug}`);
+
+    article.softDelete();
+    print(`Deleted: ${article.isDeleted()}`);
+
+    article.restore();
+    print(`Deleted: ${article.isDeleted()}`);
+
+    return 0;
+}
