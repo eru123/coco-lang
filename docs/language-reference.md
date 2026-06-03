@@ -57,28 +57,57 @@ class User {
 
 ## Functions
 
+Coco provides multiple ways to define functions:
+
 ```coco
-fn greet(name: string): string {
+// Full keyword:
+function greet(name: string): string {
     return `Hello, ${name}`;
 }
 
-// Arrow function:
+// Short keyword:
+fn hello(name: string): string {
+    return `Hi, ${name}`;
+}
+
+// Shortest keyword:
+f hey(name: string): string {
+    return `Hey, ${name}`;
+}
+
+// Arrow function (anonymous):
 const square = (n: int): int => n * n;
 
-// Async function:
-async fn fetchData(url: string): Result<string, HttpError> {
-    const response = await http.get(url)?;
-    return Ok(response.body);
-}
+// Arrow function (expression body):
+const double = (n: int): int => n * 2;
+
+// Arrow function (block body):
+const triple = (n: int): int => {
+    return n * 3;
+};
+
+// Async variants:
+async function fetchUser(id: int): Result<User, Error> { /* ... */ }
+async fn getUser(id: int): Result<User, Error> { /* ... */ }
+async f loadUser(id: int): Result<User, Error> { /* ... */ }
 
 // Untyped (gradual):
 fn add(a, b) { return a + b; }
+f multiply(a, b) { return a * b; }
 ```
 
-- `fn` keyword for named functions
-- Arrow functions for callbacks and closures
-- `async fn` for asynchronous functions
-- Parameters and return types are optional
+**Function declaration keywords:**
+- `function` — full keyword (verbose, explicit)
+- `fn` — short keyword (common choice)
+- `f` — shortest keyword (compact)
+- Arrow syntax `() => {}` — anonymous functions, callbacks, closures
+
+**Rules:**
+- All four forms are equivalent in behavior
+- Use whichever style fits your preference or codebase convention
+- `async` can prefix any of the three keyword forms
+- Arrow functions are always anonymous (assigned to variables or passed inline)
+- Parameters and return types are optional (gradual typing)
 
 ---
 

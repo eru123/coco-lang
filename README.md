@@ -118,16 +118,21 @@ Coco does not use PHP-style `$variables` in normal code.
 let $counter = 0; // invalid in normal Coco
 ```
 
+Functions can be defined with `function`, `fn`, `f`, or arrow syntax:
+
+```coco
+function add(a: int, b: int): int { return a + b; }  // full keyword
+fn subtract(a: int, b: int): int { return a - b; }   // short keyword
+f multiply(a: int, b: int): int { return a * b; }    // shortest keyword
+const divide = (a: int, b: int): int => a / b;       // arrow function
+```
+
 Types use TypeScript-like annotations:
 
 ```coco
 let count: int = 0;
 let name: string = "Coco";
 let user: User|null = null;
-
-fn add(a: int, b: int): int {
-    return a + b;
-}
 ```
 
 ## Automatic Memory Safety

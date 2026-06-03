@@ -8,7 +8,7 @@ class ValidationError {
     }
 }
 
-fn validateAge(input: string): Result<int, ValidationError> {
+f validateAge(input: string): Result<int, ValidationError> {
     if input.isEmpty() {
         return Err(new ValidationError("age", "cannot be empty"));
     }
@@ -24,7 +24,7 @@ fn validateAge(input: string): Result<int, ValidationError> {
     return Ok(age);
 }
 
-fn validateName(input: string): Result<string, ValidationError> {
+function validateName(input: string): Result<string, ValidationError> {
     if input.isEmpty() {
         return Err(new ValidationError("name", "cannot be empty"));
     }

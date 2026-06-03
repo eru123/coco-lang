@@ -47,6 +47,7 @@ Coco is a planned compiled, memory-safe programming language for backend service
 
 ### Syntax Style
 - **JavaScript-like:** `const`, `let`, arrow functions, template literals, dot notation
+- **Function keywords:** `function`, `fn`, `f`, or arrow syntax `() => {}`
 - **Instance member access:** `this.property` or `$.property` (both equivalent)
 - **PHP-inspired features:** named arguments, traits with state, magic methods, `$` shorthand
 - **No dollar signs for variables:** variables are `name`, not `$name` (but `$` is used as shorthand for `this` in classes)

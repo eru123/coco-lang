@@ -5,12 +5,12 @@ import { http } from "std/http";
 class ApiClient {
     constructor(private baseUrl: string) {}
 
-    async fn get(path: string): Result<string, HttpError> {
+    async function get(path: string): Result<string, HttpError> {
         const response = await http.get(`${this.baseUrl}${path}`)?;
         return Ok(response.body);
     }
 
-    async fn post(path: string, body: string): Result<string, HttpError> {
+    async f post(path: string, body: string): Result<string, HttpError> {
         const response = await http.post(`${this.baseUrl}${path}`, body)?;
         return Ok(response.body);
     }

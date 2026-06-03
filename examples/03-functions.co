@@ -1,13 +1,28 @@
 // Functions in Coco
+// Coco supports multiple function declaration styles:
+// - function (full keyword)
+// - fn (short keyword)
+// - f (shortest keyword)
+// - () => {} (arrow functions)
 
-// Named function with types:
-fn add(a: int, b: int): int {
+// Full keyword:
+function add(a: int, b: int): int {
     return a + b;
 }
 
-// Untyped function (gradual):
-fn multiply(a, b) {
+// Short keyword:
+fn subtract(a: int, b: int): int {
+    return a - b;
+}
+
+// Shortest keyword:
+f multiply(a: int, b: int): int {
     return a * b;
+}
+
+// Untyped function (gradual):
+fn divide(a, b) {
+    return a / b;
 }
 
 // Arrow function:
@@ -31,17 +46,33 @@ fn greet(name: string, greeting: string = "Hello"): string {
 }
 
 // Returning Result:
-fn divide(a: int, b: int): Result<int, string> {
+f safeDivide(a: int, b: int): Result<int, string> {
     if b == 0 {
         return Err("division by zero");
     }
     return Ok(a / b);
 }
 
+// Async variants:
+async function fetchUser(id: int): Result<User, Error> {
+    return await http.get(`/users/${id}`);
+}
+
+async fn getPost(id: int): Result<Post, Error> {
+    return await http.get(`/posts/${id}`);
+}
+
+async f loadComment(id: int): Result<Comment, Error> {
+    return await http.get(`/comments/${id}`);
+}
+
 fn main(): int {
-    print(add(2, 3));
-    print(multiply(4, 5));
-    print(square(6));
+    // All function keywords work the same:
+    print(add(2, 3));        // function keyword
+    print(subtract(5, 2));   // fn keyword
+    print(multiply(4, 5));   // f keyword
+    print(divide(10, 2));    // untyped fn
+    print(square(6));        // arrow function
     print(clamp(15, 0, 10));
 
     // Named arguments at call site:
@@ -52,7 +83,7 @@ fn main(): int {
     print(greet("Coco", greeting: "Hey"));
 
     // Result handling:
-    const result = divide(10, 3);
+    const result = safeDivide(10, 3);
     match result {
         is Ok(v) => print(`Result: ${v}`),
         is Err(e) => print(`Error: ${e}`),
