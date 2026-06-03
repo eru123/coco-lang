@@ -1,4 +1,7 @@
 // Classes in Coco
+// - Use 'this' or '$' to access instance members (both equivalent)
+// - Visibility: public, protected, private, readonly, static
+// - Properties default to private, methods default to public
 
 class Animal {
     constructor(
@@ -8,11 +11,11 @@ class Animal {
     ) {}
 
     speak(): string {
-        return `${this.name} says ${this.sound}`;
+        return `${$.name} says ${$.sound}`;  // $ is shorthand for this
     }
 
     fn rename(name: string): void {
-        this.name = name;
+        this.name = name;  // can also use this.name
     }
 
     static dog(name: string): Animal {
@@ -35,7 +38,7 @@ class Pet extends Animal {
     }
 
     introduce(): string {
-        return `${this.name} belongs to ${this.owner}`;
+        return `${this.name} belongs to ${$.owner}`;  // mix this and $ freely
     }
 }
 
@@ -48,12 +51,12 @@ class HomePet extends Pet implements Feedable {
     private hunger: int = 50;
 
     feed(food: string): void {
-        this.hunger -= 20;
-        print(`${this.name} eats ${food}`);
+        $.hunger -= 20;
+        print(`${$.name} eats ${food}`);
     }
 
     isHungry(): bool {
-        return this.hunger > 70;
+        return $.hunger > 70;
     }
 }
 

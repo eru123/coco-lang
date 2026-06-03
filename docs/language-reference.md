@@ -19,6 +19,40 @@ counter += 1;                // mutation allowed for let
 - Type annotations are optional (gradual typing).
 - Shadowing is allowed but warned by default.
 
+**Note:** Regular variables do NOT use PHP-style `$` prefix:
+
+```coco
+let count = 0;      // correct
+let $count = 0;     // invalid - $ not used for variable names
+```
+
+---
+
+## The `$` Shorthand (Class Context Only)
+
+Inside classes, `$` is a shorthand for `this`:
+
+```coco
+class User {
+    private name: string;
+
+    setName(name: string): void {
+        $.name = name;        // $ is shorthand for this
+        this.name = name;     // equivalent
+    }
+
+    getName(): string {
+        return $.name;        // can use $ or this interchangeably
+    }
+}
+```
+
+**Rules:**
+- `$` only works inside class methods and constructors
+- `$` is exactly equivalent to `this` — use whichever is clearer
+- Both can be mixed freely in the same class
+- Regular functions (not in classes) cannot use `$`
+
 ---
 
 ## Functions
@@ -59,11 +93,11 @@ class User {
     ) {}
 
     getDisplayName(): string {
-        return this.name;
+        return this.name;  // or $.name
     }
 
     fn setEmail(email: string): void {
-        this.email = email;
+        $.email = email;  // $ is shorthand for this
     }
 
     static create(name: string, email: string): User {
@@ -80,11 +114,62 @@ const user = new User(id: 1, name: "Jericho", email: "j@ex.com");
 
 - Constructor parameter properties (`public`, `private`, `protected`, `readonly`)
 - Methods: both `method()` and `fn method()` syntax valid
-- `this` for instance access
+- `this` or `$` for instance access (both are equivalent)
 - `.` for member access
 - `static` for class-level members
 - Single inheritance with `extends`
 - Named arguments at call site
+
+### Visibility Modifiers
+
+```coco
+class Account {
+    public balance: int;           // accessible everywhere
+    protected owner: string;       // accessible in class and subclasses
+    private pin: string;           // accessible only in this class
+    public readonly id: int;       // public but immutable after construction
+
+    constructor(id: int, owner: string, pin: string) {
+        $.id = id;
+        $.owner = owner;
+        $.pin = pin;
+        $.balance = 0;
+    }
+
+    public deposit(amount: int): void {
+        this.balance += amount;
+    }
+
+    protected validateOwner(name: string): bool {
+        return $.owner == name;
+    }
+
+    private checkPin(pin: string): bool {
+        return this.pin == pin;
+    }
+
+    static fromData(data): Account {
+        return new Account(data.id, data.owner, data.pin);
+    }
+}
+```
+
+**Visibility rules:**
+- `public` — accessible from anywhere (default for methods)
+- `protected` — accessible in class and subclasses only
+- `private` — accessible only within the class
+- `readonly` — can only be assigned in constructor
+- `static` — belongs to class, not instances
+
+**Property defaults:**
+- Properties without modifier are `private` by default
+- Methods without modifier are `public` by default
+- Constructor parameters with modifiers become properties
+
+**Instance member access:**
+- `this.property` — standard reference to instance member
+- `$.property` — shorthand reference to instance member (equivalent to `this`)
+- Both forms are interchangeable; use whichever is clearer
 
 ---
 
@@ -112,7 +197,7 @@ trait Timestamps {
     updatedAt: DateTime|null = null;
 
     touch(): void {
-        this.updatedAt = DateTime.now();
+        $.updatedAt = DateTime.now();
     }
 }
 
@@ -120,7 +205,7 @@ trait SoftDelete {
     deletedAt: DateTime|null = null;
 
     softDelete(): void {
-        this.deletedAt = DateTime.now();
+        $.deletedAt = DateTime.now();
     }
 
     isDeleted(): bool {
@@ -138,6 +223,7 @@ class Post {
 - Traits can have properties with defaults
 - Traits can have method implementations
 - Multiple traits via `use Trait1, Trait2`
+- Trait methods can use `this` or `$` for member access
 
 ---
 
@@ -366,8 +452,14 @@ export fn createApp(): Server { /* ... */ }
 
 ```coco
 class Money {
+    private cents: int;
+
+    constructor(cents: int) {
+        $.cents = cents;
+    }
+
     __toString(): string {
-        return `$${this.cents / 100}`;
+        return `$${$.cents / 100}`;
     }
 
     __compare(other: Money): int {
@@ -376,6 +468,8 @@ class Money {
 }
 
 class Config {
+    private data: map<string, string>;
+
     __get(key: string): string|null { /* ... */ }
     __set(key: string, value: string): void { /* ... */ }
     __invoke(key: string): bool { /* ... */ }
@@ -390,6 +484,8 @@ Available magic methods:
 - `__call` — method call interception
 - `__invoke` — callable object
 - `__compare` — spaceship operator overload
+
+Magic methods can use `this` or `$` for member access.
 
 ---
 

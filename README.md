@@ -63,6 +63,10 @@ class User {
         private passwordHash: string,
     ) {}
 
+    verify(password: string): bool {
+        return checkHash(password, $.passwordHash);
+    }
+
     static fromRow(row: DbRow): User {
         return new User(
             id: UserId(row["id"]),
@@ -140,6 +144,10 @@ class UserProfile {
         public user: User,
         public avatarUrl: string|null,
     ) {}
+
+    updateAvatar(url: string): void {
+        $.avatarUrl = url;  // $ is shorthand for this
+    }
 }
 
 fn updateName(user: User, name: string): void {

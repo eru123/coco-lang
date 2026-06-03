@@ -77,9 +77,9 @@ Rationale: Rust provides the performance, safety, and ecosystem needed to build 
 ## Syntax Direction
 
 Coco syntax is closer to JavaScript/TypeScript than PHP:
-- No `$` variables
+- No `$` variables (regular variables use `name`, not `$name`)
 - Dot notation for member access (not `->`)
-- `this` not `$this`
+- `this` or `$` for instance member access (both equivalent, `$` is shorthand)
 - ES-style imports
 - Template literals
 - Arrow functions
@@ -91,6 +91,7 @@ PHP influence appears in features, not syntax:
 - Magic methods
 - Match expressions
 - Enums
+- `$` as shorthand for `this` in classes
 - Practical standard library
 - Web-first ergonomics
 

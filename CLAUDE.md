@@ -39,10 +39,17 @@ Coco is a planned compiled, memory-safe programming language for backend service
 
 ## Key Language Features
 
+### Classes and Visibility
+- **Visibility modifiers:** `public`, `protected`, `private`, `readonly`, `static`
+- **Property defaults:** properties are `private` by default, methods are `public` by default
+- **Instance access:** `this.property` or `$.property` (both equivalent, `$` is shorthand)
+- **Constructor parameter properties:** modifiers in constructor create properties automatically
+
 ### Syntax Style
-- **JavaScript-like:** `const`, `let`, arrow functions, template literals, `this`, dot notation
-- **PHP-inspired features:** named arguments, traits with state, magic methods
-- **No dollar signs:** variables are `name`, not `$name`
+- **JavaScript-like:** `const`, `let`, arrow functions, template literals, dot notation
+- **Instance member access:** `this.property` or `$.property` (both equivalent)
+- **PHP-inspired features:** named arguments, traits with state, magic methods, `$` shorthand
+- **No dollar signs for variables:** variables are `name`, not `$name` (but `$` is used as shorthand for `this` in classes)
 
 ### Type System
 - Gradual typing — types optional, can mix typed/untyped in same file

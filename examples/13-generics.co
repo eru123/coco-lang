@@ -4,24 +4,24 @@ class Stack<T> {
     private items: list<T> = [];
 
     push(item: T): void {
-        this.items.push(item);
+        $.items.push(item);
     }
 
     pop(): T|null {
-        return this.items.pop();
+        return $.items.pop();
     }
 
     peek(): T|null {
-        if this.items.isEmpty() { return null; }
-        return this.items[this.items.length - 1];
+        if $.items.isEmpty() { return null; }
+        return $.items[$.items.length - 1];
     }
 
     size(): int {
-        return this.items.length;
+        return $.items.length;
     }
 
     isEmpty(): bool {
-        return this.items.length == 0;
+        return $.items.length == 0;
     }
 }
 
@@ -29,7 +29,7 @@ class Pair<A, B> {
     constructor(public first: A, public second: B) {}
 
     swap(): Pair<B, A> {
-        return new Pair(first: this.second, second: this.first);
+        return new Pair(first: $.second, second: $.first);
     }
 }
 

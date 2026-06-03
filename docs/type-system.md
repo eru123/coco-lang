@@ -111,11 +111,11 @@ class Stack<T> {
     private items: list<T> = [];
 
     push(item: T): void {
-        this.items.push(item);
+        $.items.push(item);  // $ is shorthand for this
     }
 
     pop(): T|null {
-        return this.items.pop();
+        return $.items.pop();
     }
 }
 

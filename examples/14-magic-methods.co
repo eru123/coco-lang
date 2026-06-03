@@ -12,21 +12,21 @@ class Money {
     }
 
     __toString(): string {
-        const whole = this.cents / 100;
-        const frac = (this.cents % 100).toString().padStart(2, "0");
+        const whole = $.cents / 100;
+        const frac = ($.cents % 100).toString().padStart(2, "0");
         return `₱${whole}.${frac}`;
     }
 
     __compare(other: Money): int {
-        return this.cents <=> other.cents;
+        return $.cents <=> other.cents;
     }
 
     add(other: Money): Money {
-        return Money.fromCents(this.cents + other.cents);
+        return Money.fromCents($.cents + other.cents);
     }
 
     subtract(other: Money): Money {
-        return Money.fromCents(this.cents - other.cents);
+        return Money.fromCents($.cents - other.cents);
     }
 }
 
@@ -34,15 +34,15 @@ class DynamicConfig {
     private data: map<string, string> = {};
 
     __get(key: string): string|null {
-        return this.data[key] ?? null;
+        return $.data[key] ?? null;
     }
 
     __set(key: string, value: string): void {
-        this.data[key] = value;
+        $.data[key] = value;
     }
 
     __invoke(key: string): bool {
-        return this.data.has(key);
+        return this.data.has(key);  // can use this or $
     }
 }
 
