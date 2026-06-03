@@ -1,0 +1,12 @@
+[package]
+name = "coco_parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+coco_span = { workspace = true }
+coco_diagnostics = { workspace = true }
+coco_lexer = { workspace = true }
+coco_syntax = { workspace = true }

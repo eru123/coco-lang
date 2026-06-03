@@ -1,0 +1,19 @@
+[package]
+name = "coco_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "coco"
+path = "src/main.rs"
+
+[dependencies]
+coco_span = { workspace = true }
+coco_diagnostics = { workspace = true }
+coco_lexer = { workspace = true }
+coco_syntax = { workspace = true }
+coco_parser = { workspace = true }
+coco_formatter = { workspace = true }
+clap = { workspace = true }

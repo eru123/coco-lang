@@ -1,0 +1,10 @@
+[package]
+name = "coco_formatter"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+coco_span = { workspace = true }
+coco_syntax = { workspace = true }

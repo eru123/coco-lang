@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    "crates/coco_span",
+    "crates/coco_diagnostics",
+    "crates/coco_lexer",
+    "crates/coco_syntax",
+    "crates/coco_parser",
+    "crates/coco_formatter",
+    "crates/coco_cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["eru123 <jericho@skiddph.com>"]
+license = "MIT"
+repository = "https://github.com/eru123/coco-lang"
+
+[workspace.dependencies]
+# Internal crates
+coco_span = { path = "crates/coco_span" }
+coco_diagnostics = { path = "crates/coco_diagnostics" }
+coco_lexer = { path = "crates/coco_lexer" }
+coco_syntax = { path = "crates/coco_syntax" }
+coco_parser = { path = "crates/coco_parser" }
+coco_formatter = { path = "crates/coco_formatter" }
+
+# External dependencies
+ariadne = "0.4"
+unicode-xid = "0.2"
+clap = { version = "4.5", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
