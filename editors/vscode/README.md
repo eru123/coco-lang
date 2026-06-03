@@ -2,9 +2,28 @@
 
 Syntax highlighting, snippets, and language configuration for `.co` files.
 
-## Install (Local Development)
+## Build VSIX
 
-### Option 1: Symlink
+Requires Node.js.
+
+```bash
+cd editors/vscode
+npx @vscode/vsce package --out ../../coco-lang-0.1.0.vsix
+```
+
+This produces `coco-lang-0.1.0.vsix` in the repo root.
+
+## Install
+
+### From VSIX (recommended)
+
+```bash
+code --install-extension coco-lang-0.1.0.vsix
+```
+
+Or in VS Code: `Ctrl+Shift+P` → "Extensions: Install from VSIX..." → select the `.vsix` file.
+
+### From source (symlink)
 
 ```bash
 # Linux/macOS:
@@ -13,10 +32,6 @@ ln -s $(pwd)/editors/vscode ~/.vscode/extensions/coco-lang
 # Windows (PowerShell as admin):
 New-Item -ItemType Junction -Path "$env:USERPROFILE\.vscode\extensions\coco-lang" -Target "editors\vscode"
 ```
-
-### Option 2: Copy
-
-Copy `editors/vscode/` to `~/.vscode/extensions/coco-lang/`
 
 ### After Install
 
