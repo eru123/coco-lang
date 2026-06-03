@@ -130,6 +130,8 @@ When working on language design or specification:
 3. **Syntax consistency:** Follow JavaScript/TypeScript style, not PHP `$variable` style
 4. **Safety first:** Any feature must respect the safety promise (docs/safety-promise.md)
 5. **Gradual typing:** Types must be optional; never force type annotations
+6. **Error handling examples:** Both `language-reference.md` and `type-system.md` include comprehensive error handling patterns and troubleshooting guides
+7. **The `mixed` escape hatch:** Documented in `type-system.md` as the explicit opt-out from type checking for genuinely dynamic scenarios
 
 ## Planned Roadmap
 

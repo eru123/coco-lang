@@ -374,7 +374,11 @@ const pair: tuple<string, int> = ("hello", 42);
 
 ## Error Handling
 
+Coco provides two mechanisms for error handling: `Result` types for expected failures and exceptions for unexpected failures.
+
 ### Result Type
+
+The `Result<T, E>` type represents success (`Ok`) or failure (`Err`):
 
 ```coco
 fn parseAge(input: string): Result<int, ParseError> {
@@ -390,13 +394,59 @@ fn parseAge(input: string): Result<int, ParseError> {
 
 // Propagation with ?:
 fn processForm(data: FormData): Result<User, FormError> {
-    const age = parseAge(data.get("age"))?;
+    const age = parseAge(data.get("age"))?;  // unwraps Ok, propagates Err
     const name = data.get("name") ?: return Err(new FormError("name required"));
     return Ok(new User(name: name, age: age));
 }
 ```
 
+**Explicit Result Handling:**
+
+```coco
+// Pattern 1: Match expression
+const result = parseAge("25");
+const message = match result {
+    is Ok(age) => `Valid age: ${age}`,
+    is Err(e) => `Error: ${e.message}`,
+};
+
+// Pattern 2: If-else with type narrowing
+const result = parseAge("25");
+if result.isOk() {
+    const age = result.unwrap();  // safe after isOk()
+    print(`Age: ${age}`);
+} else {
+    const error = result.unwrapErr();
+    log.error(error.message);
+}
+
+// Pattern 3: Chaining operations
+fn validateUser(data: FormData): Result<User, ValidationError> {
+    const age = parseAge(data.get("age"))?;
+    const email = parseEmail(data.get("email"))?;
+    const username = parseUsername(data.get("username"))?;
+    
+    return Ok(new User(
+        age: age,
+        email: email,
+        username: username,
+    ));
+}
+
+// Pattern 4: Transforming results
+fn getUserAge(userId: int): Result<int, DbError> {
+    const user = db.findUser(userId)?;  // propagate DbError
+    return Ok(user.age);
+}
+
+// Pattern 5: Default values on error
+const age = parseAge(input).unwrapOr(0);  // use 0 if parsing fails
+const config = loadConfig().unwrapOrElse(() => defaultConfig());
+```
+
 ### Exceptions
+
+Use exceptions for unexpected failures (programming errors, invariant violations):
 
 ```coco
 fn riskyOperation(): void {
@@ -412,10 +462,87 @@ try {
 }
 ```
 
-### Split Rule
+**Exception Handling Patterns:**
 
-- **Result** for expected failures (parsing, I/O, validation)
-- **Exceptions** for unexpected failures (bugs, invariant violations)
+```coco
+// Pattern 1: Specific exception types
+try {
+    const config = loadConfig();
+    connectDatabase(config);
+} catch (e: FileNotFoundError) {
+    log.error("Config file missing");
+} catch (e: NetworkError) {
+    log.error("Cannot reach database");
+} catch (e: Error) {
+    log.error("Unexpected error: " + e.message);
+}
+
+// Pattern 2: Re-throwing with context
+fn processFile(path: string): void {
+    try {
+        const data = readFile(path);
+        parseData(data);
+    } catch (e: ParseError) {
+        throw new ProcessingError(`Failed to process ${path}: ${e.message}`);
+    }
+}
+
+// Pattern 3: Converting exceptions to Results
+fn safeOperation(): Result<Data, Error> {
+    try {
+        const data = riskyThirdPartyApi();  // might throw
+        return Ok(data);
+    } catch (e: Error) {
+        return Err(e);
+    }
+}
+```
+
+### Error Handling Split Rule
+
+Choose the right mechanism for your error:
+
+| Use `Result<T, E>` for... | Use exceptions for... |
+|---------------------------|----------------------|
+| Parsing failures | Array index out of bounds |
+| File not found | Null pointer access |
+| Network timeouts | Divide by zero (bug) |
+| Validation errors | Invariant violations |
+| Database constraint violations | Out of memory |
+| Authentication failures | Stack overflow |
+
+**Rule of thumb:** If the error is part of normal program flow and the caller should handle it, use `Result`. If the error indicates a bug or impossible state, use exceptions.
+
+### Common Error Handling Anti-Patterns
+
+**❌ Don't ignore errors:**
+```coco
+const result = parseAge(input);  // Result unused!
+```
+
+**✅ Handle or propagate:**
+```coco
+const age = parseAge(input)?;  // propagate
+// OR
+const age = parseAge(input).unwrapOr(0);  // handle with default
+```
+
+**❌ Don't use exceptions for control flow:**
+```coco
+try {
+    const user = findUser(id);  // throws if not found
+    return user;
+} catch {
+    return null;  // BAD: expected case, should use Result
+}
+```
+
+**✅ Use Result for expected failures:**
+```coco
+fn findUser(id: int): Result<User, NotFoundError> {
+    // ...
+}
+```
 
 ---
 
@@ -600,3 +727,252 @@ unsafe {
 - Only for FFI, raw memory, systems work
 - Blocked in `application` safety mode
 - Visible in source and tooling reports
+
+---
+
+## Troubleshooting Common Errors
+
+### Null Safety Errors
+
+**Problem:** Accessing properties on potentially null values
+
+```coco
+let user: User|null = findUser(id);
+print(user.name);  // ❌ Error: Cannot access 'name' on User|null
+```
+
+**Fix with optional chaining:**
+```coco
+print(user?.name);  // ✅ Returns string|null
+print(user?.name ?? "Unknown");  // ✅ Returns string with fallback
+```
+
+**Fix with null check:**
+```coco
+if user != null {
+    print(user.name);  // ✅ Type narrowed to User
+}
+```
+
+---
+
+### Result Handling Errors
+
+**Problem:** Using Result values without unwrapping
+
+```coco
+const result = parseAge("25");
+const doubled = result * 2;  // ❌ Error: Cannot multiply Result<int, Error>
+```
+
+**Fix by propagating with ?:**
+```coco
+fn process(): Result<int, Error> {
+    const age = parseAge("25")?;  // ✅ Unwraps or propagates error
+    return Ok(age * 2);
+}
+```
+
+**Fix with pattern matching:**
+```coco
+const result = parseAge("25");
+match result {
+    is Ok(age) => print(age * 2),  // ✅
+    is Err(e) => print(`Error: ${e.message}`),
+}
+```
+
+**Fix with default value:**
+```coco
+const age = parseAge("25").unwrapOr(0);  // ✅ Use 0 if error
+const doubled = age * 2;
+```
+
+---
+
+### Type Mismatch Errors
+
+**Problem:** Assigning incompatible types
+
+```coco
+let count: int = "42";  // ❌ Error: string not assignable to int
+```
+
+**Fix by parsing:**
+```coco
+let count: int = int.parse("42").unwrap();  // ✅
+```
+
+**Fix with union type:**
+```coco
+let count: int | string = "42";  // ✅ If both types are valid
+```
+
+**Fix with `mixed` (escape hatch):**
+```coco
+let count: mixed = "42";  // ✅ Opt out of type checking
+```
+
+---
+
+### Function Return Type Errors
+
+**Problem:** Missing return in all code paths
+
+```coco
+fn getStatus(ok: bool): string {
+    if ok {
+        return "success";
+    }
+    // ❌ Error: Not all paths return a value
+}
+```
+
+**Fix with explicit return:**
+```coco
+fn getStatus(ok: bool): string {
+    if ok {
+        return "success";
+    }
+    return "failure";  // ✅
+}
+```
+
+**Fix with match (exhaustive):**
+```coco
+fn getStatus(ok: bool): string {
+    return match ok {
+        true => "success",
+        false => "failure",
+    };  // ✅ Match is exhaustive
+}
+```
+
+---
+
+### Concurrency Safety Errors
+
+**Problem:** Mutable data races across parallel boundaries
+
+```coco
+let counter = 0;
+await parallel {
+    run { counter += 1; }  // ❌ Error: Mutable capture in parallel block
+}
+```
+
+**Fix with atomics:**
+```coco
+const counter = new Atomic<int>(0);
+await parallel {
+    run { counter.add(1); }  // ✅ Atomic operations are safe
+}
+```
+
+**Fix by collecting results:**
+```coco
+const results = await parallel {
+    run { return 1; };
+    run { return 1; };
+};
+const counter = results[0] + results[1];  // ✅ No shared mutation
+```
+
+**Fix with channels:**
+```coco
+const ch = chan<int>(10);
+await parallel {
+    run { ch.send(1); };
+    run { ch.send(1); };
+};
+ch.close();
+let counter = 0;
+for value in ch {
+    counter += value;  // ✅ Sequential consumption
+}
+```
+
+---
+
+### Working with `mixed` Type
+
+**Problem:** Can't access properties on `mixed`
+
+```coco
+fn handle(data: mixed): void {
+    print(data.name);  // ❌ Error: mixed has no properties
+}
+```
+
+**Fix with type guard:**
+```coco
+fn handle(data: mixed): void {
+    if data is User {
+        print(data.name);  // ✅ Narrowed to User
+    }
+}
+```
+
+**Fix with pattern matching:**
+```coco
+fn handle(data: mixed): void {
+    match data {
+        is User => print(data.name),
+        is Admin => print(data.adminName),
+        _ => print("Unknown type"),
+    }  // ✅
+}
+```
+
+**Better: Avoid `mixed` when possible:**
+```coco
+fn handle(data: User | Admin): void {  // ✅ Use union instead
+    match data {
+        is User => print(data.name),
+        is Admin => print(data.adminName),
+    }
+}
+```
+
+---
+
+### Match Expression Type Errors
+
+**Problem:** Match arms return different types
+
+```coco
+const result = match value {
+    is string => value.toUpperCase(),  // returns string
+    is int => value * 2,                // ❌ returns int
+};
+```
+
+**Fix by converting to common type:**
+```coco
+const result = match value {
+    is string => value.toUpperCase(),
+    is int => (value * 2).toString(),  // ✅ Both return string
+};
+```
+
+**Fix with union type:**
+```coco
+const result: string | int = match value {
+    is string => value.toUpperCase(),
+    is int => value * 2,  // ✅ Union allows both
+};
+```
+
+---
+
+## Quick Tips
+
+**When to use each feature:**
+- **`const`/`let`** — Always start with `const`, only use `let` when mutation is needed
+- **Type annotations** — Optional, but add for function signatures and complex types
+- **`Result<T, E>`** — For expected failures (parsing, I/O, validation)
+- **Exceptions** — For unexpected failures (bugs, invariant violations)
+- **`T|null`** — When a value can legitimately be absent
+- **`mixed`** — Only for truly dynamic data (JSON, FFI, dynamic config)
+- **Union types** — When you have a known set of possible types
+- **Match expressions** — For exhaustive handling of enums, unions, and conditionals
