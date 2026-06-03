@@ -1,24 +1,52 @@
 # Pipe Operator Implementation Summary
 
 **Date:** 2026-06-04  
-**Feature:** Pipe operators (`|>`, `->`, `<|`, `<-`) for left-to-right and right-to-left data flow
+**Feature:** Pipe operators (`|>`, `->`, `<|`, `<-`) with `$$` placeholder for left-to-right and right-to-left data flow
 
 ## Overview
 
-Added HHVM-inspired pipe operators to Coco, enabling cleaner data transformation pipelines and function composition.
+Added HHVM-inspired pipe operators to Coco, enabling cleaner data transformation pipelines and function composition. Includes a special `$$` placeholder for concise syntax.
 
 ## Syntax
 
+### The `$$` Pipe Placeholder
+
+Within pipe expressions, `$$` represents the value being passed through:
+
+```coco
+// Function call:
+const greeting = "world" |> sayHello($$);
+
+// Method call:
+const result = "hello" |> $$.toUpperCase();
+
+// Complex pipeline:
+const data = input
+    |> parse($$)
+    |> validate($$)
+    |> $$.transform();
+```
+
+**Scope:** `$$` only works in pipe expressions. Using it elsewhere is a syntax error.
+
 ### Left-to-Right (Data Flow)
 ```coco
-value |> fn1 |> fn2 |> fn3
-value -> fn1 -> fn2 -> fn3
+// With $$:
+value |> process($$) |> transform($$)
+value -> $$.method() -> format($$)
+
+// With lambdas:
+value |> (x) => process(x) |> (x) => transform(x)
 ```
 
 ### Right-to-Left (Function Composition)
 ```coco
-fn3 <| fn2 <| fn1 <| value
-fn3 <- fn2 <- fn1 <- value
+// With $$:
+transform($$) <| process($$) <| value
+format($$) <- $$.method() <- value
+
+// With lambdas:
+(x) => transform(x) <| (x) => process(x) <| value
 ```
 
 ### Mixing Restriction
@@ -54,10 +82,12 @@ x -> f <| g     // ❌ Error
 ## Key Design Decisions
 
 1. **Four operators** — Two syntaxes (`|>` vs `->`, `<|` vs `<-`) for user preference
-2. **Direction enforcement** — Cannot mix left-to-right and right-to-left in same expression
-3. **Lower precedence** — Pipe operators bind less tightly than arithmetic/comparison
-4. **Type-safe** — Full type checking through the pipeline
-5. **Composable** — Works naturally with Result propagation (`?`) and async/await
+2. **`$$` placeholder** — Concise syntax for simple cases; mix with lambdas for complex logic
+3. **Scoped `$$`** — Only valid in pipe expressions, preventing accidental misuse
+4. **Direction enforcement** — Cannot mix left-to-right and right-to-left in same expression
+5. **Lower precedence** — Pipe operators bind less tightly than arithmetic/comparison
+6. **Type-safe** — Full type checking through the pipeline
+7. **Composable** — Works naturally with Result propagation (`?`) and async/await
 
 ## Use Cases
 
@@ -80,7 +110,15 @@ x -> f <| g     // ❌ Error
 const result = sum(filter(map(data, n => n * 2), n => n > 4));
 ```
 
-### Piped (Clear Data Flow)
+### Piped with `$$` (Clear and Concise)
+```coco
+const result = data
+    |> map($$, n => n * 2)
+    |> filter($$, n => n > 4)
+    |> sum($$);
+```
+
+### Piped with Lambdas (Clear but Verbose)
 ```coco
 const result = data
     |> (a) => map(a, n => n * 2)
@@ -108,18 +146,22 @@ The pipe operator is fully specified and documented. Implementation will occur i
 ## Next Steps
 
 1. **Phase 2 (Parser):**
-   - Add tokens for `|>`, `->`, `<|`, `<-`
+   - Add tokens for `|>`, `->`, `<|`, `<-`, and `$$`
    - Parse binary expressions with pipe operators
+   - Track pipe expression context for `$$` validity
    - Track and enforce direction uniformity
-   - Emit helpful error messages on direction mismatch
+   - Emit helpful error messages on direction mismatch and invalid `$$` usage
 
 2. **Phase 4 (Type Checker):**
-   - Verify left expression type matches right function parameter type
+   - Verify piped value type is compatible with `$$` usage position
+   - Verify left expression type matches right function parameter type (for lambdas)
    - Infer result type from final function in chain
    - Handle Result propagation (`?`) in pipelines
+   - Support `$$` in both function arguments and method calls
 
 3. **Phase 7 (Codegen):**
    - Lower pipe chains to nested function calls
+   - Replace `$$` with the actual piped value
    - Optimize away intermediate allocations when possible
 
 ## References

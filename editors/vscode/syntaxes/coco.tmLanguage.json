@@ -139,6 +139,10 @@
         {
           "name": "keyword.other.coco",
           "match": "\\b(unsafe|synchronized|this|super)\\b"
+        },
+        {
+          "name": "variable.language.pipe-placeholder.coco",
+          "match": "\\$\\$"
         }
       ]
     },

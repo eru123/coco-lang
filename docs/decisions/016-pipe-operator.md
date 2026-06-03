@@ -30,19 +30,65 @@ Four operator forms, two directions:
 - `<|` — reverse pipe operator
 - `<-` — alternative reverse pipe operator
 
+### The `$$` Pipe Placeholder
+
+Within pipe expressions, `$$` represents the value being passed through the pipe. This allows for more concise code:
+
+```coco
+// Concise with $$:
+const greeting = "world" |> sayHello($$);
+
+function sayHello(name: string): string {
+    return `Hello, ${name}!`;
+}
+
+// Method calls:
+const result = "hello"
+    |> $$.toUpperCase()
+    |> $$.split("");
+
+// With functions:
+const processed = data
+    |> parse($$)
+    |> validate($$)
+    |> transform($$);
+```
+
+**Scope restriction:** `$$` only works inside pipe expressions:
+
+```coco
+const x = sayHello($$);  // ❌ Error: $$ can only be used in pipe expressions
+```
+
+You can mix `$$` and lambda functions in the same pipeline:
+
+```coco
+const result = data
+    |> parse($$)                    // concise
+    |> (parsed) => {                 // explicit when needed
+        log.info("Parsed:", parsed);
+        return validate(parsed);
+    }
+    |> transform($$);               // back to concise
+```
+
 ### Semantics
 
 ```coco
-// Left-to-right: value flows from left to right
-x |> f |> g
-// Equivalent to: g(f(x))
+// With $$ (concise):
+x |> process($$) |> transform($$)
+// Equivalent to: transform(process(x))
 
-// Right-to-left: value flows from right to left  
-g <| f <| x
-// Equivalent to: g(f(x))
+// With lambda functions (explicit):
+x |> (v) => process(v) |> (v) => transform(v)
+// Equivalent to: transform(process(x))
+
+// Right-to-left:
+transform($$) <| process($$) <| x
+// Equivalent to: transform(process(x))
 ```
 
-Each operator takes the expression on one side and passes it as the first argument to the function on the other side.
+Each operator takes the expression on one side and passes it to the function on the other side. With `$$`, the value replaces the placeholder in the expression.
 
 ### Mixing Restriction
 
@@ -79,35 +125,43 @@ data |> parse |> validate
 
 ### Use Cases
 
-**1. Array transformations:**
+**1. Array transformations with $$:**
 ```coco
 const result = [1, 2, 3, 4, 5]
-    |> (a) => a.map(n => n * 2)
-    |> (a) => a.filter(n => n > 5)
-    |> (a) => a.reduce((sum, n) => sum + n, 0);
+    |> $$.map(n => n * 2)
+    |> $$.filter(n => n > 5)
+    |> $$.reduce((sum, n) => sum + n, 0);
 ```
 
-**2. Text processing:**
+**2. Text processing with $$:**
 ```coco
 const formatted = rawInput
-    |> (s) => s.trim()
-    |> (s) => s.toLowerCase()
-    |> (s) => s.replace(/[^a-z0-9]/g, "-");
+    |> $$.trim()
+    |> $$.toLowerCase()
+    |> $$.replace(/[^a-z0-9]/g, "-");
 ```
 
-**3. API response processing:**
+**3. API response processing with $$:**
 ```coco
 const users = await fetchUsers()
-    |> (data) => parse<list<User>>(data)?
-    |> (users) => users.filter(u => u.active)
-    |> (users) => users.map(u => u.name);
+    |> parse<list<User>>($$)?
+    |> $$.filter(u => u.active)
+    |> $$.map(u => u.name);
 ```
 
-**4. Function composition (right-to-left):**
+**4. Function composition (right-to-left) with $$:**
 ```coco
-const process = (s) => s.trim()
-    <- (s) => s.toLowerCase()
-    <- (s) => s.split(" ");
+const process = $$.trim()
+    <- $$.toLowerCase()
+    <- $$.split(" ");
+```
+
+**5. Named functions with $$:**
+```coco
+const result = data
+    |> parse($$)
+    |> validate($$)
+    |> transform($$);
 ```
 
 ## Rationale
@@ -117,8 +171,17 @@ const process = (s) => s.trim()
 1. **Improved readability** — Data flow is explicit and linear
 2. **Reduced nesting** — Eliminates deeply nested function calls
 3. **Flexibility** — Works with any function, not just methods
-4. **Familiar** — Borrowed from HHVM/Hack, F#, Elixir, and other languages
-5. **Optional** — Developers can use method chaining when appropriate
+4. **Concise with `$$`** — No need for verbose lambda functions in simple cases
+5. **Familiar** — Borrowed from HHVM/Hack, F#, Elixir, and other languages
+6. **Optional** — Developers can use method chaining when appropriate
+
+### Why the `$$` Placeholder?
+
+1. **Conciseness** — `data |> parse($$)` is cleaner than `data |> (x) => parse(x)`
+2. **Flexibility** — Can use `$$` for simple cases, lambdas for complex logic
+3. **Clear scope** — Only valid in pipe expressions, preventing accidental misuse
+4. **Natural positioning** — `$$` can appear anywhere in the expression: `parse($$, config)` or `$$.method()`
+5. **Familiar pattern** — Similar to shell pipes and functional programming placeholders
 
 ### Why Four Operators?
 
@@ -171,9 +234,9 @@ Both patterns coexist — use whichever fits the situation.
 
 **Rejected:** Creates parsing ambiguity and makes code harder to read. The error messages would be confusing, and the behavior would be surprising.
 
-### 4. **Use placeholder syntax** (like `|> _ + 1`)
+### 4. **Use `_` as placeholder** (like `|> _ + 1`)
 
-**Rejected:** Adds complexity. Explicit lambda syntax `|> (x) => x + 1` is clearer and more consistent with Coco's design.
+**Rejected in favor of `$$`:** While `_` is common in some languages, `$$` is more distinctive and less likely to conflict with variable names. It also parallels the `$` shorthand for `this` in classes, creating a consistent pattern for special placeholders in Coco.
 
 ### 5. **Thread-first/thread-last macros** (like Clojure)
 
@@ -204,9 +267,31 @@ Both patterns coexist — use whichever fits the situation.
 ### Parser Changes
 
 1. Add four binary operators: `|>`, `->`, `<|`, `<-`
-2. Track "active pipe direction" in the current expression
-3. Emit syntax error if direction changes mid-expression
-4. Reset direction tracking at statement boundaries
+2. Add special identifier `$$` that's only valid in pipe expressions
+3. Track "active pipe direction" in the current expression
+4. Emit syntax error if direction changes mid-expression
+5. Emit syntax error if `$$` is used outside pipe expressions
+6. Reset direction tracking at statement boundaries
+
+### `$$` Placeholder Implementation
+
+When parsing a pipe expression:
+1. Set a context flag `inPipeExpression = true`
+2. Parse the right-hand side expression
+3. If `$$` appears, treat it as a placeholder token
+4. Reset `inPipeExpression = false` at the end of the pipe chain
+
+During codegen:
+```coco
+x |> process($$)
+// Generates: process(x)
+
+x |> $$.method()
+// Generates: x.method()
+
+x |> transform($$, config)
+// Generates: transform(x, config)
+```
 
 ### Error Messages
 
@@ -215,17 +300,30 @@ SyntaxError: Cannot mix pipe operator directions in the same expression.
 Use either left-to-right (|>, ->) or right-to-left (<|, <-), not both.
 
   5 | const result = [1, 2, 3]
-  6 |     |> (a) => a.map(n => n * 2)
-  7 |     <- (a) => a.filter(n => n > 4);
+  6 |     |> $$.map(n => n * 2)
+  7 |     <- $$.filter(n => n > 4);
     |     ^^ pipe direction changed from |> to <-
+```
+
+```
+SyntaxError: $$ can only be used in pipe expressions.
+
+  3 | fn example(): void {
+  4 |     const greeting = sayHello($$);
+    |                               ^^ $$ is not valid here
+  5 | }
+
+Help: Use $$ only with pipe operators: value |> sayHello($$)
 ```
 
 ### Type Checking
 
 The type checker must verify:
-1. Left side produces a value compatible with the right side's function parameter
-2. Infer the return type from the final function in the chain
-3. Propagate Result types when `?` is used in the pipeline
+1. With `$$`: The piped value type is compatible with where `$$` appears
+2. With lambdas: Left side produces a value compatible with the function parameter
+3. Infer the return type from the final function in the chain
+4. Propagate Result types when `?` is used in the pipeline
+5. Handle `$$` in both function arguments and method calls
 
 ### Formatter
 

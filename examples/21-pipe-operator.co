@@ -1,76 +1,136 @@
 // Pipe Operator Examples
-// Demonstrates left-to-right and right-to-left piping
+// Demonstrates left-to-right and right-to-left piping with $$ placeholder
 
 import { readFile } from "std/fs";
 import { parse } from "std/json";
 
 // ============================================================================
+// The $$ Pipe Placeholder
+// ============================================================================
+
+// Example 0: Basic $$ usage
+fn example0(): void {
+    // Simple function call with $$:
+    const greeting = "world" |> sayHello($$);
+    print(greeting);  // "Hello, world!"
+
+    // Method call with $$:
+    const upper = "hello" |> $$.toUpperCase();
+    print(upper);  // "HELLO"
+
+    // Chaining with $$:
+    const result = "  hello world  "
+        |> $$.trim()
+        |> $$.toUpperCase()
+        |> $$.split(" ");
+    print(result);  // ["HELLO", "WORLD"]
+}
+
+fn sayHello(name: string): string {
+    return `Hello, ${name}!`;
+}
+
+// ============================================================================
 // Basic Piping (Left-to-Right)
 // ============================================================================
 
-// Example 1: Array transformations with |>
+// Example 1: Array transformations with |> and $$
 fn example1(): void {
     const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-    // Using |> operator:
+    // Using |> operator with $$:
     const result1 = numbers
+        |> $$.map(n => n * 2)
+        |> $$.filter(n => n > 10)
+        |> $$.reduce((sum, n) => sum + n, 0);
+
+    print(`Result with |> and $$: ${result1}`);  // 60
+
+    // Using |> with lambda functions (verbose but explicit):
+    const result2 = numbers
         |> (a) => a.map(n => n * 2)
         |> (a) => a.filter(n => n > 10)
         |> (a) => a.reduce((sum, n) => sum + n, 0);
 
-    print(`Result with |>: ${result1}`);  // 60
+    print(`Result with |> and lambdas: ${result2}`);  // 60
 
     // Equivalent with method chaining:
-    const result2 = numbers
+    const result3 = numbers
         .map(n => n * 2)
         .filter(n => n > 10)
         .reduce((sum, n) => sum + n, 0);
 
-    print(`Result with methods: ${result2}`);  // 60
+    print(`Result with methods: ${result3}`);  // 60
 }
 
-// Example 2: Using -> operator (alternative syntax)
+// Example 2: Using -> operator with $$ (alternative syntax)
 fn example2(): void {
     const words = ["hello", "world", "coco", "language"];
 
-    const result = words
+    // With $$ placeholder:
+    const result1 = words
+        -> $$.filter(s => s.length > 4)
+        -> $$.map(s => s.toUpperCase())
+        -> $$.join(" ");
+
+    print(`Result with $$: ${result1}`);  // "HELLO WORLD LANGUAGE"
+
+    // With lambda functions:
+    const result2 = words
         -> (w) => w.filter(s => s.length > 4)
         -> (w) => w.map(s => s.toUpperCase())
         -> (w) => w.join(" ");
 
-    print(`Result: ${result}`);  // "HELLO WORLD LANGUAGE"
+    print(`Result with lambdas: ${result2}`);  // "HELLO WORLD LANGUAGE"
 }
 
 // ============================================================================
 // Right-to-Left Piping
 // ============================================================================
 
-// Example 3: Reverse data flow with <|
+// Example 3: Reverse data flow with <| and $$
 fn example3(): void {
-    // Right-to-left composition (useful for function composition)
-    const result = (a) => a.join(", ")
+    // Right-to-left composition with $$:
+    const result1 = $$.join(", ")
+        <| $$.map(n => `#${n}`)
+        <| $$.filter(n => n % 2 == 0)
+        <| [1, 2, 3, 4, 5, 6];
+
+    print(`Result with $$: ${result1}`);  // "#2, #4, #6"
+
+    // Right-to-left with lambda functions:
+    const result2 = (a) => a.join(", ")
         <| (a) => a.map(n => `#${n}`)
         <| (a) => a.filter(n => n % 2 == 0)
         <| [1, 2, 3, 4, 5, 6];
 
-    print(`Result: ${result}`);  // "#2, #4, #6"
+    print(`Result with lambdas: ${result2}`);  // "#2, #4, #6"
 }
 
-// Example 4: Using <- operator (alternative syntax)
+// Example 4: Using <- operator with $$ (alternative syntax)
 fn example4(): void {
-    const result = (s) => s.trim()
+    // With $$ placeholder:
+    const result1 = $$.trim()
+        <- $$.toUpperCase()
+        <- $$.replace("_", " ")
+        <- "hello_world";
+
+    print(`Result with $$: ${result1}`);  // "HELLO WORLD"
+
+    // With lambda functions:
+    const result2 = (s) => s.trim()
         <- (s) => s.toUpperCase()
         <- (s) => s.replace("_", " ")
         <- "hello_world";
 
-    print(`Result: ${result}`);  // "HELLO WORLD"
+    print(`Result with lambdas: ${result2}`);  // "HELLO WORLD"
 }
 
 // ============================================================================
 // Complex Data Processing
 // ============================================================================
 
-// Example 5: Processing API response data
+// Example 5: Processing API response data with $$
 interface User {
     id: int;
     name: string;
@@ -82,10 +142,28 @@ async fn processUserData(apiUrl: string): Result<list<string>, Error> {
     const response = await fetch(apiUrl)?;
     const data = await response.json()?;
 
-    // Complex transformation pipeline
+    // Complex transformation pipeline with $$:
+    const activeUserNames = data
+        |> parse<list<User>>($$)?
+        |> $$.filter(u => u.active)
+        |> $$.filter(u => u.age >= 18)
+        |> $$.map(u => u.name.toUpperCase())
+        |> $$.sort();
+
+    return Ok(activeUserNames);
+}
+
+// Alternative with lambda functions (for complex logic):
+async fn processUserDataVerbose(apiUrl: string): Result<list<string>, Error> {
+    const response = await fetch(apiUrl)?;
+    const data = await response.json()?;
+
     const activeUserNames = data
         |> (d) => parse<list<User>>(d)?
-        |> (users) => users.filter(u => u.active)
+        |> (users) => {
+            log.info(`Parsed ${users.length} users`);
+            return users.filter(u => u.active);
+        }
         |> (users) => users.filter(u => u.age >= 18)
         |> (users) => users.map(u => u.name.toUpperCase())
         |> (names) => names.sort();
@@ -93,16 +171,16 @@ async fn processUserData(apiUrl: string): Result<list<string>, Error> {
     return Ok(activeUserNames);
 }
 
-// Example 6: Text processing pipeline
+// Example 6: Text processing pipeline with $$
 fn processLogFile(path: string): Result<map<string, int>, Error> {
     const content = readFile(path)?;
 
-    // Count error occurrences by type
+    // Count error occurrences by type using $$:
     const errorCounts = content
-        |> (text) => text.split("\n")
-        |> (lines) => lines.filter(line => line.contains("ERROR"))
-        |> (errors) => errors.map(line => extractErrorType(line))
-        |> (types) => types.reduce((counts, type) => {
+        |> $$.split("\n")
+        |> $$.filter(line => line.contains("ERROR"))
+        |> $$.map(line => extractErrorType(line))
+        |> $$.reduce((counts, type) => {
             counts[type] = (counts[type] ?? 0) + 1;
             return counts;
         }, {});
@@ -130,8 +208,14 @@ fn example7(): void {
         )
     );
 
-    // Piped (clear data flow):
-    const piped = data
+    // Piped with $$ (clear data flow, concise):
+    const pipedConcise = data
+        |> map($$, n => n * 2)
+        |> filter($$, n => n > 4)
+        |> sum($$);
+
+    // Piped with lambdas (clear data flow, verbose):
+    const pipedVerbose = data
         |> (a) => map(a, n => n * 2)
         |> (a) => filter(a, n => n > 4)
         |> (a) => sum(a);
@@ -142,7 +226,10 @@ fn example7(): void {
         .filter(n => n > 4)
         .reduce((s, n) => s + n, 0);
 
-    print(`Nested: ${nested}, Piped: ${piped}, Chained: ${chained}`);
+    print(`Nested: ${nested}`);
+    print(`Piped ($$): ${pipedConcise}`);
+    print(`Piped (lambda): ${pipedVerbose}`);
+    print(`Chained: ${chained}`);
 }
 
 // Helper functions for example 7
@@ -162,25 +249,42 @@ fn sum(items: list<int>): int {
 // Advanced: Mixing with Other Operators
 // ============================================================================
 
-// Example 8: Combining pipes with Result propagation
+// Example 8: Combining pipes with Result propagation and $$
 fn example8(): Result<string, Error> {
     const result = "  some data  "
-        |> (s) => s.trim()
-        |> (s) => parseJson(s)?        // ? propagates errors
-        |> (data) => validate(data)?    // ? propagates errors
-        |> (valid) => format(valid);
+        |> $$.trim()
+        |> parseJson($$)?        // ? propagates errors
+        |> validate($$)?          // ? propagates errors
+        |> format($$);
 
     return Ok(result);
 }
 
-// Example 9: Pipes with async/await
+// Example 9: Pipes with async/await and $$
 async fn example9(): Result<list<string>, Error> {
-    const result = await fetchUsers()
-        |> async (users) => await enrichWithProfiles(users)
-        |> async (enriched) => await filterByPermissions(enriched)
-        |> async (filtered) => filtered.map(u => u.name);
+    const users = await fetchUsers();
+
+    const result = users
+        |> await enrichWithProfiles($$)
+        |> await filterByPermissions($$)
+        |> $$.map(u => u.name);
 
     return Ok(result);
+}
+
+// Example 10: Mixed $$ and lambda approach
+fn example10(): void {
+    const data = [1, 2, 3, 4, 5];
+
+    const result = data
+        |> $$.map(n => n * 2)                    // $$ for simple method calls
+        |> (doubled) => {                         // lambda for complex logic
+            log.info(`Doubled: ${doubled}`);
+            return doubled.filter(n => n > 5);
+        }
+        |> $$.reduce((sum, n) => sum + n, 0);    // back to $$ for simple calls
+
+    print(`Result: ${result}`);
 }
 
 // ============================================================================
@@ -191,20 +295,28 @@ async fn example9(): Result<list<string>, Error> {
 
 // fn invalidExample1(): void {
 //     const result = [1, 2, 3]
-//         |> (a) => a.map(n => n * 2)
-//         <- (a) => a.filter(n => n > 4);  // ❌ Cannot mix |> and <-
+//         |> $$.map(n => n * 2)
+//         <- $$.filter(n => n > 4);  // ❌ Cannot mix |> and <-
 // }
 
 // fn invalidExample2(): void {
 //     const result = [1, 2, 3]
-//         -> (a) => a.map(n => n * 2)
-//         <| (a) => a.filter(n => n > 4);  // ❌ Cannot mix -> and <|
+//         -> $$.map(n => n * 2)
+//         <| $$.filter(n => n > 4);  // ❌ Cannot mix -> and <|
 // }
 
 // fn invalidExample3(): void {
 //     const result = [1, 2, 3]
-//         |> (a) => a.map(n => n * 2)
-//         -> (a) => a.filter(n => n > 4);  // ❌ Cannot mix |> and ->
+//         |> $$.map(n => n * 2)
+//         -> $$.filter(n => n > 4);  // ❌ Cannot mix |> and ->
+// }
+
+// fn invalidExample4(): void {
+//     const x = sayHello($$);  // ❌ $$ can only be used in pipe expressions
+// }
+
+// fn invalidExample5(): void {
+//     const greeting = $$.toUpperCase();  // ❌ $$ can only be used in pipe expressions
 // }
 
 // ============================================================================
@@ -214,11 +326,26 @@ async fn example9(): Result<list<string>, Error> {
 fn main(): int {
     print("=== Pipe Operator Examples ===\n");
 
+    print("Example 0: Basic $$ usage");
+    example0();
+
+    print("\nExample 1: Array transformations");
     example1();
+
+    print("\nExample 2: Alternative -> syntax");
     example2();
+
+    print("\nExample 3: Right-to-left with <|");
     example3();
+
+    print("\nExample 4: Right-to-left with <-");
     example4();
+
+    print("\nExample 7: Comparison of styles");
     example7();
+
+    print("\nExample 10: Mixed $$ and lambda");
+    example10();
 
     print("\nFor complex examples (5, 6, 8, 9), see the function definitions above.");
 

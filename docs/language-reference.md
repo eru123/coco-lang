@@ -662,37 +662,73 @@ select {
 
 ## Pipe Operator
 
-The pipe operator (inspired by HHVM) allows threading values through a sequence of function calls, making data transformations more readable:
+The pipe operator (inspired by HHVM) allows threading values through a sequence of function calls, making data transformations more readable.
+
+### The `$$` Pipe Placeholder
+
+Within pipe expressions, `$$` represents the value being passed through the pipe:
+
+```coco
+// Concise syntax with $$:
+const greeting = "world" |> sayHello($$);
+
+function sayHello(name: string): string {
+    return `Hello, ${name}!`;
+}
+
+// More complex example:
+const result = [1, 2, 3, 4, 5]
+    |> $$.map(n => n * 2)
+    |> $$.filter(n => n > 4)
+    |> $$.reduce((sum, n) => sum + n, 0);
+
+// With named functions:
+const processed = "  hello world  "
+    |> trim($$)
+    |> toUpperCase($$)
+    |> split($$, " ");
+```
+
+**Important:** `$$` only works inside pipe expressions. Using it elsewhere is a syntax error:
+
+```coco
+const x = sayHello($$);  // ❌ Error: $$ can only be used in pipe expressions
+```
 
 ### Left-to-Right Piping
 
 ```coco
-// Using |> operator:
+// Using |> operator with $$:
+const result = [1, 2, 3]
+    |> $$.map(n => n * 2)
+    |> $$.filter(n => n > 4);
+
+// Using -> operator (alternative syntax):
+const result = [1, 2, 3]
+    -> $$.map(n => n * 2)
+    -> $$.filter(n => n > 4);
+
+// Using lambda functions (verbose but explicit):
 const result = [1, 2, 3]
     |> (a) => a.map(n => n * 2)
     |> (a) => a.filter(n => n > 4);
 
-// Using -> operator (alternative syntax):
-const result = [1, 2, 3]
-    -> (a) => a.map(n => n * 2)
-    -> (a) => a.filter(n => n > 4);
-
-// Both are equivalent to:
+// All are equivalent to method chaining:
 const result = [1, 2, 3].map(n => n * 2).filter(n => n > 4);
 ```
 
 ### Right-to-Left Piping
 
 ```coco
-// Using <| operator:
-const result = (a) => a.filter(n => n > 4)
-    <| (a) => a.map(n => n * 2)
+// Using <| operator with $$:
+const result = $$.filter(n => n > 4)
+    <| $$.map(n => n * 2)
     <| [1, 2, 3];
 
 // Using <- operator (alternative syntax):
-const result = (a) => a.filter(n => n > 4)
-    <- (a) => a.map(n => n * 2)
-    <- [1, 2, 3];
+const result = split($$, " ")
+    <- toUpperCase($$)
+    <- "hello world";
 ```
 
 ### Pipe Operator Rules
@@ -720,6 +756,33 @@ SyntaxError: Cannot mix pipe operator directions in the same expression.
 Use either left-to-right (|>, ->) or right-to-left (<|, <-), not both.
 ```
 
+### Pipe Placeholder vs Lambda Functions
+
+You can use either `$$` (concise) or lambda functions (explicit):
+
+```coco
+// With $$ (recommended for simple cases):
+const result = data
+    |> parse($$)
+    |> validate($$)
+    |> transform($$);
+
+// With lambda functions (useful for complex logic):
+const result = data
+    |> (d) => parse(d, { strict: true })
+    |> (parsed) => {
+        log.info("Parsed data:", parsed);
+        return validate(parsed);
+    }
+    |> (valid) => transform(valid);
+
+// Mixed approach:
+const result = data
+    |> parse($$)
+    |> (parsed) => validate(parsed, config)
+    |> transform($$);
+```
+
 ### When to Use Pipe Operators
 
 **Use pipes when:**
@@ -743,11 +806,17 @@ const result = filterInvalid(
     )
 );
 
-// With pipes (clearer data flow):
+// With pipes and $$ (clearest data flow):
 const result = fetchData(apiUrl)
-    |> (data) => mapToUsers(data)
-    |> (users) => sortByDate(users)
-    |> (sorted) => filterInvalid(sorted);
+    |> mapToUsers($$)
+    |> sortByDate($$)
+    |> filterInvalid($$);
+
+// With pipes and methods:
+const result = fetchData(apiUrl)
+    |> $$.then(mapToUsers)
+    |> $$.then(sortByDate)
+    |> $$.then(filterInvalid);
 
 // Or concise with method chaining:
 const result = fetchData(apiUrl)
