@@ -1,9 +1,8 @@
 // Functions in Coco
-// Coco supports multiple function declaration styles:
-// - function (full keyword)
-// - fn (short keyword)
-// - f (shortest keyword)
-// - () => {} (arrow functions)
+// Named functions: function, fn, or f keywords
+// Anonymous functions: function, fn, f, or arrow () => {}
+
+// === NAMED FUNCTIONS ===
 
 // Full keyword:
 function add(a: int, b: int): int {
@@ -20,15 +19,27 @@ f multiply(a: int, b: int): int {
     return a * b;
 }
 
-// Untyped function (gradual):
-fn divide(a, b) {
-    return a / b;
-}
+// === ANONYMOUS FUNCTIONS ===
 
-// Arrow function:
+// Anonymous with function keyword:
+const divide = function(a: int, b: int): int {
+    return a / b;
+};
+
+// Anonymous with fn keyword:
+const modulo = fn(a: int, b: int): int {
+    return a % b;
+};
+
+// Anonymous with f keyword:
+const power = f(a: int, b: int): int {
+    return a ** b;
+};
+
+// Arrow function (expression body):
 const square = (n: int): int => n * n;
 
-// Multi-line arrow:
+// Arrow function (block body):
 const clamp = (value: int, min: int, max: int): int => {
     if value < min { return min; }
     if value > max { return max; }
@@ -67,13 +78,17 @@ async f loadComment(id: int): Result<Comment, Error> {
 }
 
 fn main(): int {
-    // All function keywords work the same:
+    // Named functions:
     print(add(2, 3));        // function keyword
     print(subtract(5, 2));   // fn keyword
     print(multiply(4, 5));   // f keyword
-    print(divide(10, 2));    // untyped fn
+
+    // Anonymous functions:
+    print(divide(10, 2));    // anonymous with function
+    print(modulo(10, 3));    // anonymous with fn
+    print(power(2, 3));      // anonymous with f
     print(square(6));        // arrow function
-    print(clamp(15, 0, 10));
+    print(clamp(15, 0, 10)); // arrow function (block)
 
     // Named arguments at call site:
     print(createUser(name: "Jericho", age: 28, email: "j@ex.com"));
@@ -88,6 +103,13 @@ fn main(): int {
         is Ok(v) => print(`Result: ${v}`),
         is Err(e) => print(`Error: ${e}`),
     };
+
+    // Callbacks with different styles:
+    const numbers = [1, 2, 3, 4, 5];
+
+    const doubled = numbers.map((n) => n * 2);
+    const filtered = numbers.filter(fn(n) { return n > 2; });
+    const processed = numbers.map(function(n) { return n * n; });
 
     return 0;
 }

@@ -39,6 +39,33 @@ Coco is a planned compiled, memory-safe programming language for backend service
 
 ## Key Language Features
 
+### Function Declaration
+
+**Named functions:** Use `function`, `fn`, or `f` keywords
+```coco
+function add(a: int, b: int): int { return a + b; }
+fn subtract(a: int, b: int): int { return a - b; }
+f multiply(a: int, b: int): int { return a * b; }
+```
+
+**Anonymous functions:** Use `function`, `fn`, `f`, or arrow syntax
+```coco
+const divide = function(a: int, b: int): int { return a / b; };
+const modulo = fn(a: int, b: int): int { return a % b; };
+const power = f(a: int, b: int): int { return a ** b; };
+const square = (a: int): int => a * a;
+```
+
+**Class methods:** Use direct name, `function`, `fn`, or `f` (NO arrow functions allowed)
+```coco
+class Calculator {
+    calculate(): int { /* ... */ }           // direct name
+    function compute(): int { /* ... */ }    // function keyword
+    fn process(): int { /* ... */ }          // fn keyword
+    f execute(): int { /* ... */ }           // f keyword
+}
+```
+
 ### Classes and Visibility
 - **Visibility modifiers:** `public`, `protected`, `private`, `readonly`, `static`
 - **Property defaults:** properties are `private` by default, methods are `public` by default
@@ -47,7 +74,10 @@ Coco is a planned compiled, memory-safe programming language for backend service
 
 ### Syntax Style
 - **JavaScript-like:** `const`, `let`, arrow functions, template literals, dot notation
-- **Function keywords:** `function`, `fn`, `f`, or arrow syntax `() => {}`
+- **Function keywords:** 
+  - Named: `function`, `fn`, `f`
+  - Anonymous: `function`, `fn`, `f`, or arrow `() => {}`
+  - Class methods: direct name, `function`, `fn`, `f` (NO arrow functions)
 - **Instance member access:** `this.property` or `$.property` (both equivalent)
 - **PHP-inspired features:** named arguments, traits with state, magic methods, `$` shorthand
 - **No dollar signs for variables:** variables are `name`, not `$name` (but `$` is used as shorthand for `this` in classes)

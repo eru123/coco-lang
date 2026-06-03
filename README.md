@@ -121,10 +121,28 @@ let $counter = 0; // invalid in normal Coco
 Functions can be defined with `function`, `fn`, `f`, or arrow syntax:
 
 ```coco
-function add(a: int, b: int): int { return a + b; }  // full keyword
-fn subtract(a: int, b: int): int { return a - b; }   // short keyword
-f multiply(a: int, b: int): int { return a * b; }    // shortest keyword
-const divide = (a: int, b: int): int => a / b;       // arrow function
+// Named functions:
+function add(a: int, b: int): int { return a + b; }
+fn subtract(a: int, b: int): int { return a - b; }
+f multiply(a: int, b: int): int { return a * b; }
+
+// Anonymous functions (all valid):
+const divide = function(a: int, b: int): int { return a / b; };
+const modulo = fn(a: int, b: int): int { return a % b; };
+const power = f(a: int, b: int): int { return a ** b; };
+const square = (a: int): int => a * a;
+```
+
+Class methods can use direct name, `function`, `fn`, or `f` (but NOT arrow functions):
+
+```coco
+class Math {
+    calculate(): int { /* ... */ }           // direct name
+    function compute(): int { /* ... */ }    // function keyword
+    fn process(): int { /* ... */ }          // fn keyword
+    f execute(): int { /* ... */ }           // f keyword
+    // result = (): int => { /* ... */ };    // ERROR: no arrow functions in classes
+}
 ```
 
 Types use TypeScript-like annotations:

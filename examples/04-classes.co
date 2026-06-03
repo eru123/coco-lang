@@ -2,6 +2,7 @@
 // - Use 'this' or '$' to access instance members (both equivalent)
 // - Visibility: public, protected, private, readonly, static
 // - Properties default to private, methods default to public
+// - Methods can use: direct name, function, fn, or f (NO arrow functions)
 
 class Animal {
     constructor(
@@ -10,19 +11,32 @@ class Animal {
         private sound: string,
     ) {}
 
+    // Method without keyword (direct name):
     speak(): string {
-        return `${$.name} says ${$.sound}`;  // $ is shorthand for this
+        return `${$.name} says ${$.sound}`;
     }
 
+    // Method with function keyword:
+    function describe(): string {
+        return `A ${$.species} named ${$.name}`;
+    }
+
+    // Method with fn keyword:
     fn rename(name: string): void {
-        this.name = name;  // can also use this.name
+        this.name = name;
     }
 
+    // Method with f keyword:
+    f makeSound(): void {
+        print($.sound);
+    }
+
+    // Static methods (can also use function, fn, f):
     static dog(name: string): Animal {
         return new Animal(species: "Dog", name: name, sound: "woof");
     }
 
-    static cat(name: string): Animal {
+    static function cat(name: string): Animal {
         return new Animal(species: "Cat", name: name, sound: "meow");
     }
 }
@@ -62,10 +76,13 @@ class HomePet extends Pet implements Feedable {
 
 fn main(): int {
     const dog = Animal.dog("Rex");
-    print(dog.speak());
+    print(dog.speak());      // direct method
+    print(dog.describe());   // function keyword method
+    dog.rename("Max");       // fn keyword method
+    dog.makeSound();         // f keyword method
 
-    dog.rename("Max");
-    print(dog.speak());
+    const cat = Animal.cat("Whiskers");
+    print(cat.speak());
 
     const pet = new Pet(
         species: "Bird",

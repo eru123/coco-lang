@@ -80,7 +80,10 @@ Coco syntax is closer to JavaScript/TypeScript than PHP:
 - No `$` variables (regular variables use `name`, not `$name`)
 - Dot notation for member access (not `->`)
 - `this` or `$` for instance member access (both equivalent, `$` is shorthand)
-- Multiple function keywords: `function`, `fn`, `f`, or arrow syntax `() => {}`
+- Multiple function keywords:
+  - Named functions: `function`, `fn`, `f`
+  - Anonymous functions: `function`, `fn`, `f`, or arrow `() => {}`
+  - Class methods: direct name, `function`, `fn`, `f` (NO arrows)
 - ES-style imports
 - Template literals
 - Constructor property promotion

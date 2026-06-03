@@ -59,6 +59,8 @@ class User {
 
 Coco provides multiple ways to define functions:
 
+### Named Functions
+
 ```coco
 // Full keyword:
 function greet(name: string): string {
@@ -75,39 +77,70 @@ f hey(name: string): string {
     return `Hey, ${name}`;
 }
 
-// Arrow function (anonymous):
-const square = (n: int): int => n * n;
-
-// Arrow function (expression body):
-const double = (n: int): int => n * 2;
-
-// Arrow function (block body):
-const triple = (n: int): int => {
-    return n * 3;
-};
-
 // Async variants:
 async function fetchUser(id: int): Result<User, Error> { /* ... */ }
 async fn getUser(id: int): Result<User, Error> { /* ... */ }
 async f loadUser(id: int): Result<User, Error> { /* ... */ }
-
-// Untyped (gradual):
-fn add(a, b) { return a + b; }
-f multiply(a, b) { return a * b; }
 ```
 
-**Function declaration keywords:**
-- `function` — full keyword (verbose, explicit)
-- `fn` — short keyword (common choice)
-- `f` — shortest keyword (compact)
-- Arrow syntax `() => {}` — anonymous functions, callbacks, closures
+### Anonymous Functions
 
-**Rules:**
-- All four forms are equivalent in behavior
-- Use whichever style fits your preference or codebase convention
-- `async` can prefix any of the three keyword forms
-- Arrow functions are always anonymous (assigned to variables or passed inline)
-- Parameters and return types are optional (gradual typing)
+Anonymous functions can use any keyword or arrow syntax:
+
+```coco
+// With function keyword:
+const greet = function(name: string): string {
+    return `Hello, ${name}`;
+};
+
+// With fn keyword:
+const hello = fn(name: string): string {
+    return `Hi, ${name}`;
+};
+
+// With f keyword:
+const hey = f(name: string): string {
+    return `Hey, ${name}`;
+};
+
+// Arrow function (expression body):
+const square = (n: int): int => n * n;
+
+// Arrow function (block body):
+const double = (n: int): int => {
+    return n * 2;
+};
+
+// Anonymous async:
+const fetchData = async function(url: string): Result<string, Error> { /* ... */ };
+const getData = async fn(url: string): Result<string, Error> { /* ... */ };
+const loadData = async f(url: string): Result<string, Error> { /* ... */ };
+const requestData = async (url: string): Result<string, Error> => { /* ... */ };
+```
+
+### Function Declaration Rules
+
+**For top-level and nested functions:**
+- Use `function`, `fn`, or `f` with a name
+- All three keywords are equivalent
+
+**For anonymous functions (assigned to variables):**
+- Can use `function`, `fn`, `f`, or arrow syntax `() => {}`
+- All four forms are valid: `const x = function() {}`, `const x = fn() {}`, `const x = f() {}`, `const x = () => {}`
+
+**Parameters and return types:**
+- Optional (gradual typing)
+- Can be fully typed, partially typed, or untyped
+
+```coco
+// Untyped:
+fn add(a, b) { return a + b; }
+const multiply = function(a, b) { return a * b; };
+
+// Typed:
+fn subtract(a: int, b: int): int { return a - b; }
+const divide = fn(a: int, b: int): int => a / b;
+```
 
 ---
 
@@ -121,14 +154,27 @@ class User {
         private email: string,
     ) {}
 
+    // Method without keyword (direct method name):
     getDisplayName(): string {
-        return this.name;  // or $.name
+        return this.name;
     }
 
+    // Method with function keyword:
+    function getEmail(): string {
+        return $.email;
+    }
+
+    // Method with fn keyword:
     fn setEmail(email: string): void {
-        $.email = email;  // $ is shorthand for this
+        $.email = email;
     }
 
+    // Method with f keyword:
+    f updateName(name: string): void {
+        $.name = name;
+    }
+
+    // Static method:
     static create(name: string, email: string): User {
         return new User(
             id: nextId(),
@@ -141,13 +187,28 @@ class User {
 const user = new User(id: 1, name: "Jericho", email: "j@ex.com");
 ```
 
-- Constructor parameter properties (`public`, `private`, `protected`, `readonly`)
-- Methods: both `method()` and `fn method()` syntax valid
+**Class method declaration rules:**
+- Methods can be declared with: direct name, `function`, `fn`, or `f`
+- Arrow functions `() => {}` are **NOT allowed** for class methods
+- All keyword forms are equivalent in behavior
 - `this` or `$` for instance access (both are equivalent)
 - `.` for member access
-- `static` for class-level members
+- `static` can prefix any method form
 - Single inheritance with `extends`
 - Named arguments at call site
+
+**Invalid class method syntax:**
+```coco
+class Invalid {
+    // ERROR: Arrow functions not allowed as class methods
+    getName = (): string => {
+        return this.name;
+    };
+}
+```
+
+**Constructor parameter properties:**
+- `public`, `private`, `protected`, `readonly` modifiers create automatic properties
 
 ### Visibility Modifiers
 
@@ -165,18 +226,27 @@ class Account {
         $.balance = 0;
     }
 
+    // Visibility with direct method name:
     public deposit(amount: int): void {
         this.balance += amount;
     }
 
-    protected validateOwner(name: string): bool {
+    // Visibility with function keyword:
+    protected function validateOwner(name: string): bool {
         return $.owner == name;
     }
 
-    private checkPin(pin: string): bool {
+    // Visibility with fn keyword:
+    private fn checkPin(pin: string): bool {
         return this.pin == pin;
     }
 
+    // Visibility with f keyword:
+    public f withdraw(amount: int): void {
+        $.balance -= amount;
+    }
+
+    // Static with visibility:
     static fromData(data): Account {
         return new Account(data.id, data.owner, data.pin);
     }
