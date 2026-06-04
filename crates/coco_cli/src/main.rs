@@ -4,6 +4,7 @@ use clap::{Parser as ClapParser, Subcommand};
 use coco_lexer::{Lexer, TokenKind};
 use coco_parser::Parser;
 use coco_formatter::Formatter;
+use coco_interpreter::Interpreter;
 use coco_syntax::Item;
 use std::fs;
 use std::path::PathBuf;
@@ -12,7 +13,7 @@ use std::path::PathBuf;
 #[command(
     name = "coco",
     version = "0.1.0",
-    about = "Coco language compiler — Phase 2: Lexer, Parser, Formatter",
+    about = "Coco language toolchain — lexer, parser, formatter, interpreter",
     long_about = None
 )]
 struct Cli {
@@ -45,6 +46,11 @@ enum Commands {
         /// Path to the .co file
         file: PathBuf,
     },
+    /// Run a .co file
+    Run {
+        /// Path to the .co file
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -55,6 +61,7 @@ fn main() {
         Commands::Parse { file } => cmd_parse(&file),
         Commands::Fmt { file, write } => cmd_fmt(&file, write),
         Commands::Check { file } => cmd_check(&file),
+        Commands::Run { file } => cmd_run(&file),
     }
 }
 
@@ -157,6 +164,29 @@ fn cmd_fmt(file: &PathBuf, write: bool) {
         }
     } else {
         print!("{}", formatted);
+    }
+}
+
+fn cmd_run(file: &PathBuf) {
+    let source = match read_source(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut interp = Interpreter::new();
+    match interp.run_main(&source) {
+        Ok(val) => {
+            if let coco_interpreter::Value::Int(code) = val {
+                std::process::exit(code as i32);
+            }
+        }
+        Err(e) => {
+            eprintln!("Runtime error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
