@@ -18,4 +18,5 @@ coco_parser = { workspace = true }
 coco_formatter = { workspace = true }
 coco_interpreter = { workspace = true }
 coco_typeck = { workspace = true }
+coco_safety = { workspace = true }
 clap = { workspace = true }

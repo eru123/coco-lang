@@ -5,6 +5,7 @@ use coco_formatter::Formatter;
 use coco_interpreter::Interpreter;
 use coco_lexer::{Lexer, TokenKind};
 use coco_parser::Parser;
+use coco_safety as safety;
 use coco_span::{FileId, SourceFile};
 use coco_syntax::Item;
 use std::fs;
@@ -52,6 +53,11 @@ enum Commands {
         /// Path to the .co file
         file: PathBuf,
     },
+    /// Run safety analysis on a .co file
+    Safety {
+        /// Path to the .co file
+        file: PathBuf,
+    },
     /// Run a .co file
     Run {
         /// Path to the .co file
@@ -71,6 +77,7 @@ fn main() {
         Commands::Fmt { file, write } => cmd_fmt(&file, write),
         Commands::Check { file } => cmd_check(&file),
         Commands::Typecheck { file } => cmd_typecheck(&file),
+        Commands::Safety { file } => cmd_safety(&file),
         Commands::Run { file, no_check } => cmd_run(&file, no_check),
     }
 }
@@ -255,6 +262,21 @@ fn cmd_run(file: &Path, no_check: bool) {
             );
             std::process::exit(1);
         }
+
+        let safety_result = safety::analyze(&program);
+        if safety_result.has_errors() {
+            report_safety_errors(&source, &resolved, &safety_result);
+            eprintln!(
+                "\n{} safety error(s). Use --no-check to skip.",
+                safety_result.errors.len()
+            );
+            std::process::exit(1);
+        }
+        if safety_result.has_warnings() {
+            for w in &safety_result.warnings {
+                eprintln!("warning[{}]: {}", w.code, w.message);
+            }
+        }
     }
 
     let mut interp = Interpreter::new();
@@ -284,16 +306,46 @@ fn cmd_check(file: &Path) {
     let program = parser.parse_program();
 
     let diagnostics = parser.diagnostics();
-    if diagnostics.is_empty() {
+    if !diagnostics.is_empty() {
+        eprintln!("{}: {} parse error(s)", resolved.display(), diagnostics.len());
+        for diag in diagnostics {
+            eprintln!("  - {}", diag);
+        }
+    }
+
+    let safety_result = safety::analyze(&program);
+    let typeck_result = coco_typeck::check(&program);
+
+    let parse_ok = diagnostics.is_empty();
+    let type_ok = !typeck_result.has_errors();
+    let safety_ok = !safety_result.has_errors();
+
+    if parse_ok && type_ok && safety_ok {
         println!(
-            "{}: OK ({} items parsed)",
+            "{}: OK ({} items parsed, types OK, safety OK)",
             resolved.display(),
             program.items.len()
         );
     } else {
-        eprintln!("{}: {} error(s)", resolved.display(), diagnostics.len());
-        for diag in diagnostics {
-            eprintln!("  - {}", diag);
+        if !parse_ok {
+            eprintln!("{}: parse FAILED", resolved.display());
+        }
+        if !type_ok {
+            eprintln!(
+                "{}: {} type error(s)",
+                resolved.display(),
+                typeck_result.error_count()
+            );
+        }
+        if !safety_ok {
+            eprintln!(
+                "{}: {} safety error(s)",
+                resolved.display(),
+                safety_result.error_count()
+            );
+        }
+        for w in &safety_result.warnings {
+            eprintln!("  warning[{}]: {}", w.code, w.message);
         }
     }
 }
@@ -333,6 +385,67 @@ fn cmd_typecheck(file: &Path) {
     }
 
     println!("{}: types OK", resolved.display());
+}
+
+fn cmd_safety(file: &Path) {
+    let (source, resolved) = match read_source(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut parser = Parser::new(&source);
+    let program = parser.parse_program();
+    if !parser.diagnostics().is_empty() {
+        eprintln!(
+            "{}: {} parse error(s)",
+            resolved.display(),
+            parser.diagnostics().len()
+        );
+        for diag in parser.diagnostics() {
+            eprintln!("  - {}", diag);
+        }
+        std::process::exit(1);
+    }
+
+    let result = safety::analyze(&program);
+    if result.has_errors() {
+        report_safety_errors(&source, &resolved, &result);
+        eprintln!(
+            "\n{} safety error(s) found in {}",
+            result.errors.len(),
+            resolved.display()
+        );
+        std::process::exit(1);
+    }
+
+    if result.has_warnings() {
+        for w in &result.warnings {
+            eprintln!("warning[{}]: {}", w.code, w.message);
+        }
+    }
+
+    println!(
+        "{}: safety OK ({} warnings)",
+        resolved.display(),
+        result.warning_count()
+    );
+}
+
+fn report_safety_errors(source: &str, file: &Path, result: &safety::SafetyResult) {
+    let source_file = SourceFile::new(FileId(0), file.to_path_buf(), source.to_string());
+    for error in &result.errors {
+        let location = source_file.get_location(error.span.start);
+        eprintln!("error[{}]: {}", error.code, error.message);
+        eprintln!(
+            " --> {}:{}:{}",
+            file.display(),
+            location.line,
+            location.column
+        );
+    }
 }
 
 fn report_type_errors(source: &str, file: &Path, result: &coco_typeck::TypeckResult) {
