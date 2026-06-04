@@ -33,6 +33,28 @@ language design
   → package manager and tooling
 ```
 
+## Running Coco Test Files
+
+The repository includes executable Coco programs in `tests/*.co`. Use the helper script to build the `coco` CLI once and run those files programmatically:
+
+```bash
+scripts/run-co-tests.sh
+```
+
+By default, this discovers `tests/*.co`, builds `target/debug/coco`, and runs each file with `coco run --no-check`. The `--no-check` default keeps the runtime smoke tests useful while the type checker and safety analyzer are still catching up with every runtime-supported feature.
+
+Common variants:
+
+```bash
+scripts/run-co-tests.sh --mode parse 'tests/*.co'
+scripts/run-co-tests.sh --mode typecheck tests/13-typed-code.co
+scripts/run-co-tests.sh --mode check tests/13-typed-code.co
+scripts/run-co-tests.sh --checked tests/01-hello-world.co
+scripts/run-co-tests.sh --release --verbose 'tests/*.co'
+```
+
+Modes map to Coco CLI commands: `run`, `parse`, `typecheck`, and `safety`. The script's `check` mode is stricter than `coco check`: it runs `typecheck` and `safety` as failing gates so it is suitable for automation.
+
 ## Why Coco?
 
 Modern backend developers often have to choose between JavaScript/TypeScript, PHP, Go, Rust, and lower-level systems languages.
