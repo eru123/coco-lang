@@ -1,14 +1,12 @@
 //! Pretty-printer: walks the AST and produces formatted Coco source code.
 
-use coco_span::Span;
 use coco_syntax::*;
-use std::fmt::Write;
 
 pub struct Formatter {
     output: String,
     indent_level: usize,
     indent_str: &'static str,
-    max_width: usize,
+    _max_width: usize,
     current_line_length: usize,
 }
 
@@ -18,7 +16,7 @@ impl Formatter {
             output: String::new(),
             indent_level: 0,
             indent_str: "    ",
-            max_width: 100,
+            _max_width: 100,
             current_line_length: 0,
         }
     }
