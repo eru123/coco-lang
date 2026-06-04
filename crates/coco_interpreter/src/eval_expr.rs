@@ -264,16 +264,17 @@ impl Interpreter {
         match (&object, &index) {
             (Value::List(list), Value::Int(i)) => {
                 let idx = if *i < 0 {
-                    (list.len() as i64 + *i) as usize
+                    (list.data.len() as i64 + *i) as usize
                 } else {
                     *i as usize
                 };
-                list.get(idx)
+                list.data
+                    .get(idx)
                     .cloned()
                     .ok_or_else(|| Signal::Error(RuntimeError::new("index out of bounds")))
             }
             (Value::Map(map), Value::String(key)) => {
-                Ok(map.get(key).cloned().unwrap_or(Value::Null))
+                Ok(map.data.get(key).cloned().unwrap_or(Value::Null))
             }
             _ => Err(Signal::Error(RuntimeError::new("invalid index operation"))),
         }
@@ -284,9 +285,9 @@ impl Interpreter {
         let prop = &mem.property.name;
 
         match &object {
-            Value::List(list) if prop == "length" => Ok(Value::Int(list.len() as i64)),
+            Value::List(list) if prop == "length" => Ok(Value::Int(list.data.len() as i64)),
             Value::String(s) if prop == "length" => Ok(Value::Int(s.len() as i64)),
-            Value::Map(map) => Ok(map.get(prop).cloned().unwrap_or(Value::Null)),
+            Value::Map(map) => Ok(map.data.get(prop).cloned().unwrap_or(Value::Null)),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "cannot access property '{}' on {:?}",
                 prop, object
@@ -299,7 +300,7 @@ impl Interpreter {
         for elem in &arr.elements {
             elements.push(self.eval_expr(elem)?);
         }
-        Ok(Value::List(elements))
+        Ok(self.alloc_list(elements))
     }
 
     fn eval_object(&mut self, obj: &ObjectLiteral) -> IResult {
@@ -312,7 +313,7 @@ impl Interpreter {
             let value = self.eval_expr(&field.value)?;
             map.insert(key, value);
         }
-        Ok(Value::Map(map))
+        Ok(self.alloc_map(map))
     }
 
     fn eval_ternary(&mut self, tern: &TernaryExpr) -> IResult {

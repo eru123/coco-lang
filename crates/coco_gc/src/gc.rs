@@ -47,7 +47,11 @@ impl<T: 'static> Gc<T> {
     }
 
     /// Get mutable access. Only valid when refcount == 1.
-    /// SAFETY: caller must ensure no other Gc<T> references exist.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure no other `Gc<T>` references to this object exist
+    /// (refcount must be 1). Violation causes aliased mutable access.
     pub unsafe fn as_mut_ptr(&self) -> *mut T {
         self.ptr as *mut T
     }

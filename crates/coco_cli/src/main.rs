@@ -65,6 +65,9 @@ enum Commands {
         /// Skip type checking before execution
         #[arg(long = "no-check")]
         no_check: bool,
+        /// Enable debug mode (GC stats)
+        #[arg(long = "debug")]
+        debug: bool,
     },
 }
 
@@ -78,7 +81,11 @@ fn main() {
         Commands::Check { file } => cmd_check(&file),
         Commands::Typecheck { file } => cmd_typecheck(&file),
         Commands::Safety { file } => cmd_safety(&file),
-        Commands::Run { file, no_check } => cmd_run(&file, no_check),
+        Commands::Run {
+            file,
+            no_check,
+            debug,
+        } => cmd_run(&file, no_check, debug),
     }
 }
 
@@ -229,7 +236,7 @@ fn cmd_fmt(file: &Path, write: bool) {
     }
 }
 
-fn cmd_run(file: &Path, no_check: bool) {
+fn cmd_run(file: &Path, no_check: bool, debug: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -280,6 +287,7 @@ fn cmd_run(file: &Path, no_check: bool) {
     }
 
     let mut interp = Interpreter::new();
+    interp.set_debug(debug);
     match interp.run_main(&source) {
         Ok(val) => {
             if let coco_interpreter::Value::Int(code) = val {

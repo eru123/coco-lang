@@ -65,8 +65,8 @@ impl Interpreter {
 
     fn exec_for(&mut self, for_stmt: &ForStmt) -> IResult {
         let iterable = self.eval_expr(&for_stmt.iterable)?;
-        let items = match iterable {
-            Value::List(items) => items,
+        let list_len = match &iterable {
+            Value::List(items) => items.data.len(),
             _ => {
                 return Err(Signal::Error(RuntimeError::new(
                     "for-in requires a list to iterate",
@@ -80,7 +80,12 @@ impl Interpreter {
             .define(for_stmt.pattern.name.clone(), Value::Null, true);
 
         let mut last = Value::Null;
-        for item in &items {
+        for i in 0..list_len {
+            // Get item by index from the list
+            let item = match &iterable {
+                Value::List(items) => items.data[i].clone(),
+                _ => unreachable!(),
+            };
             self.env
                 .set(&for_stmt.pattern.name, item.clone())
                 .map_err(|e| Signal::Error(RuntimeError::new(e)))?;

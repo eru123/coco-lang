@@ -15,8 +15,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
             match &args[0] {
                 Value::String(s) => Ok(Value::Int(s.len() as i64)),
-                Value::List(l) => Ok(Value::Int(l.len() as i64)),
-                Value::Map(m) => Ok(Value::Int(m.len() as i64)),
+                Value::List(l) => Ok(Value::Int(l.data.len() as i64)),
+                Value::Map(m) => Ok(Value::Int(m.data.len() as i64)),
                 _ => Err(Signal::Error(RuntimeError::new(
                     "len() expects a string, list, or map",
                 ))),

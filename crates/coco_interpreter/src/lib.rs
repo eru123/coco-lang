@@ -14,6 +14,9 @@ pub mod value;
 pub use error::RuntimeError;
 pub use value::Value;
 
+use std::collections::HashMap;
+
+use coco_gc::{CoW, Gc, Heap};
 use coco_parser::Parser;
 use coco_syntax::Program;
 use env::Environment;
@@ -22,12 +25,15 @@ use error::{ControlFlow, IResult, Signal};
 /// The Coco tree-walking interpreter.
 pub struct Interpreter {
     pub(crate) env: Environment,
+    pub(crate) heap: Heap,
+    pub debug: bool,
 }
 
 impl Interpreter {
     /// Create a new interpreter with built-in functions registered.
     pub fn new() -> Self {
         let mut env = Environment::new();
+        let heap = Heap::new();
 
         // Register built-in functions
         env.define(
@@ -56,7 +62,33 @@ impl Interpreter {
             false,
         );
 
-        Self { env }
+        Self {
+            env,
+            heap,
+            debug: false,
+        }
+    }
+
+    /// Set debug mode. In debug mode, GC stats are printed on drop.
+    pub fn set_debug(&mut self, debug: bool) {
+        self.debug = debug;
+        if debug {
+            self.heap.collect_interval = 1000;
+        }
+    }
+
+    /// Allocate a CoW list on the heap.
+    pub(crate) fn alloc_list(&mut self, items: Vec<Value>) -> Value {
+        let cow = CoW::new(items);
+        let (id, ptr) = self.heap.allocate(cow);
+        Value::List(Gc::new(&self.heap, id, ptr))
+    }
+
+    /// Allocate a CoW map on the heap.
+    pub(crate) fn alloc_map(&mut self, items: HashMap<String, Value>) -> Value {
+        let cow = CoW::new(items);
+        let (id, ptr) = self.heap.allocate(cow);
+        Value::Map(Gc::new(&self.heap, id, ptr))
     }
 
     /// Parse source code and execute it. Returns the value of the last expression.

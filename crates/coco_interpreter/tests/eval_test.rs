@@ -174,7 +174,7 @@ fn recursion() {
 #[test]
 fn list_literal() {
     match eval("[1, 2, 3];") {
-        Value::List(l) => assert_eq!(l.len(), 3),
+        Value::List(l) => assert_eq!(l.data.len(), 3),
         _ => panic!(),
     }
 }
@@ -195,7 +195,7 @@ fn list_length() {
 #[test]
 fn map_literal() {
     match eval("{\"x\": 1, \"y\": 2};") {
-        Value::Map(m) => assert_eq!(m.len(), 2),
+        Value::Map(m) => assert_eq!(m.data.len(), 2),
         _ => panic!(),
     }
 }

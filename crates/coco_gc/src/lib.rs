@@ -18,5 +18,5 @@ pub mod trace;
 
 pub use cow::CoW;
 pub use gc::Gc;
-pub use heap::Heap;
+pub use heap::{GcObj, Heap};
 pub use trace::Trace;

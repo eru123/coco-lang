@@ -127,7 +127,9 @@ impl Heap {
                 freed += 1;
                 freed_bytes += entry.size;
                 // SAFETY: refcount 0 means no outstanding Gc<T> references.
-                unsafe { (entry.drop_fn)(entry.ptr); }
+                unsafe {
+                    (entry.drop_fn)(entry.ptr);
+                }
                 false
             } else {
                 true
@@ -140,7 +142,10 @@ impl Heap {
         if freed > 0 {
             eprintln!(
                 "GC: collected {} objects ({} bytes), {} remain (swept {})",
-                freed, freed_bytes, self.entries.len(), before
+                freed,
+                freed_bytes,
+                self.entries.len(),
+                before
             );
         }
     }
@@ -148,14 +153,18 @@ impl Heap {
 
 /// Type-erased drop function.
 unsafe fn drop_obj<T>(ptr: *mut ()) {
-    unsafe { drop(Box::from_raw(ptr as *mut T)); }
+    unsafe {
+        drop(Box::from_raw(ptr as *mut T));
+    }
 }
 
 impl Drop for Heap {
     fn drop(&mut self) {
         // Free all remaining entries.
         for entry in &self.entries {
-            unsafe { (entry.drop_fn)(entry.ptr); }
+            unsafe {
+                (entry.drop_fn)(entry.ptr);
+            }
         }
     }
 }
