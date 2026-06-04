@@ -37,6 +37,7 @@ fn eval(src: &str) -> Value {
 #[test] fn for_loop() { assert!(matches!(eval("let s = 0; for n in [1, 2, 3] { s += n; } s;"), Value::Int(6))); }
 #[test] fn loop_break() { assert!(matches!(eval("let x = 0; loop { x += 1; if x == 3 { break; } } x;"), Value::Int(3))); }
 #[test] fn function_call() { assert!(matches!(eval("fn add(a, b) { return a + b; } add(2, 3);"), Value::Int(5))); }
+#[test] fn arrow_expr_body_returns_value() { assert!(matches!(eval("const x = () => 1; x();"), Value::Int(1))); }
 #[test] fn recursion() { assert!(matches!(eval("fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fib(10);"), Value::Int(55))); }
 #[test] fn list_literal() { match eval("[1, 2, 3];") { Value::List(l) => assert_eq!(l.len(), 3), _ => panic!() } }
 #[test] fn list_index() { assert!(matches!(eval("const a = [10, 20, 30]; a[1];"), Value::Int(20))); }

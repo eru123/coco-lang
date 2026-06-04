@@ -1292,6 +1292,9 @@ impl<'a> Parser<'a> {
                 Expr::DollarDollar(span)
             }
             TokenKind::LParen => {
+                if self.starts_parenthesized_lambda() {
+                    return self.parse_lambda_expr();
+                }
                 self.advance();
                 let expr = self.parse_expr_bp(0);
                 self.expect(TokenKind::RParen);
@@ -1307,6 +1310,32 @@ impl<'a> Parser<'a> {
                 Expr::Literal(Literal::Null(span))
             }
         }
+    }
+
+    fn starts_parenthesized_lambda(&self) -> bool {
+        if self.current.kind != TokenKind::LParen {
+            return false;
+        }
+
+        let mut probe = Self {
+            lexer: self.lexer.clone(),
+            current: self.current.clone(),
+            diagnostics: Vec::new(),
+        };
+
+        let _ = probe.parse_lambda_params();
+        if !probe.diagnostics.is_empty() {
+            return false;
+        }
+
+        if probe.eat(TokenKind::Colon) {
+            let _ = probe.parse_type();
+            if !probe.diagnostics.is_empty() {
+                return false;
+            }
+        }
+
+        probe.current.kind == TokenKind::FatArrow
     }
 
     fn parse_postfix(&mut self, lhs: Expr) -> Expr {

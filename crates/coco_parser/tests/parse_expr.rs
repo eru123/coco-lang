@@ -4,9 +4,28 @@ use coco_syntax::*;
 fn parse_expr_stmt(src: &str) -> Expr {
     let mut parser = Parser::new(src);
     let program = parser.parse_program();
+    assert!(
+        parser.diagnostics().is_empty(),
+        "unexpected diagnostics: {:?}",
+        parser.diagnostics()
+    );
     match &program.items[0] {
         Item::Stmt(Stmt::Expr(es)) => es.expr.clone(),
         other => panic!("expected expression statement, got {:?}", other),
+    }
+}
+
+fn parse_const_init(src: &str) -> Expr {
+    let mut parser = Parser::new(src);
+    let program = parser.parse_program();
+    assert!(
+        parser.diagnostics().is_empty(),
+        "unexpected diagnostics: {:?}",
+        parser.diagnostics()
+    );
+    match &program.items[0] {
+        Item::ConstDecl(c) => c.value.clone(),
+        other => panic!("expected const declaration, got {:?}", other),
     }
 }
 
@@ -221,6 +240,32 @@ fn parse_grouped_expr() {
             assert!(matches!(b.right, Expr::Literal(Literal::Int(3, _))));
         }
         other => panic!("expected binary mul with group, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_empty_param_arrow_expr_body() {
+    let expr = parse_const_init("const x = () => 1;");
+    match expr {
+        Expr::Lambda(lambda) => {
+            assert!(lambda.params.is_empty());
+            assert!(lambda.return_type.is_none());
+            assert!(matches!(lambda.body, LambdaBody::Expr(_)));
+        }
+        other => panic!("expected lambda expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_typed_empty_param_arrow_expr_body() {
+    let expr = parse_const_init("const x = (): int => 1;");
+    match expr {
+        Expr::Lambda(lambda) => {
+            assert!(lambda.params.is_empty());
+            assert!(lambda.return_type.is_some());
+            assert!(matches!(lambda.body, LambdaBody::Expr(_)));
+        }
+        other => panic!("expected lambda expression, got {:?}", other),
     }
 }
 

@@ -2,6 +2,7 @@ use coco_span::Span;
 use unicode_xid::UnicodeXID;
 use crate::token::{Token, TokenKind};
 
+#[derive(Clone)]
 pub struct Lexer<'a> {
     source: &'a str,
     cursor: usize,
