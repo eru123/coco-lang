@@ -8,6 +8,7 @@ members = [
     "crates/coco_formatter",
     "crates/coco_interpreter",
     "crates/coco_typeck",
+    "crates/coco_safety",
     "crates/coco_cli",
 ]
 resolver = "2"
@@ -29,6 +30,7 @@ coco_parser = { path = "crates/coco_parser" }
 coco_formatter = { path = "crates/coco_formatter" }
 coco_interpreter = { path = "crates/coco_interpreter" }
 coco_typeck = { path = "crates/coco_typeck" }
+coco_safety = { path = "crates/coco_safety" }
 
 # External dependencies
 ariadne = "0.4"

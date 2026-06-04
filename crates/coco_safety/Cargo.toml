@@ -1,0 +1,10 @@
+[package]
+name = "coco_safety"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+coco_syntax = { path = "../coco_syntax" }
+coco_span = { path = "../coco_span" }
