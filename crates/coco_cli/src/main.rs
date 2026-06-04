@@ -307,7 +307,11 @@ fn cmd_check(file: &Path) {
 
     let diagnostics = parser.diagnostics();
     if !diagnostics.is_empty() {
-        eprintln!("{}: {} parse error(s)", resolved.display(), diagnostics.len());
+        eprintln!(
+            "{}: {} parse error(s)",
+            resolved.display(),
+            diagnostics.len()
+        );
         for diag in diagnostics {
             eprintln!("  - {}", diag);
         }

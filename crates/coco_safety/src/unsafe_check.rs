@@ -75,9 +75,8 @@ fn check_stmt_unsafe(stmt: &Stmt, errors: &mut Vec<SafetyError>) {
             for run in &s.runs {
                 // The run expression could be a lambda containing unsafe
                 if let Expr::Lambda(l) = &run.expr {
-                    match &l.body {
-                        LambdaBody::Block(b) => check_block_unsafe(b, errors),
-                        _ => {}
+                    if let LambdaBody::Block(b) = &l.body {
+                        check_block_unsafe(b, errors);
                     }
                 }
             }
@@ -128,7 +127,11 @@ mod tests {
             }",
         );
         assert!(!errors.is_empty(), "unsafe block should be reported");
-        assert!(errors[0].code == "S003", "expected S003, got {}", errors[0].code);
+        assert!(
+            errors[0].code == "S003",
+            "expected S003, got {}",
+            errors[0].code
+        );
     }
 
     #[test]

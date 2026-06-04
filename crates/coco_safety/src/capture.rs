@@ -65,9 +65,7 @@ fn check_stmt_captures(stmt: &Stmt, env: &mut SafetyEnv, errors: &mut Vec<Safety
                             // Check if it's an Atomic constructor — safe pattern
                             if !is_atomic_constructor(&run.expr, var_name) {
                                 errors.push(SafetyError::mutable_capture(
-                                    var_name,
-                                    "parallel",
-                                    run.span,
+                                    var_name, "parallel", run.span,
                                 ));
                             }
                         }
@@ -82,11 +80,7 @@ fn check_stmt_captures(stmt: &Stmt, env: &mut SafetyEnv, errors: &mut Vec<Safety
             for var_name in &captured_vars {
                 if let Some(binding) = env.lookup(var_name) {
                     if binding.is_mutable {
-                        errors.push(SafetyError::mutable_capture(
-                            var_name,
-                            "coro",
-                            s.span,
-                        ));
+                        errors.push(SafetyError::mutable_capture(var_name, "coro", s.span));
                     }
                 }
             }
@@ -177,12 +171,10 @@ fn collect_captured_vars(expr: &Expr, vars: &mut Vec<String>) {
         Expr::Member(m) => {
             collect_captured_vars(&m.object, vars);
         }
-        Expr::Lambda(l) => {
-            match &l.body {
-                LambdaBody::Expr(e) => collect_captured_vars(e, vars),
-                LambdaBody::Block(b) => collect_block_captured_vars(b, vars),
-            }
-        }
+        Expr::Lambda(l) => match &l.body {
+            LambdaBody::Expr(e) => collect_captured_vars(e, vars),
+            LambdaBody::Block(b) => collect_block_captured_vars(b, vars),
+        },
         Expr::Array(a) => {
             for elem in &a.elements {
                 collect_captured_vars(elem, vars);
@@ -328,7 +320,11 @@ mod tests {
                 return 0;
             }",
         );
-        assert!(errors.is_empty(), "const capture should be ok: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "const capture should be ok: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -346,7 +342,11 @@ mod tests {
             }",
         );
         assert!(!errors.is_empty(), "mutable capture should be rejected");
-        assert!(errors[0].code == "S002", "expected S002, got {}", errors[0].code);
+        assert!(
+            errors[0].code == "S002",
+            "expected S002, got {}",
+            errors[0].code
+        );
     }
 
     #[test]
@@ -363,7 +363,11 @@ mod tests {
         );
         // Atomic access via .add() on a const Atomic should be ok
         // 'total' is const, so it's already not flagged.
-        assert!(errors.is_empty(), "atomic capture should be ok: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "atomic capture should be ok: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -375,6 +379,9 @@ mod tests {
                 return 0;
             }",
         );
-        assert!(!errors.is_empty(), "coro mutable capture should be rejected");
+        assert!(
+            !errors.is_empty(),
+            "coro mutable capture should be rejected"
+        );
     }
 }

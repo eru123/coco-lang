@@ -132,16 +132,15 @@ fn check_expr_for_mutation(expr: &Expr, var: &str, errors: &mut Vec<SafetyError>
                     | BinaryOp::MulAssign
                     | BinaryOp::DivAssign
                     | BinaryOp::ModAssign
-            ) {
-                if is_var_ref(&b.left, var) {
-                    errors.push(SafetyError::iterator_invalidation(var, b.span));
-                }
+            ) && is_var_ref(&b.left, var)
+            {
+                errors.push(SafetyError::iterator_invalidation(var, b.span));
             }
         }
         Expr::Call(c) => {
             // Check for mutation methods: x.push(...), x.remove(...), x.set(...), x.insert(...)
             if let Expr::Member(ref m) = c.callee {
-                if m.property.name == "push"
+                if (m.property.name == "push"
                     || m.property.name == "remove"
                     || m.property.name == "set"
                     || m.property.name == "insert"
@@ -149,11 +148,10 @@ fn check_expr_for_mutation(expr: &Expr, var: &str, errors: &mut Vec<SafetyError>
                     || m.property.name == "shift"
                     || m.property.name == "unshift"
                     || m.property.name == "splice"
-                    || m.property.name == "clear"
+                    || m.property.name == "clear")
+                    && is_var_ref(&m.object, var)
                 {
-                    if is_var_ref(&m.object, var) {
-                        errors.push(SafetyError::iterator_invalidation(var, m.span));
-                    }
+                    errors.push(SafetyError::iterator_invalidation(var, m.span));
                 }
             }
         }
@@ -203,7 +201,11 @@ mod tests {
             }",
         );
         assert!(!errors.is_empty(), "mutation during iteration should warn");
-        assert!(errors[0].code == "S004", "expected S004, got {}", errors[0].code);
+        assert!(
+            errors[0].code == "S004",
+            "expected S004, got {}",
+            errors[0].code
+        );
     }
 
     #[test]
@@ -217,7 +219,10 @@ mod tests {
                 return 0;
             }",
         );
-        assert!(!errors.is_empty(), "assignment during iteration should warn");
+        assert!(
+            !errors.is_empty(),
+            "assignment during iteration should warn"
+        );
     }
 
     #[test]
@@ -232,6 +237,10 @@ mod tests {
                 return 0;
             }",
         );
-        assert!(errors.is_empty(), "unrelated mutation should be ok: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "unrelated mutation should be ok: {:?}",
+            errors
+        );
     }
 }

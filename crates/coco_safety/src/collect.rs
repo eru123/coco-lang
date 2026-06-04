@@ -27,8 +27,8 @@ fn collect_item(item: &Item, env: &mut SafetyEnv) {
         Item::LetDecl(d) => {
             env.define(
                 d.name.name.clone(),
-                true,                      // let = mutable
-                d.value.is_some(),         // initialized if value present
+                true,              // let = mutable
+                d.value.is_some(), // initialized if value present
                 d.span,
             );
         }
@@ -41,12 +41,7 @@ fn collect_item(item: &Item, env: &mut SafetyEnv) {
             );
         }
         Item::ClassDecl(d) => {
-            env.define(
-                d.name.name.clone(),
-                false,
-                true,
-                d.span,
-            );
+            env.define(d.name.name.clone(), false, true, d.span);
         }
         Item::Export(e) => {
             collect_item(&e.item, env);

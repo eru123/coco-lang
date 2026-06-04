@@ -178,8 +178,7 @@ fn check_stmt(stmt: &Stmt, env: &mut SafetyEnv, errors: &mut Vec<SafetyError>) {
             check_expr(&s.condition, env, errors);
         }
         // Break, Continue — no expressions to check
-        Stmt::Break(_) | Stmt::Continue(_) => {}
-        // Item was handled above
+        Stmt::Break(_) | Stmt::Continue(_) => {} // Item was handled above
     }
 }
 
@@ -266,12 +265,7 @@ fn check_expr(expr: &Expr, env: &mut SafetyEnv, errors: &mut Vec<SafetyError>) {
         Expr::Lambda(l) => {
             env.push_scope();
             for param in &l.params {
-                env.define(
-                    param.name.name.clone(),
-                    true,
-                    true,
-                    param.span,
-                );
+                env.define(param.name.name.clone(), true, true, param.span);
             }
             match &l.body {
                 LambdaBody::Expr(e) => check_expr(e, env, errors),
@@ -361,31 +355,51 @@ mod tests {
     #[test]
     fn const_initialized_ok() {
         let errors = analyze_src("fn main(): int { const x = 1; return x; }");
-        assert!(errors.is_empty(), "const should be initialized: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "const should be initialized: {:?}",
+            errors
+        );
     }
 
     #[test]
     fn let_initialized_ok() {
         let errors = analyze_src("fn main(): int { let x = 1; return x; }");
-        assert!(errors.is_empty(), "let with value should be initialized: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "let with value should be initialized: {:?}",
+            errors
+        );
     }
 
     #[test]
     fn uninitialized_var_error() {
         let errors = analyze_src("fn main(): int { let x: int; return x; }");
         assert!(!errors.is_empty(), "uninitialized let should produce error");
-        assert!(errors[0].code == "S001", "expected S001, got {}", errors[0].code);
+        assert!(
+            errors[0].code == "S001",
+            "expected S001, got {}",
+            errors[0].code
+        );
     }
 
     #[test]
     fn assign_then_read_ok() {
         let errors = analyze_src("fn main(): int { let x: int; x = 5; return x; }");
-        assert!(errors.is_empty(), "assign-then-read should be ok: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "assign-then-read should be ok: {:?}",
+            errors
+        );
     }
 
     #[test]
     fn param_initialized_on_entry() {
         let errors = analyze_src("fn add(a: int, b: int): int { return a + b; }");
-        assert!(errors.is_empty(), "params should be initialized: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "params should be initialized: {:?}",
+            errors
+        );
     }
 }

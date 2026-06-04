@@ -19,7 +19,11 @@ fn check(src: &str) -> coco_safety::SafetyResult {
 #[test]
 fn clean_hello_world() {
     let result = check("fn main(): int { return 0; }");
-    assert!(result.is_ok(), "hello world should pass: {:?}", result.errors);
+    assert!(
+        result.is_ok(),
+        "hello world should pass: {:?}",
+        result.errors
+    );
     assert!(result.warnings.is_empty());
 }
 
@@ -33,7 +37,11 @@ fn clean_variables() {
             return counter;
         }",
     );
-    assert!(result.is_ok(), "clean variables should pass: {:?}", result.errors);
+    assert!(
+        result.is_ok(),
+        "clean variables should pass: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -42,7 +50,11 @@ fn clean_functions() {
         "fn add(a: int, b: int): int { return a + b; }
          fn main(): int { return add(1, 2); }",
     );
-    assert!(result.is_ok(), "clean functions should pass: {:?}", result.errors);
+    assert!(
+        result.is_ok(),
+        "clean functions should pass: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -56,7 +68,11 @@ fn clean_const_capture_in_parallel() {
             return 0;
         }",
     );
-    assert!(result.is_ok(), "const capture in parallel should pass: {:?}", result.errors);
+    assert!(
+        result.is_ok(),
+        "const capture in parallel should pass: {:?}",
+        result.errors
+    );
 }
 
 // ============================================================
