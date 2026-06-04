@@ -27,7 +27,7 @@ pub fn ast_type_to_ty(ast_type: &Type) -> Ty {
         }
         Type::Union(union_type) => {
             let types: Vec<Ty> = union_type.types.iter().map(ast_type_to_ty).collect();
-            Ty::Union(types)
+            Ty::union(types)
         }
         Type::Intersection(_) => {
             // For now, intersection types are treated as mixed

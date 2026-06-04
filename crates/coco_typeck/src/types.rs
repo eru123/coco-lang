@@ -31,6 +31,30 @@ pub enum Ty {
 }
 
 impl Ty {
+    /// Build a flattened, deduplicated union. A one-member union collapses to that member.
+    pub fn union(types: Vec<Ty>) -> Ty {
+        let mut flattened = Vec::new();
+        for ty in types {
+            match ty {
+                Ty::Union(inner) => flattened.extend(inner),
+                other => flattened.push(other),
+            }
+        }
+
+        let mut unique = Vec::new();
+        for ty in flattened {
+            if !unique.contains(&ty) {
+                unique.push(ty);
+            }
+        }
+
+        match unique.len() {
+            0 => Ty::Never,
+            1 => unique.into_iter().next().unwrap(),
+            _ => Ty::Union(unique),
+        }
+    }
+
     /// Returns true if this type is numeric (int, uint, or float).
     pub fn is_numeric(&self) -> bool {
         matches!(self, Ty::Int | Ty::Uint | Ty::Float)
@@ -57,14 +81,10 @@ impl Ty {
             Ty::Union(types) => {
                 let filtered: Vec<Ty> = types
                     .iter()
-                    .filter(|t| !matches!(t, Ty::Null))
-                    .cloned()
+                    .map(Ty::strip_null)
+                    .filter(|t| !matches!(t, Ty::Null | Ty::Never))
                     .collect();
-                match filtered.len() {
-                    0 => Ty::Never,
-                    1 => filtered.into_iter().next().unwrap(),
-                    _ => Ty::Union(filtered),
-                }
+                Ty::union(filtered)
             }
             Ty::Null => Ty::Never,
             other => other.clone(),

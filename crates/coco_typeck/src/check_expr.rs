@@ -9,11 +9,15 @@ use crate::types::Ty;
 use crate::unify::is_assignable;
 
 /// Check an expression and return its inferred type, collecting errors.
-pub fn check_expr(expr: &Expr, env: &TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+pub fn check_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
     match expr {
         Expr::Binary(bin) => check_binary(bin, env, errors),
         Expr::Call(call) => check_call(call, env, errors),
         Expr::Array(arr) => check_array(arr, env, errors),
+        Expr::Object(object) => check_object(object, env, errors),
+        Expr::Member(member) => check_member(member, env, errors),
+        Expr::Index(index) => check_index(index, env, errors),
+        Expr::New(new_expr) => check_new(new_expr, env, errors),
         Expr::Group(inner) => check_expr(inner, env, errors),
         Expr::NullCoalesce(nc) => {
             check_expr(&nc.left, env, errors);
@@ -38,7 +42,7 @@ pub fn check_expr(expr: &Expr, env: &TypeEnv, errors: &mut Vec<TypeckError>) -> 
 pub fn check_expr_against(
     expected: &Ty,
     expr: &Expr,
-    env: &TypeEnv,
+    env: &mut TypeEnv,
     errors: &mut Vec<TypeckError>,
 ) -> Ty {
     if let (Ty::List(expected_elem), Expr::Array(array)) = (expected, expr) {
@@ -55,6 +59,21 @@ pub fn check_expr_against(
         return infer_expr(expr, env);
     }
 
+    if let (Ty::Map(expected_key, expected_value), Expr::Object(object)) = (expected, expr) {
+        for field in &object.fields {
+            let key_ty = object_key_type(&field.key);
+            if !is_assignable(expected_key, &key_ty) {
+                errors.push(TypeckError::type_mismatch(
+                    &expected_key.to_string(),
+                    &key_ty.to_string(),
+                    object_key_span(&field.key),
+                ));
+            }
+            check_expr_against(expected_value, &field.value, env, errors);
+        }
+        return infer_expr(expr, env);
+    }
+
     let got = check_expr(expr, env, errors);
     if !is_assignable(expected, &got) {
         errors.push(TypeckError::type_mismatch(
@@ -66,7 +85,11 @@ pub fn check_expr_against(
     got
 }
 
-fn check_binary(bin: &BinaryExpr, env: &TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+fn check_binary(bin: &BinaryExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    if is_assignment_op(bin.op) {
+        return check_assignment(bin, env, errors);
+    }
+
     let left_ty = check_expr(&bin.left, env, errors);
     let right_ty = check_expr(&bin.right, env, errors);
 
@@ -194,60 +217,267 @@ fn check_binary(bin: &BinaryExpr, env: &TypeEnv, errors: &mut Vec<TypeckError>) 
     }
 }
 
-fn check_call(call: &CallExpr, env: &TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
-    // Check argument expressions
-    for arg in &call.args {
-        check_expr(&arg.value, env, errors);
-    }
-
+fn check_call(call: &CallExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
     // Resolve function name
     if let Expr::Ident(ident) = &call.callee {
         if let Some(sig) = env.lookup_fn(&ident.name) {
             let sig = sig.clone();
             // Skip type checking for untyped functions
             if !sig.is_typed {
+                for arg in &call.args {
+                    check_expr(&arg.value, env, errors);
+                }
                 return sig.ret.clone();
             }
 
             // Special case: variadic-like builtins (print accepts any args)
             if ident.name == "print" {
-                return sig.ret.clone();
-            }
-
-            // Check argument count
-            if call.args.len() != sig.params.len() {
-                errors.push(TypeckError::arg_count(
-                    sig.params.len(),
-                    call.args.len(),
-                    call.span,
-                ));
-                return sig.ret.clone();
-            }
-
-            // Check argument types
-            for (i, arg) in call.args.iter().enumerate() {
-                let arg_ty = infer_expr(&arg.value, env);
-                let param_ty = &sig.params[i];
-                if !is_assignable(param_ty, &arg_ty) {
-                    errors.push(TypeckError::type_mismatch(
-                        &param_ty.to_string(),
-                        &arg_ty.to_string(),
-                        arg.span,
-                    ));
+                for arg in &call.args {
+                    check_expr(&arg.value, env, errors);
                 }
+                return sig.ret.clone();
             }
 
+            check_args_against(&sig.params, &call.args, call.span, env, errors);
             return sig.ret.clone();
         }
     }
 
+    let callee_ty = check_expr(&call.callee, env, errors);
+    if let Ty::Function { params, ret } = callee_ty {
+        check_args_against(&params, &call.args, call.span, env, errors);
+        return *ret;
+    }
+
+    for arg in &call.args {
+        check_expr(&arg.value, env, errors);
+    }
     Ty::Unknown
 }
 
-fn check_array(arr: &ArrayLiteral, env: &TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+fn check_array(arr: &ArrayLiteral, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
     // Just check each element
     for elem in &arr.elements {
         check_expr(elem, env, errors);
     }
     infer_expr(&Expr::Array(arr.clone()), env)
+}
+
+fn check_object(object: &ObjectLiteral, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    for field in &object.fields {
+        check_expr(&field.value, env, errors);
+    }
+    infer_expr(&Expr::Object(object.clone()), env)
+}
+
+fn check_index(index: &IndexExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    let object_ty = check_expr(&index.object, env, errors);
+    let index_ty = check_expr(&index.index, env, errors);
+
+    match object_ty.strip_null() {
+        Ty::List(element) => {
+            if !is_assignable(&Ty::Int, &index_ty) {
+                errors.push(TypeckError::type_mismatch(
+                    "int",
+                    &index_ty.to_string(),
+                    index.index.span(),
+                ));
+            }
+            *element
+        }
+        Ty::Map(key, value) => {
+            if !is_assignable(&key, &index_ty) {
+                errors.push(TypeckError::type_mismatch(
+                    &key.to_string(),
+                    &index_ty.to_string(),
+                    index.index.span(),
+                ));
+            }
+            *value
+        }
+        Ty::Mixed | Ty::Unknown => Ty::Unknown,
+        other => {
+            errors.push(TypeckError::property_not_found(
+                &other.to_string(),
+                "[]",
+                index.span,
+            ));
+            Ty::Unknown
+        }
+    }
+}
+
+fn check_member(member: &MemberExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    let object_ty = check_expr(&member.object, env, errors);
+    if object_ty.is_nullable() && !member.optional {
+        errors.push(TypeckError::null_access(member.span));
+    }
+
+    let member_ty = lookup_member_type(&object_ty.strip_null(), &member.property, env, errors);
+    if member.optional && object_ty.is_nullable() {
+        Ty::union(vec![member_ty, Ty::Null])
+    } else {
+        member_ty
+    }
+}
+
+fn lookup_member_type(
+    object_ty: &Ty,
+    property: &Ident,
+    env: &TypeEnv,
+    errors: &mut Vec<TypeckError>,
+) -> Ty {
+    match object_ty {
+        Ty::Named(name) => {
+            if let Some(shape) = env.lookup_shape(name) {
+                shape.member_type(&property.name).unwrap_or_else(|| {
+                    errors.push(TypeckError::property_not_found(
+                        name,
+                        &property.name,
+                        property.span,
+                    ));
+                    Ty::Unknown
+                })
+            } else {
+                Ty::Unknown
+            }
+        }
+        Ty::Union(types) => {
+            let mut member_types = Vec::new();
+            for ty in types {
+                member_types.push(lookup_member_type(&ty.strip_null(), property, env, errors));
+            }
+            Ty::union(member_types)
+        }
+        Ty::Mixed | Ty::Unknown | Ty::Never => Ty::Unknown,
+        other => {
+            errors.push(TypeckError::property_not_found(
+                &other.to_string(),
+                &property.name,
+                property.span,
+            ));
+            Ty::Unknown
+        }
+    }
+}
+
+fn check_new(new_expr: &NewExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    let class_ty = Ty::Named(new_expr.type_name.name.clone());
+    if let Some(shape) = env.lookup_shape(&new_expr.type_name.name) {
+        if let Some(constructor) = shape.constructor.clone() {
+            if constructor.is_typed {
+                check_args_against(
+                    &constructor.params,
+                    &new_expr.args,
+                    new_expr.span,
+                    env,
+                    errors,
+                );
+            } else {
+                for arg in &new_expr.args {
+                    check_expr(&arg.value, env, errors);
+                }
+            }
+        } else if !new_expr.args.is_empty() {
+            errors.push(TypeckError::arg_count(
+                0,
+                new_expr.args.len(),
+                new_expr.span,
+            ));
+        }
+    } else {
+        for arg in &new_expr.args {
+            check_expr(&arg.value, env, errors);
+        }
+    }
+    class_ty
+}
+
+fn check_assignment(bin: &BinaryExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    let value_ty = check_expr(&bin.right, env, errors);
+    let target_ty = assignment_target_type(&bin.left, env, errors);
+
+    if !is_assignable(&target_ty, &value_ty) {
+        errors.push(TypeckError::type_mismatch(
+            &target_ty.to_string(),
+            &value_ty.to_string(),
+            bin.right.span(),
+        ));
+    }
+
+    if let Expr::Ident(ident) = &bin.left {
+        if target_ty.is_unknown() {
+            env.assign(&ident.name, value_ty);
+        }
+    }
+
+    Ty::Void
+}
+
+fn assignment_target_type(target: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    match target {
+        Expr::Ident(ident) => env.lookup(&ident.name).cloned().unwrap_or(Ty::Unknown),
+        Expr::Member(member) => check_member(member, env, errors),
+        Expr::Index(index) => check_index(index, env, errors),
+        _ => {
+            check_expr(target, env, errors);
+            Ty::Unknown
+        }
+    }
+}
+
+fn check_args_against(
+    params: &[Ty],
+    args: &[Argument],
+    call_span: coco_span::Span,
+    env: &mut TypeEnv,
+    errors: &mut Vec<TypeckError>,
+) {
+    if args.len() != params.len() {
+        errors.push(TypeckError::arg_count(params.len(), args.len(), call_span));
+        for arg in args {
+            check_expr(&arg.value, env, errors);
+        }
+        return;
+    }
+
+    for (arg, param_ty) in args.iter().zip(params.iter()) {
+        let arg_ty = check_expr(&arg.value, env, errors);
+        if !is_assignable(param_ty, &arg_ty) {
+            errors.push(TypeckError::type_mismatch(
+                &param_ty.to_string(),
+                &arg_ty.to_string(),
+                arg.span,
+            ));
+        }
+    }
+}
+
+fn is_assignment_op(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Assign
+            | BinaryOp::AddAssign
+            | BinaryOp::SubAssign
+            | BinaryOp::MulAssign
+            | BinaryOp::DivAssign
+            | BinaryOp::ModAssign
+            | BinaryOp::PowAssign
+            | BinaryOp::ShlAssign
+            | BinaryOp::ShrAssign
+            | BinaryOp::BitAndAssign
+            | BinaryOp::BitOrAssign
+            | BinaryOp::BitXorAssign
+    )
+}
+
+fn object_key_type(_key: &ObjectKey) -> Ty {
+    Ty::String
+}
+
+fn object_key_span(key: &ObjectKey) -> coco_span::Span {
+    match key {
+        ObjectKey::Ident(ident) => ident.span,
+        ObjectKey::String(_, span) => *span,
+    }
 }

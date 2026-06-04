@@ -15,10 +15,10 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Binary(bin) => infer_binary(bin, env),
         Expr::Unary(unary) => infer_unary(unary, env),
         Expr::Call(call) => infer_call(call, env),
-        Expr::Index(_) => Ty::Unknown,
-        Expr::Member(_) => Ty::Unknown,
+        Expr::Index(index) => infer_index(index, env),
+        Expr::Member(member) => infer_member(member, env),
         Expr::Array(arr) => infer_array(arr, env),
-        Expr::Object(_) => Ty::Unknown,
+        Expr::Object(object) => infer_object(object, env),
         Expr::Group(inner) => infer_expr(inner, env),
         Expr::Ternary(ternary) => infer_ternary(ternary, env),
         Expr::NullCoalesce(nc) => infer_null_coalesce(nc, env),
@@ -28,8 +28,9 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Postfix(_) => Ty::Unknown,
         Expr::Lambda(_) => Ty::Unknown,
         Expr::Match(_) => Ty::Unknown,
-        Expr::This(_) | Expr::Dollar(_) | Expr::DollarDollar(_) => Ty::Unknown,
-        Expr::New(_) => Ty::Unknown,
+        Expr::This(_) | Expr::Dollar(_) => env.current_self().cloned().unwrap_or(Ty::Unknown),
+        Expr::DollarDollar(_) => Ty::Unknown,
+        Expr::New(new_expr) => Ty::Named(new_expr.type_name.name.clone()),
     }
 }
 
@@ -155,7 +156,61 @@ fn infer_call(call: &CallExpr, env: &TypeEnv) -> Ty {
             return sig.ret.clone();
         }
     }
+    if let Ty::Function { ret, .. } = infer_expr(&call.callee, env) {
+        return *ret;
+    }
     Ty::Unknown
+}
+
+fn infer_index(index: &IndexExpr, env: &TypeEnv) -> Ty {
+    let object_ty = infer_expr(&index.object, env);
+    match object_ty {
+        Ty::List(element) => *element,
+        Ty::Map(_, value) => *value,
+        Ty::Union(types) => {
+            let indexed = types
+                .iter()
+                .map(|ty| match ty {
+                    Ty::List(element) => (**element).clone(),
+                    Ty::Map(_, value) => (**value).clone(),
+                    _ => Ty::Unknown,
+                })
+                .collect();
+            Ty::union(indexed)
+        }
+        _ => Ty::Unknown,
+    }
+}
+
+fn infer_member(member: &MemberExpr, env: &TypeEnv) -> Ty {
+    let object_ty = infer_expr(&member.object, env);
+    let base_ty = object_ty.strip_null();
+    let member_ty = match base_ty {
+        Ty::Named(name) => env
+            .lookup_shape(&name)
+            .and_then(|shape| shape.member_type(&member.property.name))
+            .unwrap_or(Ty::Unknown),
+        Ty::Union(types) => {
+            let member_types = types
+                .iter()
+                .map(|ty| match ty.strip_null() {
+                    Ty::Named(name) => env
+                        .lookup_shape(&name)
+                        .and_then(|shape| shape.member_type(&member.property.name))
+                        .unwrap_or(Ty::Unknown),
+                    _ => Ty::Unknown,
+                })
+                .collect();
+            Ty::union(member_types)
+        }
+        _ => Ty::Unknown,
+    };
+
+    if member.optional && object_ty.is_nullable() {
+        Ty::union(vec![member_ty, Ty::Null])
+    } else {
+        member_ty
+    }
 }
 
 fn infer_array(arr: &ArrayLiteral, env: &TypeEnv) -> Ty {
@@ -181,6 +236,29 @@ fn infer_array(arr: &ArrayLiteral, env: &TypeEnv) -> Ty {
     Ty::List(Box::new(common))
 }
 
+fn infer_object(object: &ObjectLiteral, env: &TypeEnv) -> Ty {
+    if object.fields.is_empty() {
+        return Ty::Map(Box::new(Ty::String), Box::new(Ty::Unknown));
+    }
+
+    let mut common = infer_expr(&object.fields[0].value, env);
+    for field in object.fields.iter().skip(1) {
+        let value_ty = infer_expr(&field.value, env);
+        if value_ty != common {
+            if is_assignable(&common, &value_ty) {
+                // Keep current common type.
+            } else if is_assignable(&value_ty, &common) {
+                common = value_ty;
+            } else {
+                common = Ty::Mixed;
+                break;
+            }
+        }
+    }
+
+    Ty::Map(Box::new(Ty::String), Box::new(common))
+}
+
 fn infer_ternary(ternary: &TernaryExpr, env: &TypeEnv) -> Ty {
     let then_ty = infer_expr(&ternary.then_expr, env);
     let else_ty = infer_expr(&ternary.else_expr, env);
@@ -189,7 +267,7 @@ fn infer_ternary(ternary: &TernaryExpr, env: &TypeEnv) -> Ty {
     } else if is_assignable(&else_ty, &then_ty) {
         else_ty
     } else {
-        Ty::Union(vec![then_ty, else_ty])
+        Ty::union(vec![then_ty, else_ty])
     }
 }
 

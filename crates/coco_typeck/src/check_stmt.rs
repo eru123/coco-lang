@@ -10,6 +10,8 @@ use crate::infer::infer_expr;
 use crate::types::Ty;
 use crate::unify::is_assignable;
 
+type Narrowings = Vec<(String, Ty)>;
+
 /// Check a block of statements.
 /// `expected_return` is the declared return type of the enclosing function (if any).
 pub fn check_block(
@@ -18,7 +20,20 @@ pub fn check_block(
     expected_return: &Option<Ty>,
     errors: &mut Vec<TypeckError>,
 ) {
+    check_block_with_bindings(block, env, expected_return, errors, &[]);
+}
+
+fn check_block_with_bindings(
+    block: &Block,
+    env: &mut TypeEnv,
+    expected_return: &Option<Ty>,
+    errors: &mut Vec<TypeckError>,
+    bindings: &[(String, Ty)],
+) {
     env.push_scope();
+    for (name, ty) in bindings {
+        env.define(name.clone(), ty.clone());
+    }
     for stmt in &block.stmts {
         check_stmt(stmt, env, expected_return, errors);
     }
@@ -128,13 +143,56 @@ fn check_if(
     errors: &mut Vec<TypeckError>,
 ) {
     check_expr(&if_stmt.condition, env, errors);
-    check_block(&if_stmt.then_block, env, expected_return, errors);
+    let (then_bindings, else_bindings) = null_narrowings(&if_stmt.condition, env);
+    check_block_with_bindings(
+        &if_stmt.then_block,
+        env,
+        expected_return,
+        errors,
+        &then_bindings,
+    );
     for else_if in &if_stmt.else_ifs {
         check_expr(&else_if.condition, env, errors);
         check_block(&else_if.block, env, expected_return, errors);
     }
     if let Some(ref else_block) = if_stmt.else_block {
-        check_block(else_block, env, expected_return, errors);
+        check_block_with_bindings(else_block, env, expected_return, errors, &else_bindings);
+    }
+}
+
+fn null_narrowings(condition: &Expr, env: &TypeEnv) -> (Narrowings, Narrowings) {
+    let Expr::Binary(bin) = condition else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let Some(name) = null_checked_ident(&bin.left, &bin.right) else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let Some(current_ty) = env.lookup(name) else {
+        return (Vec::new(), Vec::new());
+    };
+    if !current_ty.is_nullable() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let narrowed = current_ty.strip_null();
+    if narrowed.is_unknown() || matches!(narrowed, Ty::Never) {
+        return (Vec::new(), Vec::new());
+    }
+
+    match bin.op {
+        BinaryOp::Ne => (vec![(name.to_string(), narrowed)], Vec::new()),
+        BinaryOp::Eq => (Vec::new(), vec![(name.to_string(), narrowed)]),
+        _ => (Vec::new(), Vec::new()),
+    }
+}
+
+fn null_checked_ident<'a>(left: &'a Expr, right: &'a Expr) -> Option<&'a str> {
+    match (left, right) {
+        (Expr::Ident(ident), Expr::Literal(Literal::Null(_))) => Some(ident.name.as_str()),
+        (Expr::Literal(Literal::Null(_)), Expr::Ident(ident)) => Some(ident.name.as_str()),
+        _ => None,
     }
 }
 

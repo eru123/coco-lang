@@ -43,9 +43,34 @@ impl TypeckResult {
         !self.errors.is_empty()
     }
 
+    /// Returns true when type checking produced no errors.
+    pub fn is_ok(&self) -> bool {
+        self.errors.is_empty()
+    }
+
     /// Returns true if there are any warnings.
     pub fn has_warnings(&self) -> bool {
         !self.warnings.is_empty()
+    }
+
+    /// Number of type errors.
+    pub fn error_count(&self) -> usize {
+        self.errors.len()
+    }
+
+    /// Number of type warnings.
+    pub fn warning_count(&self) -> usize {
+        self.warnings.len()
+    }
+
+    /// Total number of errors and warnings.
+    pub fn diagnostic_count(&self) -> usize {
+        self.error_count() + self.warning_count()
+    }
+
+    /// First type error, if any.
+    pub fn primary_error(&self) -> Option<&TypeckError> {
+        self.errors.first()
     }
 }
 
