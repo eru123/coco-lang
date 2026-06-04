@@ -1,0 +1,11 @@
+[package]
+name = "coco_typeck"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+coco_syntax = { path = "../coco_syntax" }
+coco_span = { path = "../coco_span" }
+coco_parser = { path = "../coco_parser" }

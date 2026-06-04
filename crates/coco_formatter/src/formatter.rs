@@ -1079,6 +1079,12 @@ impl Formatter {
     }
 }
 
+impl Default for Formatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn primitive_type_str(pt: PrimitiveType) -> &'static str {
     match pt {
         PrimitiveType::Int => "int",

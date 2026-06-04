@@ -4,7 +4,6 @@ use coco_lexer::{Lexer, Token, TokenKind};
 use coco_span::Span;
 use coco_syntax::*;
 
-
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
@@ -47,9 +46,7 @@ impl<'a> Parser<'a> {
     }
 
     fn synchronize(&mut self) {
-        while !self.current.kind.is_sync_point()
-            && self.current.kind != TokenKind::Eof
-        {
+        while !self.current.kind.is_sync_point() && self.current.kind != TokenKind::Eof {
             self.advance();
         }
     }
@@ -188,9 +185,7 @@ impl<'a> Parser<'a> {
         let modifiers = self.parse_modifiers();
 
         match self.current.kind {
-            TokenKind::Constructor => {
-                Some(ClassMember::Constructor(self.parse_constructor()?))
-            }
+            TokenKind::Constructor => Some(ClassMember::Constructor(self.parse_constructor()?)),
             TokenKind::Use => {
                 self.advance();
                 let mut traits = Vec::new();
@@ -215,11 +210,12 @@ impl<'a> Parser<'a> {
             TokenKind::Fn | TokenKind::Function => {
                 self.parse_method(modifiers).map(ClassMember::Method)
             }
-            TokenKind::Async => {
-                self.parse_method(modifiers).map(ClassMember::Method)
-            }
-            TokenKind::Public | TokenKind::Private | TokenKind::Protected
-            | TokenKind::Readonly | TokenKind::Static => {
+            TokenKind::Async => self.parse_method(modifiers).map(ClassMember::Method),
+            TokenKind::Public
+            | TokenKind::Private
+            | TokenKind::Protected
+            | TokenKind::Readonly
+            | TokenKind::Static => {
                 // Already handled modifiers, recurse
                 self.parse_class_member()
             }
@@ -278,19 +274,16 @@ impl<'a> Parser<'a> {
         params
     }
 
-    fn parse_method_or_property(
-        &mut self,
-        modifiers: Vec<Modifier>,
-    ) -> Option<ClassMember> {
+    fn parse_method_or_property(&mut self, modifiers: Vec<Modifier>) -> Option<ClassMember> {
         // We need to look ahead to determine if this is a method or property.
         // Method: ident(...), Property: ident: Type
         // Since we can't peek easily, save name and check next token
         let name = self.parse_ident()?;
         if self.current.kind == TokenKind::LParen || self.current.kind == TokenKind::Lt {
             // Method with type params or direct parens
-            Some(ClassMember::Method(self.finish_parse_method(
-                modifiers, name,
-            )?))
+            Some(ClassMember::Method(
+                self.finish_parse_method(modifiers, name)?,
+            ))
         } else if self.eat(TokenKind::Colon) {
             // Property
             let type_ann = self.parse_type();
@@ -322,11 +315,7 @@ impl<'a> Parser<'a> {
         self.finish_parse_method_detail(modifiers, is_async, name, start)
     }
 
-    fn finish_parse_method(
-        &mut self,
-        modifiers: Vec<Modifier>,
-        name: Ident,
-    ) -> Option<Method> {
+    fn finish_parse_method(&mut self, modifiers: Vec<Modifier>, name: Ident) -> Option<Method> {
         let start = name.span.start;
         self.finish_parse_method_detail(modifiers, false, name, start)
     }
@@ -673,7 +662,8 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.expect(TokenKind::LBrace);
                 let mut cases = Vec::new();
-                while self.current.kind != TokenKind::RBrace && self.current.kind != TokenKind::Eof {
+                while self.current.kind != TokenKind::RBrace && self.current.kind != TokenKind::Eof
+                {
                     if self.current.kind == TokenKind::Case {
                         self.advance();
                         let pat = self.parse_ident()?;
@@ -942,8 +932,11 @@ impl<'a> Parser<'a> {
         let mut stmts = Vec::new();
         while self.current.kind != TokenKind::RBrace && self.current.kind != TokenKind::Eof {
             match self.current.kind {
-                TokenKind::Let | TokenKind::Const | TokenKind::Fn
-                | TokenKind::Function | TokenKind::Async => {
+                TokenKind::Let
+                | TokenKind::Const
+                | TokenKind::Fn
+                | TokenKind::Function
+                | TokenKind::Async => {
                     if let Some(item) = self.parse_item() {
                         stmts.push(Stmt::Item(Box::new(item)));
                     } else {
@@ -1035,9 +1028,14 @@ impl<'a> Parser<'a> {
         loop {
             // Break conditions
             match self.current.kind {
-                TokenKind::Eof | TokenKind::Semi | TokenKind::RBrace
-                | TokenKind::RParen | TokenKind::RBracket
-                | TokenKind::Comma | TokenKind::Colon | TokenKind::FatArrow => break,
+                TokenKind::Eof
+                | TokenKind::Semi
+                | TokenKind::RBrace
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::Comma
+                | TokenKind::Colon
+                | TokenKind::FatArrow => break,
                 _ => {}
             }
 
@@ -1056,7 +1054,9 @@ impl<'a> Parser<'a> {
             }
 
             // Handle range `..` or `..=`
-            if self.current.kind == TokenKind::Range || self.current.kind == TokenKind::RangeInclusive {
+            if self.current.kind == TokenKind::Range
+                || self.current.kind == TokenKind::RangeInclusive
+            {
                 let is_inclusive = self.current.kind == TokenKind::RangeInclusive;
                 self.advance();
                 let rhs = self.parse_expr_bp(right_bp);
@@ -1064,7 +1064,11 @@ impl<'a> Parser<'a> {
                 lhs = Expr::Binary(Box::new(BinaryExpr {
                     span,
                     left: lhs,
-                    op: if is_inclusive { BinaryOp::RangeInclusive } else { BinaryOp::Range },
+                    op: if is_inclusive {
+                        BinaryOp::RangeInclusive
+                    } else {
+                        BinaryOp::Range
+                    },
                     right: rhs,
                 }));
                 lhs = self.parse_postfix(lhs);
@@ -1072,7 +1076,8 @@ impl<'a> Parser<'a> {
             }
 
             // Handle pipe operators
-            if self.current.kind == TokenKind::PipeRight || self.current.kind == TokenKind::PipeLeft {
+            if self.current.kind == TokenKind::PipeRight || self.current.kind == TokenKind::PipeLeft
+            {
                 let op = if self.current.kind == TokenKind::PipeRight {
                     PipeOp::PipeRight
                 } else {
@@ -1292,18 +1297,10 @@ impl<'a> Parser<'a> {
                 self.expect(TokenKind::RParen);
                 Expr::Group(Box::new(expr))
             }
-            TokenKind::LBracket => {
-                self.parse_array_literal()
-            }
-            TokenKind::LBrace => {
-                self.parse_object_literal()
-            }
-            TokenKind::Match => {
-                self.parse_match_expr()
-            }
-            TokenKind::Async | TokenKind::Fn | TokenKind::Function => {
-                self.parse_lambda_expr()
-            }
+            TokenKind::LBracket => self.parse_array_literal(),
+            TokenKind::LBrace => self.parse_object_literal(),
+            TokenKind::Match => self.parse_match_expr(),
+            TokenKind::Async | TokenKind::Fn | TokenKind::Function => self.parse_lambda_expr(),
             _ => {
                 let span = self.current.span;
                 self.advance();
@@ -1844,6 +1841,16 @@ impl<'a> Parser<'a> {
                         ))
                     }
                 }
+            }
+            TokenKind::Null => {
+                let span = self.current.span;
+                self.advance();
+                Type::Primitive(PrimitiveType::Null, span)
+            }
+            TokenKind::Void => {
+                let span = self.current.span;
+                self.advance();
+                Type::Primitive(PrimitiveType::Void, span)
             }
             _ => {
                 let span = self.current.span;

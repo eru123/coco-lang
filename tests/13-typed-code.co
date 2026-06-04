@@ -1,0 +1,36 @@
+// Typed functions: the type checker validates these.
+fn add(a: int, b: int): int {
+    return a + b;
+}
+
+fn greet(name: string): string {
+    return "Hello, " + name;
+}
+
+fn isPositive(n: int): bool {
+    return n > 0;
+}
+
+fn sumList(items: list<int>): int {
+    let total: int = 0;
+    for item in items {
+        total += item;
+    }
+    return total;
+}
+
+// Untyped functions: gradual typing leaves these permissive.
+fn untyped(x) {
+    return x;
+}
+
+fn main() {
+    const result: int = add(10, 20);
+    print(result);
+    print(greet("Coco"));
+    print(isPositive(5));
+    print(isPositive(-3));
+    print(sumList([1, 2, 3, 4, 5]));
+    print(untyped("unchecked"));
+    return 0;
+}

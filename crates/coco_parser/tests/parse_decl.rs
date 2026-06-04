@@ -47,6 +47,23 @@ fn parse_let_decl() {
 }
 
 #[test]
+fn parse_null_type_in_union() {
+    let program = parse("let x: int|null = null;");
+    match &program.items[0] {
+        Item::LetDecl(l) => {
+            let Some(Type::Union(union)) = &l.type_ann else {
+                panic!("expected union type, got {:?}", l.type_ann);
+            };
+            assert!(matches!(
+                &union.types[1],
+                Type::Primitive(PrimitiveType::Null, _)
+            ));
+        }
+        other => panic!("expected LetDecl, got {:?}", other),
+    }
+}
+
+#[test]
 fn parse_const_decl() {
     let program = parse("const PI: float = 3.14;");
     match &program.items[0] {
