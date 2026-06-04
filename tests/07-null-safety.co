@@ -1,0 +1,53 @@
+// Null safety operators
+// Demonstrates: null coalescing (??), ternary (?:), null checks
+
+fn getOrDefault(value, fallback) {
+    return value ?? fallback;
+}
+
+fn describe(n) {
+    if n > 0 {
+        return "positive";
+    }
+    if n < 0 {
+        return "negative";
+    }
+    return "zero";
+}
+
+fn main() {
+    // Null coalescing
+    let user = null;
+    print(user ?? "Anonymous");
+    print(null ?? "default");
+    print(42 ?? "never");
+
+    // Ternary
+    let age = 20;
+    let status = age >= 18 ? "adult" : "minor";
+    print(status);
+
+    // Chained null coalesce
+    let a = null;
+    let b = null;
+    let c = "found";
+    print(a ?? b ?? c);
+
+    // Functions with null
+    print(getOrDefault(null, "fallback"));
+    print(getOrDefault("value", "fallback"));
+
+    // Conditional logic
+    print(describe(5));
+    print(describe(-3));
+    print(describe(0));
+
+    // Truthiness
+    print(0 ? "truthy" : "falsy");
+    print(1 ? "truthy" : "falsy");
+    print("" ? "truthy" : "falsy");
+    print("hi" ? "truthy" : "falsy");
+    print(null ? "truthy" : "falsy");
+
+    return 0;
+}

@@ -1,0 +1,8 @@
+// Hello World — the simplest Coco program
+// Run: cargo run -- run tests/01-hello-world.co
+
+fn main() {
+    print("Hello, World!");
+    print("Welcome to Coco!");
+    return 0;
+}

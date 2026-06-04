@@ -1,0 +1,65 @@
+// String operations
+// Demonstrates: concatenation, length, comparisons, building strings
+
+fn repeat(s, n) {
+    let result = "";
+    let i = 0;
+    while i < n {
+        result = result + s;
+        i += 1;
+    }
+    return result;
+}
+
+fn padLeft(s, width, ch) {
+    let padding = width - s.length;
+    if padding <= 0 {
+        return s;
+    }
+    return repeat(ch, padding) + s;
+}
+
+fn join(items, sep) {
+    let result = "";
+    let first = true;
+    for item in items {
+        if !first {
+            result = result + sep;
+        }
+        result = result + item;
+        first = false;
+    }
+    return result;
+}
+
+fn main() {
+    // String concatenation
+    let greeting = "Hello" + ", " + "World" + "!";
+    print(greeting);
+
+    // String length
+    print(greeting.length);
+    print("".length);
+    print("Coco".length);
+
+    // Building strings
+    print(repeat("ab", 5));
+    print(repeat("*", 20));
+
+    // Join
+    print(join(["one", "two", "three"], ", "));
+    print(join(["a", "b", "c", "d"], "-"));
+
+    // String comparison
+    print("abc" == "abc");
+    print("abc" != "def");
+    print("hello" + " " + "world" == "hello world");
+
+    // Multiline building
+    let box = repeat("-", 10);
+    print(box);
+    print("|  Coco  |");
+    print(box);
+
+    return 0;
+}

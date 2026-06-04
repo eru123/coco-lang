@@ -8,6 +8,7 @@ impl Interpreter {
     /// Execute a statement and return the last expression value (or Null).
     pub(crate) fn exec_stmt(&mut self, stmt: &Stmt) -> IResult {
         match stmt {
+            Stmt::Item(item) => self.exec_item(item),
             Stmt::Expr(expr_stmt) => self.eval_expr(&expr_stmt.expr),
             Stmt::If(if_stmt) => self.exec_if(if_stmt),
             Stmt::For(for_stmt) => self.exec_for(for_stmt),

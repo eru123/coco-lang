@@ -1,0 +1,96 @@
+// Classic algorithms
+// Demonstrates: recursion, loops, complex logic
+
+fn isPrime(n) {
+    if n < 2 {
+        return false;
+    }
+    let i = 2;
+    while i * i <= n {
+        if n % i == 0 {
+            return false;
+        }
+        i += 1;
+    }
+    return true;
+}
+
+fn gcd(a, b) {
+    while b != 0 {
+        let temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+fn power(base, exp) {
+    if exp == 0 {
+        return 1;
+    }
+    if exp % 2 == 0 {
+        let half = power(base, exp / 2);
+        return half * half;
+    }
+    return base * power(base, exp - 1);
+}
+
+fn collatz(n) {
+    let steps = 0;
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = n * 3 + 1;
+        }
+        steps += 1;
+    }
+    return steps;
+}
+
+fn sumDigits(n) {
+    let sum = 0;
+    while n > 0 {
+        sum += n % 10;
+        n = n / 10;
+    }
+    return sum;
+}
+
+fn main() {
+    // Primes
+    print("Primes up to 30:");
+    let i = 2;
+    while i <= 30 {
+        if isPrime(i) {
+            print(i);
+        }
+        i += 1;
+    }
+
+    // GCD
+    print("GCD(48, 18):");
+    print(gcd(48, 18));
+    print("GCD(100, 75):");
+    print(gcd(100, 75));
+
+    // Fast exponentiation
+    print("2^20:");
+    print(power(2, 20));
+    print("3^10:");
+    print(power(3, 10));
+
+    // Collatz conjecture
+    print("Collatz steps for 27:");
+    print(collatz(27));
+    print("Collatz steps for 1000:");
+    print(collatz(1000));
+
+    // Digit sum
+    print("Sum digits of 12345:");
+    print(sumDigits(12345));
+    print("Sum digits of 99999:");
+    print(sumDigits(99999));
+
+    return 0;
+}

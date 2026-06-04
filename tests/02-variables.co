@@ -1,0 +1,38 @@
+// Variables and bindings
+// Demonstrates: const, let, reassignment, compound assignment, types
+
+fn main() {
+    // Immutable binding
+    const pi = 3.14159;
+    const language = "Coco";
+    const version = 1;
+
+    // Mutable binding
+    let counter = 0;
+    counter += 1;
+    counter += 1;
+    counter += 1;
+
+    // Multiple types
+    let age = 28;
+    let name = "Jericho";
+    let active = true;
+
+    // Compound assignment operators
+    let x = 100;
+    x -= 25;
+    x *= 2;
+    x /= 10;
+
+    // Print results
+    print(language);
+    print(version);
+    print(pi);
+    print(counter);
+    print(name);
+    print(age);
+    print(active);
+    print(x);
+
+    return 0;
+}

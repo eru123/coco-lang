@@ -277,6 +277,7 @@ pub struct Export {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(ExprStmt),
+    Item(Box<Item>),
     If(IfStmt),
     For(ForStmt),
     While(WhileStmt),

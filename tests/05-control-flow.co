@@ -1,0 +1,92 @@
+// Control flow
+// Demonstrates: if/else, while, for-in, loop, break, continue
+
+fn fizzbuzz(n) {
+    if n % 15 == 0 {
+        return "FizzBuzz";
+    }
+    if n % 3 == 0 {
+        return "Fizz";
+    }
+    if n % 5 == 0 {
+        return "Buzz";
+    }
+    return n;
+}
+
+fn sumRange(start, end) {
+    let sum = 0;
+    let i = start;
+    while i <= end {
+        sum += i;
+        i += 1;
+    }
+    return sum;
+}
+
+fn countDown(start) {
+    let i = start;
+    while i > 0 {
+        print(i);
+        i -= 1;
+    }
+    print("Go!");
+}
+
+fn main() {
+    // If/else
+    let temperature = 72;
+    if temperature > 80 {
+        print("Hot");
+    } else {
+        if temperature > 60 {
+            print("Nice");
+        } else {
+            print("Cold");
+        }
+    }
+
+    // FizzBuzz with while
+    let i = 1;
+    while i <= 20 {
+        print(fizzbuzz(i));
+        i += 1;
+    }
+
+    // For-in loop over a list
+    let total = 0;
+    for num in [10, 20, 30, 40, 50] {
+        total += num;
+    }
+    print(total);
+
+    // Sum with while
+    print(sumRange(1, 100));
+
+    // Loop with break
+    let x = 0;
+    loop {
+        x += 1;
+        if x >= 5 {
+            break;
+        }
+    }
+    print(x);
+
+    // While with continue (sum only odd numbers)
+    let oddSum = 0;
+    let n = 0;
+    while n < 20 {
+        n += 1;
+        if n % 2 == 0 {
+            continue;
+        }
+        oddSum += n;
+    }
+    print(oddSum);
+
+    // Countdown
+    countDown(5);
+
+    return 0;
+}

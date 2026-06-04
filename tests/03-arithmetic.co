@@ -1,0 +1,44 @@
+// Arithmetic and expressions
+// Demonstrates: operators, precedence, grouping, unary, float promotion
+
+fn main() {
+    // Basic arithmetic
+    print(2 + 3);
+    print(10 - 4);
+    print(6 * 7);
+    print(15 / 4);
+    print(17 % 5);
+    print(2 ** 10);
+
+    // Precedence: * binds tighter than +
+    print(2 + 3 * 4);
+    print((2 + 3) * 4);
+
+    // Float arithmetic
+    print(1.5 + 2.5);
+    print(10.0 / 3.0);
+
+    // Unary operators
+    print(-42);
+    print(!true);
+    print(!false);
+
+    // String concatenation
+    print("Hello" + " " + "World");
+
+    // Comparison operators
+    print(1 < 2);
+    print(5 > 3);
+    print(2 <= 2);
+    print(3 >= 4);
+    print(1 == 1);
+    print(1 != 2);
+
+    // Logical operators
+    print(true && true);
+    print(true && false);
+    print(false || true);
+    print(false || false);
+
+    return 0;
+}

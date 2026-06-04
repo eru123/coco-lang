@@ -629,20 +629,6 @@ impl<'a> Parser<'a> {
 
     fn parse_stmt(&mut self) -> Option<Stmt> {
         match self.current.kind {
-            TokenKind::Let => {
-                let decl = self.parse_let_decl()?;
-                Some(Stmt::Expr(ExprStmt {
-                    span: decl.span,
-                    expr: Expr::Ident(decl.name),
-                }))
-            }
-            TokenKind::Const => {
-                let decl = self.parse_const_decl()?;
-                Some(Stmt::Expr(ExprStmt {
-                    span: decl.span,
-                    expr: Expr::Ident(decl.name),
-                }))
-            }
             TokenKind::If => Some(Stmt::If(self.parse_if_stmt()?)),
             TokenKind::For => Some(Stmt::For(self.parse_for_stmt()?)),
             TokenKind::While => Some(Stmt::While(self.parse_while_stmt()?)),
@@ -955,10 +941,22 @@ impl<'a> Parser<'a> {
         }
         let mut stmts = Vec::new();
         while self.current.kind != TokenKind::RBrace && self.current.kind != TokenKind::Eof {
-            if let Some(stmt) = self.parse_stmt() {
-                stmts.push(stmt);
-            } else if self.current.kind != TokenKind::RBrace {
-                self.advance();
+            match self.current.kind {
+                TokenKind::Let | TokenKind::Const | TokenKind::Fn
+                | TokenKind::Function | TokenKind::Async => {
+                    if let Some(item) = self.parse_item() {
+                        stmts.push(Stmt::Item(Box::new(item)));
+                    } else {
+                        self.advance();
+                    }
+                }
+                _ => {
+                    if let Some(stmt) = self.parse_stmt() {
+                        stmts.push(stmt);
+                    } else if self.current.kind != TokenKind::RBrace {
+                        self.advance();
+                    }
+                }
             }
         }
         let end = self.current.span.end;

@@ -1,0 +1,58 @@
+// Collections — lists and maps
+// Demonstrates: list literals, indexing, length, for-in, map literals
+
+fn sumList(items) {
+    let total = 0;
+    for item in items {
+        total += item;
+    }
+    return total;
+}
+
+fn findMax(items) {
+    let best = items[0];
+    let i = 1;
+    for item in items {
+        if item > best {
+            best = item;
+        }
+    }
+    return best;
+}
+
+fn main() {
+    // List creation and indexing
+    const numbers = [10, 20, 30, 40, 50];
+    print(numbers[0]);
+    print(numbers[2]);
+    print(numbers[4]);
+    print(numbers.length);
+
+    // Iteration
+    for n in numbers {
+        print(n);
+    }
+
+    // List operations
+    print(sumList(numbers));
+    print(sumList([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    print(findMax([3, 1, 4, 1, 5, 9, 2, 6, 5, 3]));
+
+    // Map creation and access
+    const config = {"host": "localhost", "port": "8080", "debug": "true"};
+    print(config["host"]);
+    print(config["port"]);
+
+    // Nested structures
+    const matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    print(matrix[0]);
+    print(matrix[1]);
+    print(matrix[2]);
+
+    // String as iterable
+    for ch in ["C", "o", "c", "o"] {
+        print(ch);
+    }
+
+    return 0;
+}

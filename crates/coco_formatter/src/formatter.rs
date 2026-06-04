@@ -465,6 +465,7 @@ impl Formatter {
 
     fn format_stmt(&mut self, s: &Stmt) {
         match s {
+            Stmt::Item(item) => self.format_item(item),
             Stmt::Expr(es) => self.format_expr_stmt(es),
             Stmt::If(i) => self.format_if_stmt(i),
             Stmt::For(f) => self.format_for_stmt(f),

@@ -1,0 +1,71 @@
+// Higher-order functions and patterns
+// Demonstrates: functions as values, callbacks, composition
+
+fn apply(f, x) {
+    return f(x);
+}
+
+fn compose(f, g, x) {
+    return f(g(x));
+}
+
+fn twice(f, x) {
+    return f(f(x));
+}
+
+fn double(n) {
+    return n * 2;
+}
+
+fn increment(n) {
+    return n + 1;
+}
+
+fn square(n) {
+    return n * n;
+}
+
+fn negate(n) {
+    return -n;
+}
+
+fn isPositive(n) {
+    return n > 0;
+}
+
+// Manual map implementation
+fn mapList(items, f) {
+    let result = [];
+    for item in items {
+        // Note: list.push not yet supported, using accumulator pattern
+        result = result;
+    }
+    // For now, demonstrate the concept with individual calls
+    return f(items[0]);
+}
+
+fn main() {
+    // Functions as arguments
+    print(apply(double, 5));
+    print(apply(square, 4));
+    print(apply(negate, 7));
+
+    // Composition
+    print(compose(double, increment, 3));
+    print(compose(square, double, 3));
+    print(compose(increment, square, 4));
+
+    // Apply twice
+    print(twice(double, 3));
+    print(twice(increment, 10));
+    print(twice(square, 2));
+
+    // Functions returning values used in expressions
+    let result = double(5) + square(3);
+    print(result);
+
+    let bigger = apply(double, 10) > apply(increment, 15);
+    print(bigger);
+
+    return 0;
+}
