@@ -4,12 +4,15 @@
 //! Supports expressions, statements, functions, closures, and control flow.
 
 pub mod builtins;
+pub mod compiler;
 pub mod env;
 pub mod error;
 pub mod eval_expr;
 pub mod exec_item;
 pub mod exec_stmt;
+pub mod ir;
 pub mod value;
+pub mod vm;
 
 pub use error::RuntimeError;
 pub use value::Value;

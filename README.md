@@ -15,7 +15,7 @@ Coco is not yet a stable language.
 Current stage:
 
 ```txt
-Phase 6 - GC runtime (functional)
+Phase 7 - IR + bytecode VM (functional)
 ```
 
 Planned stages:

@@ -4,6 +4,8 @@ use std::fmt;
 use coco_gc::{CoW, Gc};
 use coco_syntax::{Block, Param};
 
+use crate::ir::FnObj;
+
 /// Runtime values in the Coco interpreter.
 ///
 /// List and Map are heap-allocated with copy-on-write semantics.
@@ -19,6 +21,7 @@ pub enum Value {
     Map(Gc<CoW<HashMap<String, Value>>>),
     Function(Function),
     BuiltinFn(String),
+    FnObj(FnObj),
 }
 
 /// A user-defined function captured at runtime.
@@ -59,6 +62,7 @@ impl fmt::Display for Value {
             }
             Value::Function(func) => write!(f, "<fn {}>", func.name),
             Value::BuiltinFn(name) => write!(f, "<builtin {}>", name),
+            Value::FnObj(fo) => write!(f, "<fn {}>", fo.name),
         }
     }
 }
@@ -75,6 +79,7 @@ impl fmt::Debug for Value {
             Value::Map(map) => write!(f, "Map({:?})", &map.data),
             Value::Function(func) => write!(f, "Function({})", func.name),
             Value::BuiltinFn(name) => write!(f, "BuiltinFn({})", name),
+            Value::FnObj(fo) => write!(f, "FnObj({})", fo.name),
         }
     }
 }
@@ -90,7 +95,7 @@ impl Value {
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.data.is_empty(),
             Value::Map(m) => !m.data.is_empty(),
-            Value::Function(_) | Value::BuiltinFn(_) => true,
+            Value::Function(_) | Value::BuiltinFn(_) | Value::FnObj(_) => true,
         }
     }
 

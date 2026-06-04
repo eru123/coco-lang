@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Coco is a compiled, memory-safe programming language for backend services, CLI tools, and automation. Targets JS/TS/PHP developers who want memory safety without Rust's learning curve.
 
-**Current status:** Phase 4 - gradual type checker implemented. Lexer, parser, formatter, interpreter, and type checker all functional. Language design docs and grammar are the source of truth for what the compiler should accept.
+**Current status:** Phase 7 - IR + bytecode VM implemented. Lexer, parser, formatter, interpreter, type checker, safety analyzer, GC runtime, and bytecode VM all functional. The tree-walking interpreter and bytecode VM coexist; use `--vm` to select the VM path.
 
 **Core principles:**
 - JavaScript-like syntax (not PHP `$variables`)
@@ -35,7 +35,7 @@ cargo run -- run --no-check FILE.co # Execute a .co file without type checking
 
 Toolchain: Rust stable (see `rust-toolchain.toml`). Components: `rustfmt`, `clippy`.
 
-Test suite: 103 tests across all crates (`cargo test`).
+Test suite: ~48 tests in `coco_interpreter` (IR, compiler, VM + eval), plus tests across all crates.
 
 ## Compiler Architecture (Rust workspace)
 
@@ -55,9 +55,9 @@ coco_span -> coco_diagnostics -> coco_lexer -> coco_syntax -> coco_parser -> coc
 | `coco_syntax` | AST node definitions (`ast.rs`). Shared between parser and formatter |
 | `coco_parser` | Recursive descent (declarations/statements) + Pratt parsing (expressions). Error recovery via sync points |
 | `coco_formatter` | AST -> formatted source. 4-space indent, ~100-char width, idempotent |
-| `coco_interpreter` | Tree-walking interpreter. `Interpreter::new()` + `run_main(source)` |
+| `coco_interpreter` | Tree-walking interpreter + bytecode compiler + stack VM. `Interpreter::new()` + `run_main(source)` or `Vm::new()` + `vm.run(chunk)` |
 | `coco_typeck` | Gradual type checker. `check(&Program)` validates annotated code and leaves unannotated code permissive |
-| `coco_cli` | clap-based binary: `lex`, `parse`, `fmt`, `check`, `typecheck`, `run` subcommands |
+| `coco_cli` | clap-based binary: `lex`, `parse`, `fmt`, `check`, `typecheck`, `safety`, `run`, `build` subcommands. `--vm` flag for bytecode VM path |
 
 Key types:
 - `Token { kind: TokenKind, span: Span, text: String }` - lexer output
@@ -100,11 +100,11 @@ When modifying the compiler or adding language features:
 
 ## Roadmap
 
-Current: **Phase 4** (gradual type checker - implemented)
+Current: **Phase 7** (bytecode VM - implemented)
 
-Completed: lexer, parser, formatter (Phase 2), interpreter (Phase 3), type checker (Phase 4)
+Completed: lexer, parser, formatter (Phase 2), interpreter (Phase 3), type checker (Phase 4), memory safety analyzer (Phase 5), GC runtime (Phase 6), bytecode VM (Phase 7)
 
-Next phases: memory safety analyzer (5), runtime (6), bytecode VM (7), concurrency safety (8), async runtime (9), stdlib (10), native AOT compiler (11).
+Next phases: concurrency safety (8), async runtime (9), stdlib (10), native AOT compiler (11).
 
 ## Non-Goals for v1
 

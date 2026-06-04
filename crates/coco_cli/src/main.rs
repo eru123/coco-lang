@@ -68,6 +68,14 @@ enum Commands {
         /// Enable debug mode (GC stats)
         #[arg(long = "debug")]
         debug: bool,
+        /// Use the bytecode VM instead of the tree-walking interpreter
+        #[arg(long = "vm")]
+        use_vm: bool,
+    },
+    /// Compile a .co file to bytecode and print disassembly
+    Build {
+        /// Path to the .co file
+        file: PathBuf,
     },
 }
 
@@ -85,7 +93,9 @@ fn main() {
             file,
             no_check,
             debug,
-        } => cmd_run(&file, no_check, debug),
+            use_vm,
+        } => cmd_run(&file, no_check, debug, use_vm),
+        Commands::Build { file } => cmd_build(&file),
     }
 }
 
@@ -236,7 +246,7 @@ fn cmd_fmt(file: &Path, write: bool) {
     }
 }
 
-fn cmd_run(file: &Path, no_check: bool, debug: bool) {
+fn cmd_run(file: &Path, no_check: bool, debug: bool, use_vm: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -286,6 +296,11 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool) {
         }
     }
 
+    if use_vm {
+        run_with_vm(&source, debug);
+        return;
+    }
+
     let mut interp = Interpreter::new();
     interp.set_debug(debug);
     match interp.run_main(&source) {
@@ -297,6 +312,69 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool) {
         Err(e) => {
             eprintln!("Runtime error: {}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+fn run_with_vm(source: &str, debug: bool) {
+    let mut parser = Parser::new(source);
+    let program = parser.parse_program();
+
+    let mut compiler = coco_interpreter::compiler::Compiler::new();
+    let chunk = match compiler.compile_script(&program) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Compile error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut vm = coco_interpreter::vm::Vm::new();
+    vm.set_debug(debug);
+    match vm.run(&chunk) {
+        Ok(val) => {
+            if let coco_interpreter::Value::Int(code) = val {
+                std::process::exit(code as i32);
+            }
+        }
+        Err(e) => {
+            eprintln!("VM error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_build(file: &Path) {
+    let (source, resolved) = match read_source(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut parser = Parser::new(&source);
+    let program = parser.parse_program();
+
+    let mut compiler = coco_interpreter::compiler::Compiler::new();
+    let chunk = match compiler.compile_script(&program) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Compile error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Print disassembly of the script chunk and all functions
+    println!("== {} (script) ==", resolved.display());
+    println!("{}", coco_interpreter::ir::disassemble(&chunk, "script"));
+
+    for val in &chunk.constants {
+        if let coco_interpreter::Value::FnObj(fo) = val {
+            println!(
+                "{}",
+                coco_interpreter::ir::disassemble(&fo.chunk, &fo.name)
+            );
         }
     }
 }
