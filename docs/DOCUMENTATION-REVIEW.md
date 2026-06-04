@@ -98,21 +98,15 @@ Each serves a distinct purpose without significant overlap.
 
 ## Missing Documentation
 
-1. **Module Resolution** — How imports resolve to files
-   - Currently: Examples use `"std/http"` with no resolution spec
-   - Needed: ADR or section in language-reference.md
+1. ~~**Module Resolution** — How imports resolve to files~~ → `docs/module-resolution.md` (2026-06-04)
 
-2. **Standard Library Outline** — What's in `std/`?
-   - Currently: Examples reference std/http, std/fs, std/json, std/crypto
-   - Needed: High-level stdlib organization (can defer detailed API docs)
+2. ~~**Standard Library Outline** — What's in `std/`?~~ → `docs/stdlib.md` (2026-06-04)
 
-3. **FFI Specification** — How unsafe {} and ffi.load() work
-   - Currently: Shown in examples but not specified
-   - Needed: ADR or section in language-reference.md
+3. ~~**FFI Specification** — How unsafe {} and ffi.load() work~~ → `docs/ffi.md` (2026-06-04)
 
-4. **Build System** — Package manifest, dependencies, compilation
-   - Currently: No spec for how to build a Coco project
-   - Needed: Not urgent for Phase 0-1, but should come in Phase 2
+4. ~~**Build System** — Package manifest, dependencies, compilation~~ → `docs/build-system.md` (2026-06-04)
+
+All four previously missing specs are now documented.
 
 ---
 
@@ -158,26 +152,19 @@ Each serves a distinct purpose without significant overlap.
    ```
    Keep for history but move out of main docs/ directory.
 
-### Phase 0-1 Completion Tasks
+### Phase 5 Completion Tasks
 
-1. **Write ADR 017: Module Resolution**
-   - Define how `import { X } from "std/http"` resolves
-   - Define standard library namespace conventions
-   - Define relative vs absolute imports
+1. ~~**Write module resolution spec**~~ → `docs/module-resolution.md`
+2. ~~**Write stdlib organization spec**~~ → `docs/stdlib.md`
+3. ~~**Write FFI spec**~~ → `docs/ffi.md`
+4. ~~**Write build system spec**~~ → `docs/build-system.md`
+5. ~~**Update CLAUDE.md**~~ (noted in docs resolution)
 
-2. **Write ADR 018: Standard Library Organization**
-   - High-level outline of std/ modules
-   - No need for detailed APIs yet, just structure
+### Long-Term (Phase 6+)
 
-3. **Update CLAUDE.md**
-   - Add pipe operator patterns to "Example Code Patterns"
-   - Note module resolution once ADR 017 exists
-
-### Long-Term (Phase 2+)
-
-1. Create `docs/stdlib/` directory with API reference
-2. Create `docs/build-system.md` specification
-3. Create `docs/ffi.md` detailed specification
+1. Create `docs/stdlib/` directory with detailed API reference
+2. Implement module resolution in the compiler
+3. Implement stdlib modules as they ship
 
 ---
 
