@@ -399,7 +399,8 @@ impl Interpreter {
     fn bitwise_op(&self, left: Value, right: Value, op: fn(i64, i64) -> i64) -> IResult {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
-            _ => Err(Signal::Error(RuntimeError::new("bitwise ops require integers"))),
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(op(a as i64, b as i64) != 0)),
+            _ => Err(Signal::Error(RuntimeError::new("bitwise ops require integers or booleans"))),
         }
     }
 
