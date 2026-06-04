@@ -19,6 +19,7 @@
 //! ```
 
 pub mod collect;
+pub mod def_assign;
 pub mod diagnostics;
 pub mod env;
 
@@ -79,10 +80,21 @@ pub fn analyze(program: &Program) -> SafetyResult {
     // Pass 1: collect bindings
     collect::collect_bindings(&program.items, &mut env);
 
-    // Pass 2: safety checks (wired in subsequent tasks)
+    // Pass 2: safety checks
+    let mut all_diagnostics = Vec::new();
 
-    SafetyResult {
-        errors: Vec::new(),
-        warnings: Vec::new(),
+    // Definite assignment
+    all_diagnostics.extend(def_assign::check_def_assign(&program.items, &mut env));
+
+    // Separate errors from warnings
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    for diag in all_diagnostics {
+        match diag.severity {
+            Severity::Error => errors.push(diag),
+            Severity::Warning => warnings.push(diag),
+        }
     }
+
+    SafetyResult { errors, warnings }
 }

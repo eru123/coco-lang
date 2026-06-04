@@ -8,3 +8,6 @@ license.workspace = true
 [dependencies]
 coco_syntax = { path = "../coco_syntax" }
 coco_span = { path = "../coco_span" }
+
+[dev-dependencies]
+coco_parser = { path = "../coco_parser" }
