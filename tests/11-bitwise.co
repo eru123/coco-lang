@@ -1,0 +1,78 @@
+// Bitwise operations
+// Demonstrates: AND, OR, XOR, shift left, shift right, NOT
+
+fn main() {
+    // Basic bitwise AND
+    print(0b1100 & 0b1010);   // 8 (0b1000)
+    print(255 & 0x0F);         // 15
+
+    // Basic bitwise OR
+    print(0b1100 | 0b1010);   // 14 (0b1110)
+    print(0 | 7);              // 7
+
+    // Basic bitwise XOR
+    print(0b1100 ^ 0b1010);   // 6 (0b0110)
+    print(5 ^ 5);              // 0 (XOR with self = 0)
+
+    // Shift left (multiply by powers of 2)
+    print(1 << 0);             // 1
+    print(1 << 1);             // 2
+    print(1 << 4);             // 16
+    print(1 << 10);            // 1024
+    print(3 << 3);             // 24
+
+    // Shift right (divide by powers of 2)
+    print(32 >> 1);            // 16
+    print(32 >> 2);            // 8
+    print(32 >> 5);            // 1
+    print(100 >> 3);           // 12
+
+    // Bitwise NOT
+    print(~0);                 // -1
+    print(~1);                 // -2
+    print(~(-1));              // 0
+    print(~255);               // -256
+
+    // Practical: flag manipulation
+    const READ = 1;
+    const WRITE = 2;
+    const EXEC = 4;
+
+    let perms = READ | WRITE | EXEC;  // all permissions = 7
+    print(perms);
+
+    // Check if permission is set
+    print((perms & READ) != 0);   // true
+    print((perms & WRITE) != 0);  // true
+
+    // Remove a permission
+    perms = perms & ~WRITE;       // remove write
+    print(perms);                  // 5 (read + exec)
+    print((perms & WRITE) != 0);  // false
+
+    // Add a permission back
+    perms = perms | WRITE;
+    print(perms);                  // 7
+
+    // Toggle a permission with XOR
+    perms = perms ^ EXEC;
+    print(perms);                  // 3 (read + write, exec toggled off)
+    perms = perms ^ EXEC;
+    print(perms);                  // 7 (exec toggled back on)
+
+    // Practical: power of 2 check
+    // n & (n-1) == 0 means n is a power of 2
+    print(16 & 15);               // 0 (16 is power of 2)
+    print(12 & 11);               // 8 (12 is not power of 2)
+
+    // Swap without temp variable using XOR
+    let a = 42;
+    let b = 99;
+    a = a ^ b;
+    b = a ^ b;
+    a = a ^ b;
+    print(a);                     // 99
+    print(b);                     // 42
+
+    return 0;
+}
