@@ -21,8 +21,16 @@ fn assert_idempotent(src: &str) {
 #[test]
 fn format_fn_decl() {
     let output = format("fn add(x: int, y: int): int { return x + y; }");
-    assert!(output.contains("fn add"), "Expected 'fn add' in output: {}", output);
-    assert!(output.contains("return"), "Expected 'return' in output: {}", output);
+    assert!(
+        output.contains("fn add"),
+        "Expected 'fn add' in output: {}",
+        output
+    );
+    assert!(
+        output.contains("return"),
+        "Expected 'return' in output: {}",
+        output
+    );
 }
 
 #[test]
@@ -33,26 +41,45 @@ fn format_idempotent_fn() {
 #[test]
 fn format_class_decl() {
     let output = format("class Dog { name: string; fn bark() { } }");
-    assert!(output.contains("class Dog"), "Expected 'class Dog' in output: {}", output);
+    assert!(
+        output.contains("class Dog"),
+        "Expected 'class Dog' in output: {}",
+        output
+    );
 }
 
 #[test]
 fn format_let_const() {
     let output = format("let x: int = 42;");
-    assert!(output.contains("let x"), "Expected 'let x' in output: {}", output);
+    assert!(
+        output.contains("let x"),
+        "Expected 'let x' in output: {}",
+        output
+    );
 }
 
 #[test]
 fn format_enum() {
     let output = format("enum Color { Red, Green, Blue }");
-    assert!(output.contains("enum Color"), "Expected 'enum Color' in output: {}", output);
-    assert!(output.contains("Red"), "Expected 'Red' in output: {}", output);
+    assert!(
+        output.contains("enum Color"),
+        "Expected 'enum Color' in output: {}",
+        output
+    );
+    assert!(
+        output.contains("Red"),
+        "Expected 'Red' in output: {}",
+        output
+    );
 }
 
 #[test]
 fn format_binary_expr() {
     let output = format("let x = 1 + 2 * 3;");
-    assert!(!output.is_empty(), "Expected non-empty output for binary expression");
+    assert!(
+        !output.is_empty(),
+        "Expected non-empty output for binary expression"
+    );
 }
 
 #[test]

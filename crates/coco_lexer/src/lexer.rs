@@ -1,6 +1,6 @@
+use crate::token::{Token, TokenKind};
 use coco_span::Span;
 use unicode_xid::UnicodeXID;
-use crate::token::{Token, TokenKind};
 
 #[derive(Clone)]
 pub struct Lexer<'a> {
@@ -147,7 +147,8 @@ impl<'a> Lexer<'a> {
 
     fn lex_hex_number(&mut self) -> TokenKind {
         self.advance_by(2); // 0x
-        while !self.is_eof() && (self.current_char().is_ascii_hexdigit() || self.current_char() == '_')
+        while !self.is_eof()
+            && (self.current_char().is_ascii_hexdigit() || self.current_char() == '_')
         {
             self.advance();
         }
@@ -157,7 +158,9 @@ impl<'a> Lexer<'a> {
     fn lex_bin_number(&mut self) -> TokenKind {
         self.advance_by(2); // 0b
         while !self.is_eof()
-            && (self.current_char() == '0' || self.current_char() == '1' || self.current_char() == '_')
+            && (self.current_char() == '0'
+                || self.current_char() == '1'
+                || self.current_char() == '_')
         {
             self.advance();
         }
@@ -166,23 +169,18 @@ impl<'a> Lexer<'a> {
 
     fn lex_oct_number(&mut self) -> TokenKind {
         self.advance_by(2); // 0o
-        while !self.is_eof()
-            && (self.current_char().is_digit(8) || self.current_char() == '_')
-        {
+        while !self.is_eof() && (self.current_char().is_digit(8) || self.current_char() == '_') {
             self.advance();
         }
         TokenKind::IntLiteral
     }
 
     fn lex_decimal_number(&mut self) -> TokenKind {
-        while !self.is_eof()
-            && (self.current_char().is_ascii_digit() || self.current_char() == '_')
+        while !self.is_eof() && (self.current_char().is_ascii_digit() || self.current_char() == '_')
         {
             self.advance();
         }
-        if self.current_char() == '.'
-            && self.peek_char(1).is_ascii_digit()
-        {
+        if self.current_char() == '.' && self.peek_char(1).is_ascii_digit() {
             self.advance(); // .
             while !self.is_eof()
                 && (self.current_char().is_ascii_digit() || self.current_char() == '_')
@@ -310,17 +308,32 @@ impl<'a> Lexer<'a> {
         self.advance();
         match ch {
             '+' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::PlusEq }
-                '+' => { self.advance(); TokenKind::Error } // ++ not valid as standalone token
+                '=' => {
+                    self.advance();
+                    TokenKind::PlusEq
+                }
+                '+' => {
+                    self.advance();
+                    TokenKind::Error
+                } // ++ not valid as standalone token
                 _ => TokenKind::Plus,
             },
             '-' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::MinusEq }
-                '-' => { self.advance(); TokenKind::Error } // -- not valid as standalone
+                '=' => {
+                    self.advance();
+                    TokenKind::MinusEq
+                }
+                '-' => {
+                    self.advance();
+                    TokenKind::Error
+                } // -- not valid as standalone
                 _ => TokenKind::Minus,
             },
             '*' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::StarEq }
+                '=' => {
+                    self.advance();
+                    TokenKind::StarEq
+                }
                 '*' => {
                     self.advance();
                     if self.current_char() == '=' {
@@ -333,20 +346,35 @@ impl<'a> Lexer<'a> {
                 _ => TokenKind::Star,
             },
             '/' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::SlashEq }
+                '=' => {
+                    self.advance();
+                    TokenKind::SlashEq
+                }
                 _ => TokenKind::Slash,
             },
             '%' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::PercentEq }
+                '=' => {
+                    self.advance();
+                    TokenKind::PercentEq
+                }
                 _ => TokenKind::Percent,
             },
             '=' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::Eq }
-                '>' => { self.advance(); TokenKind::FatArrow }
+                '=' => {
+                    self.advance();
+                    TokenKind::Eq
+                }
+                '>' => {
+                    self.advance();
+                    TokenKind::FatArrow
+                }
                 _ => TokenKind::Assign,
             },
             '!' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::Ne }
+                '=' => {
+                    self.advance();
+                    TokenKind::Ne
+                }
                 _ => TokenKind::Not,
             },
             '<' => match self.current_char() {
@@ -368,11 +396,17 @@ impl<'a> Lexer<'a> {
                         TokenKind::Shl
                     }
                 }
-                '|' => { self.advance(); TokenKind::PipeLeft }
+                '|' => {
+                    self.advance();
+                    TokenKind::PipeLeft
+                }
                 _ => TokenKind::Lt,
             },
             '>' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::Ge }
+                '=' => {
+                    self.advance();
+                    TokenKind::Ge
+                }
                 '>' => {
                     self.advance();
                     if self.current_char() == '=' {
@@ -385,25 +419,52 @@ impl<'a> Lexer<'a> {
                 _ => TokenKind::Gt,
             },
             '&' => match self.current_char() {
-                '&' => { self.advance(); TokenKind::And }
-                '=' => { self.advance(); TokenKind::BitAndEq }
+                '&' => {
+                    self.advance();
+                    TokenKind::And
+                }
+                '=' => {
+                    self.advance();
+                    TokenKind::BitAndEq
+                }
                 _ => TokenKind::BitAnd,
             },
             '|' => match self.current_char() {
-                '|' => { self.advance(); TokenKind::Or }
-                '=' => { self.advance(); TokenKind::BitOrEq }
-                '>' => { self.advance(); TokenKind::PipeRight }
+                '|' => {
+                    self.advance();
+                    TokenKind::Or
+                }
+                '=' => {
+                    self.advance();
+                    TokenKind::BitOrEq
+                }
+                '>' => {
+                    self.advance();
+                    TokenKind::PipeRight
+                }
                 _ => TokenKind::BitOr,
             },
             '^' => match self.current_char() {
-                '=' => { self.advance(); TokenKind::BitXorEq }
+                '=' => {
+                    self.advance();
+                    TokenKind::BitXorEq
+                }
                 _ => TokenKind::BitXor,
             },
             '~' => TokenKind::BitNot,
             '?' => match self.current_char() {
-                '.' => { self.advance(); TokenKind::QuestionDot }
-                '?' => { self.advance(); TokenKind::QuestionQuestion }
-                ':' => { self.advance(); TokenKind::QuestionColon }
+                '.' => {
+                    self.advance();
+                    TokenKind::QuestionDot
+                }
+                '?' => {
+                    self.advance();
+                    TokenKind::QuestionQuestion
+                }
+                ':' => {
+                    self.advance();
+                    TokenKind::QuestionColon
+                }
                 _ => TokenKind::Question,
             },
             '$' => {
@@ -482,102 +543,156 @@ mod tests {
     #[test]
     fn test_keywords() {
         let tokens = lex_all("fn class const let if for async await return while match");
-        assert_eq!(tokens, vec![
-            TokenKind::Fn, TokenKind::Class, TokenKind::Const,
-            TokenKind::Let, TokenKind::If, TokenKind::For,
-            TokenKind::Async, TokenKind::Await, TokenKind::Return,
-            TokenKind::While, TokenKind::Match,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Fn,
+                TokenKind::Class,
+                TokenKind::Const,
+                TokenKind::Let,
+                TokenKind::If,
+                TokenKind::For,
+                TokenKind::Async,
+                TokenKind::Await,
+                TokenKind::Return,
+                TokenKind::While,
+                TokenKind::Match,
+            ]
+        );
     }
 
     #[test]
     fn test_identifiers() {
         let tokens = lex_all("hello world foo_bar x1 _temp");
-        assert_eq!(tokens, vec![
-            TokenKind::Ident, TokenKind::Ident, TokenKind::Ident,
-            TokenKind::Ident, TokenKind::Ident,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Ident,
+                TokenKind::Ident,
+                TokenKind::Ident,
+                TokenKind::Ident,
+                TokenKind::Ident,
+            ]
+        );
     }
 
     #[test]
     fn test_numbers() {
         let tokens = lex_all("42 3.14 0xFF 0b1010 0o755 1_000_000");
-        assert_eq!(tokens, vec![
-            TokenKind::IntLiteral, TokenKind::FloatLiteral,
-            TokenKind::IntLiteral, TokenKind::IntLiteral,
-            TokenKind::IntLiteral, TokenKind::IntLiteral,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::IntLiteral,
+                TokenKind::FloatLiteral,
+                TokenKind::IntLiteral,
+                TokenKind::IntLiteral,
+                TokenKind::IntLiteral,
+                TokenKind::IntLiteral,
+            ]
+        );
     }
 
     #[test]
     fn test_operators() {
         let tokens = lex_all("+ - * / % ** == != < > <= >= <=> && || ! ?. ?? ?: |> <| $$");
-        assert_eq!(tokens, vec![
-            TokenKind::Plus, TokenKind::Minus,
-            TokenKind::Star, TokenKind::Slash, TokenKind::Percent,
-            TokenKind::StarStar, TokenKind::Eq, TokenKind::Ne,
-            TokenKind::Lt, TokenKind::Gt, TokenKind::Le, TokenKind::Ge,
-            TokenKind::Spaceship, TokenKind::And, TokenKind::Or, TokenKind::Not,
-            TokenKind::QuestionDot, TokenKind::QuestionQuestion,
-            TokenKind::QuestionColon, TokenKind::PipeRight,
-            TokenKind::PipeLeft, TokenKind::DollarDollar,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Plus,
+                TokenKind::Minus,
+                TokenKind::Star,
+                TokenKind::Slash,
+                TokenKind::Percent,
+                TokenKind::StarStar,
+                TokenKind::Eq,
+                TokenKind::Ne,
+                TokenKind::Lt,
+                TokenKind::Gt,
+                TokenKind::Le,
+                TokenKind::Ge,
+                TokenKind::Spaceship,
+                TokenKind::And,
+                TokenKind::Or,
+                TokenKind::Not,
+                TokenKind::QuestionDot,
+                TokenKind::QuestionQuestion,
+                TokenKind::QuestionColon,
+                TokenKind::PipeRight,
+                TokenKind::PipeLeft,
+                TokenKind::DollarDollar,
+            ]
+        );
     }
 
     #[test]
     fn test_strings() {
         let tokens = lex_all(r#""hello" 'a' `template ${x}`"#);
-        assert_eq!(tokens, vec![
-            TokenKind::StringLiteral,
-            TokenKind::CharLiteral,
-            TokenKind::TemplateLiteral,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::StringLiteral,
+                TokenKind::CharLiteral,
+                TokenKind::TemplateLiteral,
+            ]
+        );
     }
 
     #[test]
     fn test_delimiters() {
         let tokens = lex_all("{ } ( ) [ ] , ; : .");
-        assert_eq!(tokens, vec![
-            TokenKind::LBrace, TokenKind::RBrace,
-            TokenKind::LParen, TokenKind::RParen,
-            TokenKind::LBracket, TokenKind::RBracket,
-            TokenKind::Comma, TokenKind::Semi, TokenKind::Colon, TokenKind::Dot,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::LBrace,
+                TokenKind::RBrace,
+                TokenKind::LParen,
+                TokenKind::RParen,
+                TokenKind::LBracket,
+                TokenKind::RBracket,
+                TokenKind::Comma,
+                TokenKind::Semi,
+                TokenKind::Colon,
+                TokenKind::Dot,
+            ]
+        );
     }
 
     #[test]
     fn test_compound_assignment() {
         let tokens = lex_all("+= -= *= /= %= **= <<= >>= &= |= ^=");
-        assert_eq!(tokens, vec![
-            TokenKind::PlusEq, TokenKind::MinusEq, TokenKind::StarEq,
-            TokenKind::SlashEq, TokenKind::PercentEq, TokenKind::StarStarEq,
-            TokenKind::ShlEq, TokenKind::ShrEq, TokenKind::BitAndEq,
-            TokenKind::BitOrEq, TokenKind::BitXorEq,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::PlusEq,
+                TokenKind::MinusEq,
+                TokenKind::StarEq,
+                TokenKind::SlashEq,
+                TokenKind::PercentEq,
+                TokenKind::StarStarEq,
+                TokenKind::ShlEq,
+                TokenKind::ShrEq,
+                TokenKind::BitAndEq,
+                TokenKind::BitOrEq,
+                TokenKind::BitXorEq,
+            ]
+        );
     }
 
     #[test]
     fn test_comment_skipping() {
         let tokens = lex_all("x // comment\ny");
-        assert_eq!(tokens, vec![
-            TokenKind::Ident, TokenKind::Ident,
-        ]);
+        assert_eq!(tokens, vec![TokenKind::Ident, TokenKind::Ident,]);
     }
 
     #[test]
     fn test_block_comment_skipping() {
         let tokens = lex_all("x /* block */ y");
-        assert_eq!(tokens, vec![
-            TokenKind::Ident, TokenKind::Ident,
-        ]);
+        assert_eq!(tokens, vec![TokenKind::Ident, TokenKind::Ident,]);
     }
 
     #[test]
     fn test_dollar() {
         let tokens = lex_all("$ $$");
-        assert_eq!(tokens, vec![
-            TokenKind::Dollar,
-            TokenKind::DollarDollar,
-        ]);
+        assert_eq!(tokens, vec![TokenKind::Dollar, TokenKind::DollarDollar,]);
     }
 }

@@ -8,10 +8,18 @@ use coco_syntax::*;
 pub fn infix_bp(kind: TokenKind) -> Option<(u8, u8)> {
     match kind {
         // Assignment (right-associative)
-        TokenKind::Assign | TokenKind::PlusEq | TokenKind::MinusEq
-        | TokenKind::StarEq | TokenKind::SlashEq | TokenKind::PercentEq
-        | TokenKind::StarStarEq | TokenKind::ShlEq | TokenKind::ShrEq
-        | TokenKind::BitAndEq | TokenKind::BitOrEq | TokenKind::BitXorEq => Some((10, 9)),
+        TokenKind::Assign
+        | TokenKind::PlusEq
+        | TokenKind::MinusEq
+        | TokenKind::StarEq
+        | TokenKind::SlashEq
+        | TokenKind::PercentEq
+        | TokenKind::StarStarEq
+        | TokenKind::ShlEq
+        | TokenKind::ShrEq
+        | TokenKind::BitAndEq
+        | TokenKind::BitOrEq
+        | TokenKind::BitXorEq => Some((10, 9)),
 
         // Ternary (right-associative)
         TokenKind::Question => Some((15, 14)),
@@ -41,8 +49,9 @@ pub fn infix_bp(kind: TokenKind) -> Option<(u8, u8)> {
         TokenKind::Eq | TokenKind::Ne => Some((55, 56)),
 
         // Comparison (left-associative)
-        TokenKind::Lt | TokenKind::Gt | TokenKind::Le
-        | TokenKind::Ge | TokenKind::Spaceship => Some((60, 61)),
+        TokenKind::Lt | TokenKind::Gt | TokenKind::Le | TokenKind::Ge | TokenKind::Spaceship => {
+            Some((60, 61))
+        }
 
         // Shift (left-associative)
         TokenKind::Shl | TokenKind::Shr => Some((65, 66)),

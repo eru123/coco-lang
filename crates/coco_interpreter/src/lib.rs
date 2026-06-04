@@ -30,11 +30,31 @@ impl Interpreter {
         let mut env = Environment::new();
 
         // Register built-in functions
-        env.define("print".to_string(), Value::BuiltinFn("print".to_string()), false);
-        env.define("len".to_string(), Value::BuiltinFn("len".to_string()), false);
-        env.define("toString".to_string(), Value::BuiltinFn("toString".to_string()), false);
-        env.define("parseInt".to_string(), Value::BuiltinFn("parseInt".to_string()), false);
-        env.define("parseFloat".to_string(), Value::BuiltinFn("parseFloat".to_string()), false);
+        env.define(
+            "print".to_string(),
+            Value::BuiltinFn("print".to_string()),
+            false,
+        );
+        env.define(
+            "len".to_string(),
+            Value::BuiltinFn("len".to_string()),
+            false,
+        );
+        env.define(
+            "toString".to_string(),
+            Value::BuiltinFn("toString".to_string()),
+            false,
+        );
+        env.define(
+            "parseInt".to_string(),
+            Value::BuiltinFn("parseInt".to_string()),
+            false,
+        );
+        env.define(
+            "parseFloat".to_string(),
+            Value::BuiltinFn("parseFloat".to_string()),
+            false,
+        );
 
         Self { env }
     }

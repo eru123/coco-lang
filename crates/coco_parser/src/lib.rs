@@ -5,7 +5,7 @@
 //! Includes error recovery: after a syntax error, synchronizes to
 //! the next known sync point and continues parsing.
 
-pub mod parser;
 pub mod expr;
+pub mod parser;
 
 pub use parser::Parser;

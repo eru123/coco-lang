@@ -2,8 +2,8 @@
 //!
 //! Uses `ariadne` to emit colored, annotated diagnostics with source context.
 
-use coco_span::{FileId, SourceMap, Span};
 use ariadne::{Color, Label, Report, ReportKind, Source};
+use coco_span::{FileId, SourceMap, Span};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticLevel {
@@ -49,12 +49,7 @@ impl Diagnostic {
         }
     }
 
-    pub fn with_label(
-        mut self,
-        span: Span,
-        message: impl Into<String>,
-        is_primary: bool,
-    ) -> Self {
+    pub fn with_label(mut self, span: Span, message: impl Into<String>, is_primary: bool) -> Self {
         self.labels.push(DiagnosticLabel {
             span,
             message: message.into(),
@@ -79,12 +74,8 @@ impl Diagnostic {
             DiagnosticLevel::Note => ReportKind::Advice,
         };
 
-        let mut report = Report::build(
-            kind,
-            source_file.path.display().to_string(),
-            0,
-        )
-        .with_message(&self.message);
+        let mut report = Report::build(kind, source_file.path.display().to_string(), 0)
+            .with_message(&self.message);
 
         for label in &self.labels {
             let color = if label.is_primary {

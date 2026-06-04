@@ -159,11 +159,7 @@ mod tests {
     #[test]
     fn test_location() {
         let content = "hello\nworld\nfoo";
-        let file = SourceFile::new(
-            FileId(0),
-            PathBuf::from("test.co"),
-            content.to_string(),
-        );
+        let file = SourceFile::new(FileId(0), PathBuf::from("test.co"), content.to_string());
 
         assert_eq!(file.get_location(0), Location::new(1, 1)); // 'h'
         assert_eq!(file.get_location(5), Location::new(1, 6)); // '\n'
@@ -174,11 +170,7 @@ mod tests {
     #[test]
     fn test_get_line() {
         let content = "line 1\nline 2\nline 3";
-        let file = SourceFile::new(
-            FileId(0),
-            PathBuf::from("test.co"),
-            content.to_string(),
-        );
+        let file = SourceFile::new(FileId(0), PathBuf::from("test.co"), content.to_string());
 
         assert_eq!(file.get_line(1), Some("line 1\n"));
         assert_eq!(file.get_line(2), Some("line 2\n"));

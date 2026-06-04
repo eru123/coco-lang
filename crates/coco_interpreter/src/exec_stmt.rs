@@ -173,11 +173,8 @@ impl Interpreter {
                 // Try to match a catch clause
                 if let Some(catch) = try_stmt.catches.first() {
                     self.env.push_scope();
-                    self.env.define(
-                        catch.param.name.clone(),
-                        Value::String(err.message),
-                        false,
-                    );
+                    self.env
+                        .define(catch.param.name.clone(), Value::String(err.message), false);
                     let result = self.exec_block(&catch.body);
                     self.env.pop_scope();
                     result

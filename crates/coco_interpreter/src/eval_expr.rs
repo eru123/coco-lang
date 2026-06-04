@@ -55,12 +55,24 @@ impl Interpreter {
         // Handle assignment operators
         match bin.op {
             BinaryOp::Assign => return self.eval_assign(&bin.left, &bin.right),
-            BinaryOp::AddAssign => return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Add),
-            BinaryOp::SubAssign => return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Sub),
-            BinaryOp::MulAssign => return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Mul),
-            BinaryOp::DivAssign => return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Div),
-            BinaryOp::ModAssign => return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Mod),
-            BinaryOp::PowAssign => return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Pow),
+            BinaryOp::AddAssign => {
+                return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Add)
+            }
+            BinaryOp::SubAssign => {
+                return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Sub)
+            }
+            BinaryOp::MulAssign => {
+                return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Mul)
+            }
+            BinaryOp::DivAssign => {
+                return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Div)
+            }
+            BinaryOp::ModAssign => {
+                return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Mod)
+            }
+            BinaryOp::PowAssign => {
+                return self.eval_compound_assign(&bin.left, &bin.right, BinaryOp::Pow)
+            }
             BinaryOp::NullCoalesce => {
                 let left = self.eval_expr(&bin.left)?;
                 if matches!(left, Value::Null) {
@@ -119,10 +131,14 @@ impl Interpreter {
         let value = self.eval_expr(value_expr)?;
         match target {
             Expr::Ident(ident) => {
-                self.env.set(&ident.name, value.clone()).map_err(|e| Signal::Error(RuntimeError::new(e)))?;
+                self.env
+                    .set(&ident.name, value.clone())
+                    .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
                 Ok(value)
             }
-            _ => Err(Signal::Error(RuntimeError::new("invalid assignment target"))),
+            _ => Err(Signal::Error(RuntimeError::new(
+                "invalid assignment target",
+            ))),
         }
     }
 
@@ -136,27 +152,49 @@ impl Interpreter {
             BinaryOp::Div => self.div_values(current, rhs)?,
             BinaryOp::Mod => self.mod_values(current, rhs)?,
             BinaryOp::Pow => self.pow_values(current, rhs)?,
-            _ => return Err(Signal::Error(RuntimeError::new("unsupported compound assign op"))),
+            _ => {
+                return Err(Signal::Error(RuntimeError::new(
+                    "unsupported compound assign op",
+                )))
+            }
         };
         match target {
             Expr::Ident(ident) => {
-                self.env.set(&ident.name, result.clone()).map_err(|e| Signal::Error(RuntimeError::new(e)))?;
+                self.env
+                    .set(&ident.name, result.clone())
+                    .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
                 Ok(result)
             }
-            _ => Err(Signal::Error(RuntimeError::new("invalid assignment target"))),
+            _ => Err(Signal::Error(RuntimeError::new(
+                "invalid assignment target",
+            ))),
         }
     }
 
     fn eval_assignment(&mut self, assign: &AssignmentExpr) -> IResult {
         match assign.op {
             AssignmentOp::Assign => self.eval_assign(&assign.target, &assign.value),
-            AssignmentOp::AddAssign => self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Add),
-            AssignmentOp::SubAssign => self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Sub),
-            AssignmentOp::MulAssign => self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Mul),
-            AssignmentOp::DivAssign => self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Div),
-            AssignmentOp::ModAssign => self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Mod),
-            AssignmentOp::PowAssign => self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Pow),
-            _ => Err(Signal::Error(RuntimeError::new("unsupported assignment op"))),
+            AssignmentOp::AddAssign => {
+                self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Add)
+            }
+            AssignmentOp::SubAssign => {
+                self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Sub)
+            }
+            AssignmentOp::MulAssign => {
+                self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Mul)
+            }
+            AssignmentOp::DivAssign => {
+                self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Div)
+            }
+            AssignmentOp::ModAssign => {
+                self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Mod)
+            }
+            AssignmentOp::PowAssign => {
+                self.eval_compound_assign(&assign.target, &assign.value, BinaryOp::Pow)
+            }
+            _ => Err(Signal::Error(RuntimeError::new(
+                "unsupported assignment op",
+            ))),
         }
     }
 
@@ -171,7 +209,9 @@ impl Interpreter {
             UnaryOp::Not => Ok(Value::Bool(!val.is_truthy())),
             UnaryOp::BitNot => match val {
                 Value::Int(n) => Ok(Value::Int(!n)),
-                _ => Err(Signal::Error(RuntimeError::new("bitwise NOT requires integer"))),
+                _ => Err(Signal::Error(RuntimeError::new(
+                    "bitwise NOT requires integer",
+                ))),
             },
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported unary op {:?}",
@@ -400,7 +440,9 @@ impl Interpreter {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
             (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(op(a as i64, b as i64) != 0)),
-            _ => Err(Signal::Error(RuntimeError::new("bitwise ops require integers or booleans"))),
+            _ => Err(Signal::Error(RuntimeError::new(
+                "bitwise ops require integers or booleans",
+            ))),
         }
     }
 
@@ -425,9 +467,9 @@ impl Interpreter {
     ) -> IResult {
         let ord = match (&left, &right) {
             (Value::Int(a), Value::Int(b)) => a.cmp(b),
-            (Value::Float(a), Value::Float(b)) => a
-                .partial_cmp(b)
-                .unwrap_or(std::cmp::Ordering::Equal),
+            (Value::Float(a), Value::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            }
             (Value::Int(a), Value::Float(b)) => (*a as f64)
                 .partial_cmp(b)
                 .unwrap_or(std::cmp::Ordering::Equal),
