@@ -103,6 +103,11 @@ impl Interpreter {
             BinaryOp::Gt => self.compare_values(left, right, |o| o == std::cmp::Ordering::Greater),
             BinaryOp::Le => self.compare_values(left, right, |o| o != std::cmp::Ordering::Greater),
             BinaryOp::Ge => self.compare_values(left, right, |o| o != std::cmp::Ordering::Less),
+            BinaryOp::BitAnd => self.bitwise_op(left, right, |a, b| a & b),
+            BinaryOp::BitOr => self.bitwise_op(left, right, |a, b| a | b),
+            BinaryOp::BitXor => self.bitwise_op(left, right, |a, b| a ^ b),
+            BinaryOp::Shl => self.bitwise_op(left, right, |a, b| a << b),
+            BinaryOp::Shr => self.bitwise_op(left, right, |a, b| a >> b),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported binary op {:?}",
                 bin.op
@@ -164,6 +169,10 @@ impl Interpreter {
                 _ => Err(Signal::Error(RuntimeError::new("cannot negate non-number"))),
             },
             UnaryOp::Not => Ok(Value::Bool(!val.is_truthy())),
+            UnaryOp::BitNot => match val {
+                Value::Int(n) => Ok(Value::Int(!n)),
+                _ => Err(Signal::Error(RuntimeError::new("bitwise NOT requires integer"))),
+            },
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported unary op {:?}",
                 un.op
@@ -384,6 +393,13 @@ impl Interpreter {
             (Value::Int(a), Value::Float(b)) => Ok(Value::Float((a as f64).powf(b))),
             (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.powi(b as i32))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for **"))),
+        }
+    }
+
+    fn bitwise_op(&self, left: Value, right: Value, op: fn(i64, i64) -> i64) -> IResult {
+        match (left, right) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
+            _ => Err(Signal::Error(RuntimeError::new("bitwise ops require integers"))),
         }
     }
 
