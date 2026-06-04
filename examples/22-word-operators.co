@@ -1,0 +1,50 @@
+// Word-form logical operators in Coco
+// Coco supports English keywords as alternatives to symbolic operators:
+//   and  = &&    (case-insensitive: and, AND, And)
+//   or   = ||    (case-insensitive: or, OR, Or)
+//   not  = !     (case-insensitive: not, NOT, Not)
+//   xor  = ^     (case-insensitive: xor, XOR, Xor)
+//
+// Both forms can be mixed freely in the same program.
+
+fn isEligible(age: int, hasPermission: bool, isBanned: bool): bool {
+    return age >= 18 and hasPermission and not isBanned;
+}
+
+fn exclusiveChoice(optionA: bool, optionB: bool): bool {
+    return optionA xor optionB;
+}
+
+fn main(): int {
+    // Use word-form in conditions for readability
+    let loggedIn = true;
+    let isAdmin = false;
+    let maintenanceMode = false;
+
+    if loggedIn and not maintenanceMode {
+        print("Access granted");
+    }
+
+    if isAdmin or loggedIn {
+        print("Show dashboard");
+    }
+
+    // XOR: exactly one must be true
+    print(exclusiveChoice(true, false));   // true
+    print(exclusiveChoice(true, true));    // false
+
+    // Permission checks
+    print(isEligible(25, true, false));    // true
+    print(isEligible(16, true, false));    // false
+    print(isEligible(25, true, true));     // false
+
+    // Symbols and words are interchangeable
+    let a = true;
+    let b = false;
+    print(a && b);        // false
+    print(a and b);       // false — identical semantics
+    print(a || b);        // true
+    print(a or b);        // true — identical semantics
+
+    return 0;
+}

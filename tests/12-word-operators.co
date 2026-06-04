@@ -1,0 +1,75 @@
+// Word-form logical operators
+// Demonstrates: and, or, not, xor (case-insensitive alternatives to &&, ||, !, ^)
+
+fn canAccess(isAdmin, isLoggedIn, isBanned) {
+    return (isAdmin or isLoggedIn) and not isBanned;
+}
+
+fn xorGate(a, b) {
+    return a xor b;
+}
+
+fn main() {
+    // Basic word-form operators (lowercase)
+    print(true and true);     // true
+    print(true and false);    // false
+    print(false or true);     // true
+    print(false or false);    // false
+    print(not true);          // false
+    print(not false);         // true
+    print(true xor false);    // true
+    print(true xor true);     // false
+
+    // Uppercase (case-insensitive)
+    print(true AND true);     // true
+    print(false OR true);     // true
+    print(NOT false);         // true
+    print(true XOR true);     // false
+
+    // Mixed case
+    print(true And false);    // false
+    print(false Or true);     // true
+    print(Not true);          // false
+    print(true Xor false);    // true
+
+    // In conditions
+    let age = 25;
+    let hasLicense = true;
+    if age >= 18 and hasLicense {
+        print("Can drive");
+    }
+
+    let isWeekend = false;
+    let isHoliday = true;
+    if isWeekend or isHoliday {
+        print("Day off");
+    }
+
+    if not isWeekend {
+        print("Workday");
+    }
+
+    // In function calls
+    print(canAccess(false, true, false));   // true
+    print(canAccess(false, true, true));    // false
+    print(canAccess(true, false, false));   // true
+
+    // XOR logic gate
+    print(xorGate(true, false));   // true
+    print(xorGate(true, true));    // false
+    print(xorGate(false, false));  // false
+
+    // Mixing symbols and words (both work in same program)
+    let a = true;
+    let b = false;
+    print(a && b);         // false (symbol)
+    print(a and b);        // false (word)
+    print(a || b);         // true (symbol)
+    print(a or b);         // true (word)
+    print(!a);             // false (symbol)
+    print(not a);          // false (word)
+    print(a ^ b);          // true (symbol)
+    print(a xor b);        // true (word)
+
+    return 0;
+}
