@@ -15,7 +15,7 @@ Coco is not yet a stable language.
 Current stage:
 
 ```txt
-Design / specification / early planning
+Phase 3 — Tree-walking interpreter (functional)
 ```
 
 Planned stages:

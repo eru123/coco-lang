@@ -1,7 +1,7 @@
-(* Coco Language Grammar — Phase 1 *)
+(* Coco Language Grammar — Phase 3 *)
 (* Version: 1.1 *)
 (* Date: 2026-06-04 *)
-(* Updated: Added pipe operators (|>, ->, <|, <-) and $$ placeholder *)
+(* Updated: Added pipe operators (|>, ->, <|, <-) and $$ placeholder; word-form logical operators (and/or/not/xor); bitwise on bools *)
 
 (* === Top Level === *)
 
@@ -189,6 +189,7 @@ pipe_op = "|>" | "->" | "<|" | "<-" ;
 
 logical_or_expr = logical_and_expr , { "||" , logical_and_expr } ;
 logical_and_expr = bitwise_or_expr , { "&&" , bitwise_or_expr } ;
+(* Word-form alternatives (case-insensitive): "and"/"AND" = &&, "or"/"OR" = ||, "not"/"NOT" = !, "xor"/"XOR" = ^ *)
 bitwise_or_expr = bitwise_xor_expr , { "|" , bitwise_xor_expr } ;
 bitwise_xor_expr = bitwise_and_expr , { "^" , bitwise_and_expr } ;
 bitwise_and_expr = equality_expr , { "&" , equality_expr } ;

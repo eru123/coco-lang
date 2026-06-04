@@ -648,7 +648,8 @@ select {
 | `==` `!=` `<` `>` `<=` `>=` | Comparison |
 | `<=>` | Spaceship (three-way comparison) |
 | `&&` `\|\|` `!` | Logical |
-| `&` `\|` `^` `~` `<<` `>>` | Bitwise |
+| `and` `or` `not` `xor` | Logical (word-form, case-insensitive) |
+| `&` `\|` `^` `~` `<<` `>>` | Bitwise (works on int and bool) |
 | `?.` | Optional chaining |
 | `??` | Null coalescing |
 | `?:` | Elvis (truthy coalescing) |

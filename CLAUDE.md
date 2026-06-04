@@ -19,7 +19,7 @@ Coco is a compiled, memory-safe programming language for backend services, CLI t
 
 ```bash
 cargo build                    # Build all crates
-cargo test                     # Run all tests (currently 11 pass)
+cargo test                     # Run all tests (currently 92 pass)
 cargo test -p coco_lexer       # Test single crate
 cargo clippy                   # Lint
 cargo fmt --check              # Check formatting
@@ -83,6 +83,8 @@ Key types:
 **Error handling:** Result type for expected failures, exceptions for bugs/invariant violations.
 
 **Pipe operators:** `|>` (pipe-right), `<|` (pipe-left), `$$` (pipe placeholder).
+
+**Logical operators:** `&&`/`and`, `||`/`or`, `!`/`not`, `^`/`xor` — word forms are case-insensitive.
 
 ## Design Guidelines
 
