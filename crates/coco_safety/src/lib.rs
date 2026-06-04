@@ -18,10 +18,13 @@
 //! assert!(!result.has_errors());
 //! ```
 
+pub mod capture;
 pub mod collect;
 pub mod def_assign;
 pub mod diagnostics;
 pub mod env;
+pub mod iterator;
+pub mod unsafe_check;
 
 pub use diagnostics::{SafetyError, Severity};
 
@@ -83,8 +86,17 @@ pub fn analyze(program: &Program) -> SafetyResult {
     // Pass 2: safety checks
     let mut all_diagnostics = Vec::new();
 
-    // Definite assignment
+    // Definite assignment (must run first — populates env inside functions)
     all_diagnostics.extend(def_assign::check_def_assign(&program.items, &mut env));
+
+    // Capture analysis (reads env for mutability info, registers locals)
+    all_diagnostics.extend(capture::check_captures(&program.items, &mut env));
+
+    // Unsafe block reporting (pure AST walk)
+    all_diagnostics.extend(unsafe_check::check_unsafe_blocks(&program.items));
+
+    // Iterator invalidation (pure AST walk)
+    all_diagnostics.extend(iterator::check_iterator_invalidation(&program.items));
 
     // Separate errors from warnings
     let mut errors = Vec::new();
