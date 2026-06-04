@@ -118,7 +118,16 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let ident = &self.source[start..self.cursor];
-        TokenKind::keyword_from_str(ident).unwrap_or(TokenKind::Ident)
+        if let Some(kw) = TokenKind::keyword_from_str(ident) {
+            return kw;
+        }
+        match ident.to_ascii_lowercase().as_str() {
+            "and" => TokenKind::And,
+            "or" => TokenKind::Or,
+            "not" => TokenKind::Not,
+            "xor" => TokenKind::BitXor,
+            _ => TokenKind::Ident,
+        }
     }
 
     // --- Numbers ---
