@@ -18,7 +18,9 @@
 //! assert!(!result.has_errors());
 //! ```
 
+pub mod collect;
 pub mod diagnostics;
+pub mod env;
 
 pub use diagnostics::{SafetyError, Severity};
 
@@ -67,8 +69,18 @@ impl SafetyResult {
 
 /// Run the safety analyzer on a parsed program.
 ///
+/// Two-pass approach (mirrors `coco_typeck::check`):
+/// 1. Collect: gather variable bindings and mutability info.
+/// 2. Check: run all safety analysis passes.
+///
 /// Returns a `SafetyResult` with any errors or warnings found.
-pub fn analyze(_program: &Program) -> SafetyResult {
+pub fn analyze(program: &Program) -> SafetyResult {
+    let mut env = env::SafetyEnv::new();
+    // Pass 1: collect bindings
+    collect::collect_bindings(&program.items, &mut env);
+
+    // Pass 2: safety checks (wired in subsequent tasks)
+
     SafetyResult {
         errors: Vec::new(),
         warnings: Vec::new(),
