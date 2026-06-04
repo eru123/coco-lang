@@ -6,7 +6,7 @@ Coco is a planned compiled, memory-safe programming language for backend service
 
 It is designed to feel familiar to JavaScript and TypeScript developers while preserving the practical backend productivity PHP is known for. Coco aims to provide strict typing, automatic memory safety, safe multi-core concurrency, secure web defaults, and static binary deployment without forcing developers to manage low-level memory details manually.
 
-Coco is currently in the early implementation stage. Lexer, parser, formatter, interpreter, gradual type checker, and memory safety analyzer are functional. Do not deploy it to production unless your idea of production is still mostly a language lab.
+Coco is currently in the early implementation stage. Lexer, parser, formatter, interpreter, gradual type checker, memory safety analyzer, and GC runtime are functional. Do not deploy it to production unless your idea of production is still mostly a language lab.
 
 ## Project Status
 
@@ -15,7 +15,7 @@ Coco is not yet a stable language.
 Current stage:
 
 ```txt
-Phase 5 - Automatic memory safety analyzer (functional)
+Phase 6 - GC runtime (functional)
 ```
 
 Planned stages:
