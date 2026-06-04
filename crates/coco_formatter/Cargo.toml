@@ -8,3 +8,6 @@ license.workspace = true
 [dependencies]
 coco_span = { workspace = true }
 coco_syntax = { workspace = true }
+
+[dev-dependencies]
+coco_parser = { workspace = true }

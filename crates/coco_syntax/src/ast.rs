@@ -518,6 +518,8 @@ pub enum BinaryOp {
     BitAndAssign,
     BitOrAssign,
     BitXorAssign,
+    Range,
+    RangeInclusive,
 }
 
 #[derive(Debug, Clone)]

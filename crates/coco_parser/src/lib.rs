@@ -6,6 +6,6 @@
 //! the next known sync point and continues parsing.
 
 pub mod parser;
-mod expr;
+pub mod expr;
 
 pub use parser::Parser;
