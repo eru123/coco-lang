@@ -35,6 +35,8 @@ impl Interpreter {
                 self.env.pop_scope();
                 Ok(Value::Null)
             }
+            Stmt::Select(select) => self.exec_select(select),
+            Stmt::Synchronized(sync) => self.exec_synchronized(sync),
             _ => {
                 // Log unhandled statement variants
                 eprintln!("[exec_stmt] unhandled statement variant");
@@ -231,5 +233,51 @@ impl Interpreter {
             }
             Err(flow) => Err(flow), // Don't catch control flow
         }
+    }
+
+    /// Execute a select statement: multiplex over channel operations.
+    /// Each case binds a pattern to a channel receive expression.
+    /// The first ready channel wins.
+    fn exec_select(&mut self, select: &SelectStmt) -> IResult {
+        for case in &select.cases {
+            let ch_val = self.eval_expr(&case.expr)?;
+            match &ch_val {
+                Value::Channel(arc) => {
+                    let mut inner = arc.lock().map_err(|_| {
+                        Signal::Error(RuntimeError::new("channel lock poisoned"))
+                    })?;
+                    if !inner.queue.is_empty() {
+                        let val = inner.queue.pop_front().unwrap_or(Value::Null);
+                        self.env.push_scope();
+                        self.env
+                            .define(case.pattern.name.clone(), val, true);
+                        let result = self.exec_block(&Block {
+                            span: select.span,
+                            stmts: case.body.clone(),
+                        });
+                        self.env.pop_scope();
+                        return result;
+                    }
+                    if inner.closed {
+                        continue;
+                    }
+                }
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "select case expression must evaluate to a channel",
+                    )));
+                }
+            }
+        }
+        Ok(Value::Null)
+    }
+
+    /// Execute a synchronized block: mutual exclusion via scope isolation.
+    /// In the tree-walking interpreter, this is a scoped no-op.
+    fn exec_synchronized(&mut self, sync: &SynchronizedStmt) -> IResult {
+        self.env.push_scope();
+        let result = self.exec_block(&sync.body);
+        self.env.pop_scope();
+        result
     }
 }
