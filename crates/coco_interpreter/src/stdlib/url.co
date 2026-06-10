@@ -1,76 +1,137 @@
-// std/url — URL parsing and formatting.
-// Pure Coco implementation using str_* builtins.
+// std/url — RFC 3986 URL parser with component extraction and reassembly.
 
-export fn parse(url: string): map<string, mixed> {
-    let result = { "protocol": "http", "host": "", "port": 80, "path": "/", "query": {}, "hash": "" };
-    let remaining = url;
+class URL {
+    public scheme: string;
+    public host: string;
+    public port: int;
+    public path: string;
+    public query: map<string, string>;
+    public fragment: string;
+    public userinfo: string;
 
-    // Protocol
-    const protoIdx = str_indexOf(remaining, "://");
-    if protoIdx != -1 {
-        result = map_set(result, "protocol", str_substring(remaining, 0, protoIdx));
-        remaining = str_substring(remaining, protoIdx + 3, len(remaining));
+    constructor(raw: string) {
+        $.scheme = "http";
+        $.host = "";
+        $.port = 80;
+        $.path = "/";
+        $.query = {};
+        $.fragment = "";
+        $.userinfo = "";
+        if raw == null || raw == "" { return; }
+        $.parse(raw);
     }
 
-    // Hash
-    const hashIdx = str_indexOf(remaining, "#");
-    if hashIdx != -1 {
-        result = map_set(result, "hash", str_substring(remaining, hashIdx + 1, len(remaining)));
-        remaining = str_substring(remaining, 0, hashIdx);
-    }
+    private parse(url: string): void {
+        let remaining = url;
 
-    // Query
-    const queryIdx = str_indexOf(remaining, "?");
-    if queryIdx != -1 {
-        const qs = str_substring(remaining, queryIdx + 1, len(remaining));
-        result = map_set(result, "query", parseQuery(qs));
-        remaining = str_substring(remaining, 0, queryIdx);
-    }
-
-    // Host and port
-    const pathIdx = str_indexOf(remaining, "/");
-    let hostPart = remaining;
-    if pathIdx != -1 {
-        hostPart = str_substring(remaining, 0, pathIdx);
-        result = map_set(result, "path", str_substring(remaining, pathIdx, len(remaining)));
-    }
-
-    const portIdx = str_indexOf(hostPart, ":");
-    if portIdx != -1 {
-        result = map_set(result, "host", str_substring(hostPart, 0, portIdx));
-        result = map_set(result, "port", parseInt(str_substring(hostPart, portIdx + 1, len(hostPart))));
-    } else {
-        result = map_set(result, "host", hostPart);
-    }
-
-    return result;
-}
-
-export fn parseQuery(qs: string): map<string, mixed> {
-    let result = {};
-    if qs == "" { return result; }
-    const pairs = str_split(qs, "&");
-    let i = 0;
-    while i < len(pairs) {
-        const pair = pairs[i];
-        const eqIdx = str_indexOf(pair, "=");
-        if eqIdx > 0 {
-            const key = str_substring(pair, 0, eqIdx);
-            const val = str_substring(pair, eqIdx + 1, len(pair));
-            result = map_set(result, key, val);
+        // Scheme: everything before "://"
+        const schemeEnd = str_indexOf(remaining, "://");
+        if schemeEnd > 0 {
+            $.scheme = str_substring(remaining, 0, schemeEnd);
+            remaining = str_substring(remaining, schemeEnd + 3, len(remaining));
         }
-        i = i + 1;
-    }
-    return result;
-}
 
-export fn format(url: map<string, mixed>): string {
-    const protocol = map_get(url, "protocol", "http");
-    const host = map_get(url, "host", "localhost");
-    const port = map_get(url, "port", 80);
-    const path = map_get(url, "path", "/");
-    let result = protocol + "://" + host;
-    if port != 80 { result = result + ":" + toString(port); }
-    result = result + path;
-    return result;
+        // Fragment: everything after "#"
+        const hashIdx = str_indexOf(remaining, "#");
+        if hashIdx >= 0 {
+            $.fragment = str_substring(remaining, hashIdx + 1, len(remaining));
+            remaining = str_substring(remaining, 0, hashIdx);
+        }
+
+        // Query: everything after "?"
+        const queryIdx = str_indexOf(remaining, "?");
+        if queryIdx >= 0 {
+            const qs = str_substring(remaining, queryIdx + 1, len(remaining));
+            $.query = $.parseQueryString(qs);
+            remaining = str_substring(remaining, 0, queryIdx);
+        }
+
+        // Authority: everything between "://" and the next "/"
+        const pathStart = str_indexOf(remaining, "/");
+        let authority = remaining;
+        if pathStart >= 0 {
+            authority = str_substring(remaining, 0, pathStart);
+            $.path = str_substring(remaining, pathStart, len(remaining));
+        } else {
+            $.path = "/";
+        }
+
+        // Userinfo: everything before "@"
+        const atIdx = str_indexOf(authority, "@");
+        if atIdx >= 0 {
+            $.userinfo = str_substring(authority, 0, atIdx);
+            authority = str_substring(authority, atIdx + 1, len(authority));
+        }
+
+        // Host:port
+        const portIdx = $.lastIndexOf(authority, ":");
+        if portIdx >= 0 {
+            $.host = str_substring(authority, 0, portIdx);
+            $.port = int(str_substring(authority, portIdx + 1, len(authority)));
+        } else {
+            $.host = authority;
+            // Default port by scheme
+            if $.scheme == "https" { $.port = 443; }
+            else if $.scheme == "http" { $.port = 80; }
+        }
+    }
+
+    public toString(): string {
+        let result = $.scheme + "://";
+        if $.userinfo != "" { result = result + $.userinfo + "@"; }
+        result = result + $.host;
+        if ($.scheme == "https" && $.port != 443) || ($.scheme == "http" && $.port != 80) {
+            result = result + ":" + toString($.port);
+        }
+        result = result + $.path;
+        if len(map_keys($.query)) > 0 {
+            result = result + "?" + $.formatQuery();
+        }
+        if $.fragment != "" { result = result + "#" + $.fragment; }
+        return result;
+    }
+
+    public getQuery(name: string): string {
+        return map_get($.query, name, "");
+    }
+
+    private parseQueryString(qs: string): map<string, string> {
+        let result = {};
+        if qs == "" { return result; }
+        const pairs = str_split(qs, "&");
+        let i = 0;
+        while i < len(pairs) {
+            const eq = str_indexOf(pairs[i], "=");
+            if eq > 0 {
+                result = map_set(result, str_substring(pairs[i], 0, eq), str_substring(pairs[i], eq + 1, len(pairs[i])));
+            } else {
+                result = map_set(result, pairs[i], "");
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    private formatQuery(): string {
+        let result = "";
+        const keys = map_keys($.query);
+        let i = 0;
+        while i < len(keys) {
+            if i > 0 { result = result + "&"; }
+            result = result + keys[i] + "=" + map_get($.query, keys[i], "");
+            i = i + 1;
+        }
+        return result;
+    }
+
+    private lastIndexOf(s: string, ch: string): int {
+        // Find last occurrence of character in string
+        let last = -1;
+        let i = 0;
+        while i < len(s) {
+            if str_substring(s, i, i + 1) == ch { last = i; }
+            i = i + 1;
+        }
+        return last;
+    }
 }

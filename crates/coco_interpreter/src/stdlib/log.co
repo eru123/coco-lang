@@ -1,20 +1,45 @@
-// std/log — Leveled logging for Coco applications.
-export const LEVELS = { "DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3 };
-export let currentLevel = 1; // INFO by default
+// std/log — Leveled, categorized logging with configurable output.
 
-export fn setLevel(level: string): void {
-    currentLevel = map_get(LEVELS, level, 1);
+class Logger {
+    private level: int;     // 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR
+    private name: string;
+
+    constructor(name: string, level: string) {
+        $.name = name;
+        $.level = $.levelFromString(level);
+    }
+
+    public debug(msg: string): void {
+        if $.level <= 0 { print("[" + $.name + "] [DEBUG] " + msg); }
+    }
+    public info(msg: string): void {
+        if $.level <= 1 { print("[" + $.name + "] [INFO] " + msg); }
+    }
+    public warn(msg: string): void {
+        if $.level <= 2 { print("[" + $.name + "] [WARN] " + msg); }
+    }
+    public error(msg: string): void {
+        if $.level <= 3 { print("[" + $.name + "] [ERROR] " + msg); }
+    }
+
+    public setLevel(level: string): void {
+        $.level = $.levelFromString(level);
+    }
+
+    private levelFromString(level: string): int {
+        if level == "DEBUG" { return 0; }
+        if level == "INFO" { return 1; }
+        if level == "WARN" { return 2; }
+        if level == "ERROR" { return 3; }
+        return 1; // default INFO
+    }
 }
 
-export fn debug(msg: string): void {
-    if currentLevel <= 0 { print("[DEBUG] " + msg); }
-}
-export fn info(msg: string): void {
-    if currentLevel <= 1 { print("[INFO] " + msg); }
-}
-export fn warn(msg: string): void {
-    if currentLevel <= 2 { print("[WARN] " + msg); }
-}
-export fn error(msg: string): void {
-    if currentLevel <= 3 { print("[ERROR] " + msg); }
-}
+// Default logger instance
+const defaultLogger = new Logger("app", "INFO");
+
+export fn debug(msg: string): void { defaultLogger.debug(msg); }
+export fn info(msg: string): void { defaultLogger.info(msg); }
+export fn warn(msg: string): void { defaultLogger.warn(msg); }
+export fn error(msg: string): void { defaultLogger.error(msg); }
+export fn createLogger(name: string, level: string): Logger { return new Logger(name, level); }

@@ -1,42 +1,139 @@
-// std/testing — Test runner with describe/it blocks and assertions.
-export fn describe(name: string, tests: function): void {
-    print("\n  " + name);
-    tests();
+// std/testing — BDD-style test framework with describe/it and fluent assertions.
+
+class TestResult {
+    public name: string;
+    public passed: bool;
+    public error: string;
+
+    constructor(name: string, passed: bool, error: string) {
+        $.name = name;
+        $.passed = passed;
+        $.error = error;
+    }
+}
+
+class TestSuite {
+    private name: string;
+    private tests: list<function>;
+    private results: list<TestResult>;
+    private beforeFn: mixed;
+    private afterFn: mixed;
+
+    constructor(name: string) {
+        $.name = name;
+        $.tests = [];
+        $.results = [];
+        $.beforeFn = null;
+        $.afterFn = null;
+    }
+
+    public before(fn: function): void { $.beforeFn = fn; }
+    public after(fn: function): void { $.afterFn = fn; }
+
+    public it(name: string, test: function): void {
+        // Wrap in result-capturing closure
+        const suite = $;
+        const wrapped = function(): void {
+            if suite.beforeFn != null { suite.beforeFn(); }
+            try {
+                test();
+                suite.results = list_push(suite.results, new TestResult(name, true, ""));
+            } catch (e: mixed) {
+                suite.results = list_push(suite.results, new TestResult(name, false, toString(e)));
+            }
+            if suite.afterFn != null { suite.afterFn(); }
+        };
+        $.tests = list_push($.tests, wrapped);
+    }
+
+    public run(): void {
+        print("\n  " + $.name);
+        let i = 0;
+        let passedCount = 0;
+        let failCount = 0;
+        while i < len($.results) {
+            const r = $.results[i];
+            if r.passed {
+                print("    ✓ " + r.name);
+                passedCount = passedCount + 1;
+            } else {
+                print("    ✗ " + r.name);
+                print("      " + r.error);
+                failCount = failCount + 1;
+            }
+            i = i + 1;
+        }
+        print("  " + toString(passedCount) + " passed, " + toString(failCount) + " failed");
+    }
+}
+
+class Expect {
+    private actual: mixed;
+    private negated: bool;
+
+    constructor(actual: mixed) {
+        $.actual = actual;
+        $.negated = false;
+    }
+
+    public get not(): Expect {
+        $.negated = true;
+        return $;
+    }
+
+    public toEqual(expected: mixed): void {
+        const pass = toString($.actual) == toString(expected);
+        if $.negated ? pass : !pass {
+            error("expected " + toString(expected) + " but got " + toString($.actual));
+        }
+    }
+
+    public toBe(expected: mixed): void {
+        // Strict equality — same type and value
+        const pass = typeIs($.actual, typeOf(expected)) && toString($.actual) == toString(expected);
+        if $.negated ? pass : !pass {
+            error("expected " + toString(expected) + " but got " + toString($.actual));
+        }
+    }
+
+    public toBeTruthy(): void {
+        if $.negated ? $.actual != null && $.actual != false && $.actual != 0 && $.actual != "" : $.actual == null || $.actual == false || $.actual == 0 || $.actual == "" {
+            error("expected truthy but got " + toString($.actual));
+        }
+    }
+
+    public toBeNull(): void {
+        if $.negated ? $.actual == null : $.actual != null {
+            error("expected null but got " + toString($.actual));
+        }
+    }
+
+    public toContain(item: mixed): void {
+        const str = toString($.actual);
+        const pass = str_contains(str, toString(item));
+        if $.negated ? pass : !pass {
+            error("expected '" + str + "' to contain '" + toString(item) + "'");
+        }
+    }
+}
+
+// ---- Top-level API ----
+export fn describe(name: string, fn: function): void {
+    const suite = new TestSuite(name);
+    fn(suite);
+    suite.run();
+}
+
+export fn expect(actual: mixed): Expect {
+    return new Expect(actual);
 }
 
 export fn it(name: string, test: function): void {
+    // Standalone test (no suite)
     try {
         test();
         print("    ✓ " + name);
     } catch (e: mixed) {
         print("    ✗ " + name + " — " + toString(e));
-    }
-}
-
-export fn expect(actual: mixed): map<string, mixed> {
-    return { "actual": actual, "__expect__": "true" };
-}
-
-export fn toEqual(expectObj: map<string, mixed>, expected: mixed): void {
-    const actual = map_get(expectObj, "actual", null);
-    const actualStr = toString(actual);
-    const expectedStr = toString(expected);
-    if actualStr != expectedStr {
-        error("expected " + expectedStr + " but got " + actualStr);
-    }
-}
-
-export fn toBeTruthy(expectObj: map<string, mixed>): void {
-    const actual = map_get(expectObj, "actual", null);
-    // Use builtin truthiness check
-    if actual == null || actual == false || actual == 0 || actual == "" {
-        error("expected truthy but got " + toString(actual));
-    }
-}
-
-export fn toBeNull(expectObj: map<string, mixed>): void {
-    const actual = map_get(expectObj, "actual", null);
-    if actual != null {
-        error("expected null but got " + toString(actual));
     }
 }

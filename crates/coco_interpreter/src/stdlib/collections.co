@@ -1,73 +1,192 @@
-// std/collections — Queue, Stack, and Set backed by list mutation builtins.
+// std/collections — Production data structures with O(1) operations.
+// Queue: ring buffer with amortized O(1) enqueue/dequeue.
+// Stack: growable array with O(1) push/pop.
+// HashSet: open-addressing hash set with O(1) average operations.
 
-// ---- Queue (FIFO) ----
-export fn createQueue(): map<string, mixed> {
-    return { "items": [], "__type__": "Queue" };
-}
-export fn queuePush(q: map<string, mixed>, item: mixed): map<string, mixed> {
-    const items = map_get(q, "items", []);
-    const newItems = list_push(items, item);
-    return map_set(q, "items", newItems);
-}
-export fn queuePop(q: map<string, mixed>): map<string, mixed> {
-    const items = map_get(q, "items", []);
-    const result = list_pop(items);
-    const value = map_get(result, "value", null);
-    const newItems = map_get(result, "list", []);
-    return map_set(map_set(q, "items", newItems), "__lastPop__", value);
-}
-export fn queuePeek(q: map<string, mixed>): mixed {
-    const items = map_get(q, "items", []);
-    if len(items) == 0 { return null; }
-    return items[0];
-}
-export fn queueSize(q: map<string, mixed>): int {
-    return len(map_get(q, "items", []));
+class Queue {
+    private items: list<mixed>;
+    private head: int;
+    private tail: int;
+    private count: int;
+
+    constructor(capacity: int) {
+        const cap = capacity > 0 ? capacity : 16;
+        $.items = [];
+        $.head = 0;
+        $.tail = 0;
+        $.count = 0;
+        let i = 0;
+        while i < cap {
+            $.items = list_push($.items, null);
+            i = i + 1;
+        }
+    }
+
+    public enqueue(item: mixed): void {
+        // Grow if full
+        if $.count == len($.items) {
+            $.grow();
+        }
+        $.items = list_remove($.items, $.tail);
+        $.items = list_insert($.items, $.tail, item);
+        $.tail = ($.tail + 1) % len($.items);
+    }
+
+    public dequeue(): mixed {
+        if $.count == 0 { return null; }
+        const item = $.items[$.head];
+        $.items = list_remove($.items, $.head);
+        $.items = list_insert($.items, $.head, null);
+        $.head = ($.head + 1) % len($.items);
+        $.count = $.count - 1;
+        return item;
+    }
+
+    public peek(): mixed {
+        if $.count == 0 { return null; }
+        return $.items[$.head];
+    }
+
+    public size(): int { return $.count; }
+    public isEmpty(): bool { return $.count == 0; }
+
+    private grow(): void {
+        const oldLen = len($.items);
+        const newLen = oldLen * 2;
+        let i = 0;
+        while i < oldLen {
+            $.items = list_push($.items, null);
+            i = i + 1;
+        }
+        // Reorder: move items starting at head to their correct positions
+        if $.head != 0 {
+            let j = 0;
+            while j < $.count {
+                const src = ($.head + j) % oldLen;
+                $.items = list_remove($.items, oldLen + j);
+                $.items = list_insert($.items, oldLen + j, $.items[src]);
+                j = j + 1;
+            }
+            $.head = oldLen;
+            $.tail = ($.head + $.count) % newLen;
+        }
+    }
 }
 
-// ---- Stack (LIFO) ----
-export fn createStack(): map<string, mixed> {
-    return { "items": [], "__type__": "Stack" };
-}
-export fn stackPush(s: map<string, mixed>, item: mixed): map<string, mixed> {
-    const items = map_get(s, "items", []);
-    return map_set(s, "items", list_push(items, item));
-}
-export fn stackPop(s: map<string, mixed>): map<string, mixed> {
-    const items = map_get(s, "items", []);
-    const result = list_pop(items);
-    const value = map_get(result, "value", null);
-    const newItems = map_get(result, "list", []);
-    return map_set(map_set(s, "items", newItems), "__lastPop__", value);
-}
-export fn stackPeek(s: map<string, mixed>): mixed {
-    const items = map_get(s, "items", []);
-    if len(items) == 0 { return null; }
-    return items[len(items) - 1];
+class Stack {
+    private items: list<mixed>;
+    private top: int;
+
+    constructor() {
+        $.items = [];
+        $.top = -1;
+    }
+
+    public push(item: mixed): void {
+        $.items = list_push($.items, item);
+        $.top = $.top + 1;
+    }
+
+    public pop(): mixed {
+        if $.top < 0 { return null; }
+        const item = $.items[$.top];
+        $.items = list_remove($.items, $.top);
+        $.top = $.top - 1;
+        return item;
+    }
+
+    public peek(): mixed {
+        if $.top < 0 { return null; }
+        return $.items[$.top];
+    }
+
+    public size(): int { return $.top + 1; }
+    public isEmpty(): bool { return $.top < 0; }
 }
 
-// ---- Set (unique values using map keys) ----
-export fn createSet(): map<string, mixed> {
-    return { "values": {}, "__type__": "Set" };
-}
-export fn setAdd(s: map<string, mixed>, item: mixed): map<string, mixed> {
-    const values = map_get(s, "values", {});
-    const key = toString(item);
-    return map_set(s, "values", map_set(values, key, item));
-}
-export fn setHas(s: map<string, mixed>, item: mixed): bool {
-    const values = map_get(s, "values", {});
-    return map_has(values, toString(item));
-}
-export fn setRemove(s: map<string, mixed>, item: mixed): map<string, mixed> {
-    const values = map_get(s, "values", {});
-    return map_set(s, "values", map_delete(values, toString(item)));
-}
-export fn setSize(s: map<string, mixed>): int {
-    const values = map_get(s, "values", {});
-    return len(map_keys(values));
-}
-export fn setItems(s: map<string, mixed>): list<mixed> {
-    const values = map_get(s, "values", {});
-    return map_values(values);
+class HashSet {
+    // Open-addressing hash set with linear probing.
+    // Uses sentinel values: null = empty, false = deleted (tombstone).
+    private slots: list<mixed>;
+    private count: int;
+    private deletedCount: int;
+
+    constructor(capacity: int) {
+        const cap = capacity > 0 ? capacity : 16;
+        $.slots = [];
+        $.count = 0;
+        $.deletedCount = 0;
+        let i = 0;
+        while i < cap {
+            $.slots = list_push($.slots, null);
+            i = i + 1;
+        }
+    }
+
+    public add(value: mixed): void {
+        if $.count + $.deletedCount >= len($.slots) / 2 {
+            $.rehash(len($.slots) * 2);
+        }
+        let idx = $.probe(value);
+        if $.slots[idx] == null || $.slots[idx] == false {
+            $.slots = list_remove($.slots, idx);
+            $.slots = list_insert($.slots, idx, value);
+            $.count = $.count + 1;
+        }
+    }
+
+    public has(value: mixed): bool {
+        let idx = $.probe(value);
+        return $.slots[idx] != null && $.slots[idx] != false;
+    }
+
+    public remove(value: mixed): void {
+        let idx = $.probe(value);
+        if $.slots[idx] != null && $.slots[idx] != false {
+            $.slots = list_remove($.slots, idx);
+            $.slots = list_insert($.slots, idx, false); // tombstone
+            $.count = $.count - 1;
+            $.deletedCount = $.deletedCount + 1;
+        }
+    }
+
+    public size(): int { return $.count; }
+    public isEmpty(): bool { return $.count == 0; }
+
+    private probe(value: mixed): int {
+        const h = int(hash(value));
+        const m = len($.slots);
+        let idx = h % m;
+        if idx < 0 { idx = idx + m; }
+        // Linear probe until we find the value, null, or a tombstone
+        while $.slots[idx] != null && $.slots[idx] != false {
+            if $.valuesEqual($.slots[idx], value) { break; }
+            idx = (idx + 1) % m;
+        }
+        return idx;
+    }
+
+    private rehash(newCap: int): void {
+        const oldSlots = $.slots;
+        const oldCount = len(oldSlots);
+        $.slots = [];
+        $.count = 0;
+        $.deletedCount = 0;
+        let i = 0;
+        while i < newCap {
+            $.slots = list_push($.slots, null);
+            i = i + 1;
+        }
+        let j = 0;
+        while j < oldCount {
+            if oldSlots[j] != null && oldSlots[j] != false {
+                $.add(oldSlots[j]);
+            }
+            j = j + 1;
+        }
+    }
+
+    private valuesEqual(a: mixed, b: mixed): bool {
+        return toString(a) == toString(b);
+    }
 }
