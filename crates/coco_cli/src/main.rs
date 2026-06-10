@@ -43,6 +43,9 @@ enum Commands {
         /// Write result to the file in-place
         #[arg(short = 'w', long = "write")]
         write: bool,
+        /// Check mode: exit 1 if file would change (dry-run)
+        #[arg(long = "check")]
+        check: bool,
     },
     /// Parse a file and report diagnostics
     Check {
@@ -80,6 +83,15 @@ enum Commands {
         /// Compile to native binary via LLVM instead of bytecode disassembly
         #[arg(long = "native")]
         native: bool,
+        /// Enable optimizations (constant folding, dead code in bytecode; LLVM -O3 for native)
+        #[arg(long = "release")]
+        release: bool,
+    },
+    /// Run test files in the tests/ directory
+    Test {
+        /// Filter tests by name pattern
+        #[arg(long = "filter")]
+        filter: Option<String>,
     },
     /// Initialize a new Coco project
     Init {
@@ -94,7 +106,7 @@ fn main() {
     match cli.command {
         Commands::Lex { file } => cmd_lex(&file),
         Commands::Parse { file } => cmd_parse(&file),
-        Commands::Fmt { file, write } => cmd_fmt(&file, write),
+        Commands::Fmt { file, write, check } => cmd_fmt(&file, write, check),
         Commands::Check { file } => cmd_check(&file),
         Commands::Typecheck { file } => cmd_typecheck(&file),
         Commands::Safety { file } => cmd_safety(&file),
@@ -107,10 +119,11 @@ fn main() {
             let f = resolve_entry(file.as_deref());
             cmd_run(&f, no_check, debug, use_vm)
         }
-        Commands::Build { file, native } => {
+        Commands::Build { file, native, release } => {
             let f = resolve_entry(file.as_deref());
-            cmd_build(&f, native)
+            cmd_build(&f, native, release)
         }
+        Commands::Test { filter } => cmd_test(filter.as_deref()),
         Commands::Init { name } => cmd_init(&name),
     }
 }
@@ -286,7 +299,7 @@ fn item_name(item: &Item) -> &'static str {
     }
 }
 
-fn cmd_fmt(file: &Path, write: bool) {
+fn cmd_fmt(file: &Path, write: bool, check: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -306,7 +319,12 @@ fn cmd_fmt(file: &Path, write: bool) {
     let mut formatter = Formatter::new();
     let formatted = formatter.format(&program);
 
-    if write {
+    if check {
+        if source != formatted {
+            eprintln!("{}: would be reformatted", resolved.display());
+            std::process::exit(1);
+        }
+    } else if write {
         match fs::write(&resolved, &formatted) {
             Ok(_) => println!("Formatted {}", resolved.display()),
             Err(e) => eprintln!("error writing to '{}': {}", resolved.display(), e),
@@ -391,7 +409,7 @@ fn run_with_vm(source: &str, debug: bool) {
     }
 }
 
-fn cmd_build(file: &Path, native: bool) {
+fn cmd_build(file: &Path, native: bool, release: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -446,6 +464,9 @@ fn cmd_build(file: &Path, native: bool) {
 
     // Bytecode disassembly mode
     let mut compiler = coco_interpreter::compiler::Compiler::new();
+    if release {
+        compiler.enable_tree_shake = true;
+    }
     let chunk = match compiler.compile_script(&program) {
         Ok(c) => c,
         Err(e) => {
@@ -461,6 +482,91 @@ fn cmd_build(file: &Path, native: bool) {
         if let coco_interpreter::Value::FnObj(fo) = val {
             println!("{}", coco_interpreter::ir::disassemble(&fo.chunk, &fo.name));
         }
+    }
+}
+
+/// Discover and run test files in tests/*.co.
+fn cmd_test(filter: Option<&str>) {
+    let tests_dir = Path::new("tests");
+    if !tests_dir.exists() || !tests_dir.is_dir() {
+        eprintln!("error: no tests/ directory found");
+        std::process::exit(1);
+    }
+
+    let mut entries: Vec<PathBuf> = match fs::read_dir(tests_dir) {
+        Ok(read) => read.filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().map(|e| e == "co").unwrap_or(false))
+            .collect(),
+        Err(e) => {
+            eprintln!("error reading tests/: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    entries.sort();
+
+    if let Some(pattern) = filter {
+        let pattern_lower = pattern.to_lowercase();
+        entries.retain(|p| p.file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.to_lowercase().contains(&pattern_lower))
+            .unwrap_or(false));
+    }
+
+    if entries.is_empty() {
+        println!("No test files found.");
+        return;
+    }
+
+    let mut passed = 0;
+    let mut failed = 0;
+
+    for entry in &entries {
+        let source = match fs::read_to_string(entry) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{}: read error: {}", entry.display(), e);
+                failed += 1;
+                continue;
+            }
+        };
+
+        // Parse
+        let mut parser = Parser::new(&source);
+        let program = parser.parse_program();
+        if !parser.diagnostics().is_empty() {
+            eprintln!("{}: parse error", entry.display());
+            failed += 1;
+            continue;
+        }
+
+        // Compile + run via VM
+        let mut compiler = coco_interpreter::compiler::Compiler::new();
+        let chunk = match compiler.compile_script(&program) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{}: compile error: {}", entry.display(), e);
+                failed += 1;
+                continue;
+            }
+        };
+
+        let mut vm = coco_interpreter::vm::Vm::new();
+        match vm.run(&chunk) {
+            Ok(_) => {
+                println!("  PASS  {}", entry.file_name().unwrap_or_default().to_string_lossy());
+                passed += 1;
+            }
+            Err(e) => {
+                println!("  FAIL  {}: {}", entry.file_name().unwrap_or_default().to_string_lossy(), e);
+                failed += 1;
+            }
+        }
+    }
+
+    println!("\n{} passed, {} failed, {} total", passed, failed, passed + failed);
+    if failed > 0 {
+        std::process::exit(1);
     }
 }
 
