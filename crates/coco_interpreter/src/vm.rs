@@ -925,26 +925,45 @@ impl Vm {
         match callee {
             Value::FnObj(fn_obj) => {
                 if fn_obj.is_async {
-                    return Err(VmError::new("async method calls not yet supported in VM"));
+                    // Async method call: spawn a task instead of pushing a call frame.
+                    // The `this` value is on this_stack (pushed by the caller).
+                    let mut new_stack = vec![Value::FnObj(fn_obj.clone())];
+                    // Include `this` as the first argument (slot 1).
+                    if let Some(this_val) = self.this_stack.last() {
+                        new_stack.push(this_val.clone());
+                    } else {
+                        new_stack.push(Value::Null);
+                    }
+                    for arg in args {
+                        new_stack.push(arg);
+                    }
+                    let task_id = self.scheduler.spawn(
+                        Value::FnObj(fn_obj),
+                        0,
+                        2, // locals start after closure (0) + this (1)
+                        new_stack,
+                    );
+                    self.push(Value::TaskHandle(task_id));
+                } else {
+                    let arity = fn_obj.arity;
+                    if arg_count != arity {
+                        return Err(VmError::new(format!(
+                            "{}() expects {} arguments, got {}",
+                            fn_obj.name, arity, arg_count
+                        )));
+                    }
+                    // Push the function and args onto the stack as locals
+                    let stack_offset = self.stack.len();
+                    self.stack.push(Value::FnObj(fn_obj));
+                    for arg in args {
+                        self.stack.push(arg);
+                    }
+                    self.frames.push(CallFrame {
+                        closure: self.stack[stack_offset].clone(),
+                        ip: 0,
+                        stack_offset,
+                    });
                 }
-                let arity = fn_obj.arity;
-                if arg_count != arity {
-                    return Err(VmError::new(format!(
-                        "{}() expects {} arguments, got {}",
-                        fn_obj.name, arity, arg_count
-                    )));
-                }
-                // Push the function and args onto the stack as locals
-                let stack_offset = self.stack.len();
-                self.stack.push(Value::FnObj(fn_obj));
-                for arg in args {
-                    self.stack.push(arg);
-                }
-                self.frames.push(CallFrame {
-                    closure: self.stack[stack_offset].clone(),
-                    ip: 0,
-                    stack_offset,
-                });
             }
             Value::BuiltinFn(name) => {
                 let result = call_builtin(&name, &args)
