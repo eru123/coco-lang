@@ -118,45 +118,15 @@ fn check_binary(bin: &BinaryExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckErro
             }
 
             // String concatenation with +
+            // Spec: string + any (non-error) operand produces string.
+            // `"count: " + 42` → `"count: 42"`.
             if bin.op == BinaryOp::Add
                 && (matches!(left_ty, Ty::String) || matches!(right_ty, Ty::String))
             {
-                if matches!(left_ty, Ty::String) && matches!(right_ty, Ty::String) {
-                    return Ty::String;
-                }
-                // string + non-string that isn't also string -> error
-                if matches!(left_ty, Ty::String)
-                    && !matches!(right_ty, Ty::String)
-                    && !right_ty.is_numeric()
-                {
-                    // For the test: "a + \"x\"" where a is int - this is an error
-                    // But "\"a\" + \"b\"" is fine
-                    // Actually string + anything is string concat in many languages
-                    // But per spec, we error on int + string (incompatible arithmetic)
-                    errors.push(TypeckError::incompatible_operands(
-                        "+",
-                        &left_ty.to_string(),
-                        &right_ty.to_string(),
-                        bin.span,
-                    ));
-                    return Ty::Unknown;
-                }
-                if matches!(right_ty, Ty::String)
-                    && !matches!(left_ty, Ty::String)
-                    && !left_ty.is_numeric()
-                {
-                    errors.push(TypeckError::incompatible_operands(
-                        "+",
-                        &left_ty.to_string(),
-                        &right_ty.to_string(),
-                        bin.span,
-                    ));
-                    return Ty::Unknown;
-                }
-                // int + string or string + int -> error (incompatible operands)
-                if (left_ty.is_numeric() && matches!(right_ty, Ty::String))
-                    || (matches!(left_ty, Ty::String) && right_ty.is_numeric())
-                {
+                // Only error if the non-string operand is truly incompatible
+                // (e.g., never/void types — anything else coerces via toString)
+                let non_string = if matches!(left_ty, Ty::String) { &right_ty } else { &left_ty };
+                if matches!(non_string, Ty::Never | Ty::Void) {
                     errors.push(TypeckError::incompatible_operands(
                         "+",
                         &left_ty.to_string(),

@@ -37,10 +37,16 @@ fn annotated_return_rejects_wrong_type() {
 }
 
 #[test]
-fn incompatible_arithmetic_reports_operand_error() {
-    let result = check_source("fn test(): int { return 1 + \"two\"; }");
-    assert!(result.has_errors());
-    assert_eq!(error_codes(&result), vec!["T006"]);
+fn string_plus_int_is_string_concat() {
+    // Spec: "count: " + 42 → "count: 42" — string + any non-error operand is valid
+    let result = check_source("fn test(): string { return \"count: \" + 42; }");
+    assert!(!result.has_errors(), "{:?}", result.errors);
+}
+
+#[test]
+fn int_plus_string_is_string_concat() {
+    let result = check_source("fn test(): string { return 1 + \"two\"; }");
+    assert!(!result.has_errors(), "{:?}", result.errors);
 }
 
 #[test]
