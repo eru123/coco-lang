@@ -304,6 +304,7 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool, use_vm: bool) {
 
     let mut interp = Interpreter::new();
     interp.set_debug(debug);
+    interp.set_source_file(resolved.clone());
     match interp.run_main(&source) {
         Ok(val) => {
             if let coco_interpreter::Value::Int(code) = val {
@@ -311,7 +312,7 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool, use_vm: bool) {
             }
         }
         Err(e) => {
-            eprintln!("Runtime error: {}", e);
+            eprintln!("{}", e.format(debug));
             std::process::exit(1);
         }
     }

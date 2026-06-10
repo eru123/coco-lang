@@ -4,6 +4,7 @@ use coco_syntax::*;
 
 use crate::builtins::call_builtin;
 use crate::error::{ControlFlow, IResult, RuntimeError, Signal};
+use crate::stack::StackFrame;
 use crate::value::{Function, Value};
 use crate::Interpreter;
 
@@ -285,6 +286,14 @@ impl Interpreter {
 
     /// Call a user-defined function with the given arguments.
     pub(crate) fn call_function(&mut self, func: &Function, args: Vec<Value>) -> IResult {
+        // Push call stack frame
+        self.call_stack.push(StackFrame {
+            function_name: func.name.clone(),
+            def_span: None,
+            call_site: None,
+            file: self.source_file.clone(),
+        });
+
         // Push a new scope for the function call
         self.env.push_scope();
 
@@ -301,7 +310,10 @@ impl Interpreter {
         self.env.pop_scope();
 
         match result {
-            Ok(val) => Ok(val),
+            Ok(val) => {
+                self.call_stack.pop();
+                Ok(val)
+            }
             Err(Signal::Flow(ControlFlow::Return(val))) => Ok(val),
             Err(e) => Err(e),
         }

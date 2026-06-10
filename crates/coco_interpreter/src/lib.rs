@@ -11,6 +11,7 @@ pub mod eval_expr;
 pub mod exec_item;
 pub mod exec_stmt;
 pub mod ir;
+pub mod stack;
 pub mod task;
 pub mod value;
 pub mod vm;
@@ -19,18 +20,22 @@ pub use error::RuntimeError;
 pub use value::Value;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use coco_gc::{CoW, Gc, Heap};
 use coco_parser::Parser;
 use coco_syntax::Program;
 use env::Environment;
 use error::{ControlFlow, IResult, Signal};
+use stack::{CallStack, StackFrame};
 
 /// The Coco tree-walking interpreter.
 pub struct Interpreter {
     pub(crate) env: Environment,
     pub(crate) heap: Heap,
     pub debug: bool,
+    pub(crate) call_stack: CallStack,
+    pub(crate) source_file: Option<PathBuf>,
 }
 
 impl Interpreter {
@@ -148,6 +153,8 @@ impl Interpreter {
             env,
             heap,
             debug: false,
+            call_stack: CallStack::new(),
+            source_file: None,
         }
     }
 
@@ -157,6 +164,11 @@ impl Interpreter {
         if debug {
             self.heap.collect_interval = 1000;
         }
+    }
+
+    /// Set the source file path for error reporting.
+    pub fn set_source_file(&mut self, path: PathBuf) {
+        self.source_file = Some(path);
     }
 
     /// Allocate a CoW list on the heap.
@@ -193,7 +205,9 @@ impl Interpreter {
         for item in &program.items {
             let result = self.exec_item(item);
             if let Err(Signal::Error(e)) = result {
-                return Err(e);
+                return Err(e
+                    .with_stack(&self.call_stack)
+                    .with_file(self.source_file.clone().unwrap_or_default()));
             }
         }
 
@@ -202,17 +216,30 @@ impl Interpreter {
         match main_fn {
             Some(Value::Function(func)) => {
                 self.call_function(&func, vec![]).map_err(|sig| match sig {
-                    Signal::Error(e) => e,
+                    Signal::Error(e) => e
+                        .with_stack(&self.call_stack)
+                        .with_file(self.source_file.clone().unwrap_or_default()),
                     Signal::Flow(ControlFlow::Return(val)) => {
-                        // This shouldn't happen since call_function catches returns
                         RuntimeError::new(format!("unexpected: {}", val))
+                            .with_stack(&self.call_stack)
+                            .with_file(self.source_file.clone().unwrap_or_default())
                     }
-                    Signal::Flow(_) => RuntimeError::new("unexpected control flow in main"),
+                    Signal::Flow(_) => RuntimeError::new("unexpected control flow in main")
+                        .with_stack(&self.call_stack)
+                        .with_file(self.source_file.clone().unwrap_or_default()),
                 })
             }
-            Some(_) => Err(RuntimeError::new("'main' is not a function")),
-            None => Err(RuntimeError::new("no 'main' function defined")),
-        }
+            Some(_) => Err(RuntimeError::new("'main' is not a function")
+                .with_stack(&self.call_stack)
+                .with_file(self.source_file.clone().unwrap_or_default())),
+            None => Err(RuntimeError::new("no 'main' function defined")
+                .with_stack(&self.call_stack)
+                .with_file(self.source_file.clone().unwrap_or_default())),
+        }.map(|val| {
+            // Clean up call stack on success
+            self.call_stack = CallStack::new();
+            val
+        })
     }
 
     fn parse(&self, src: &str) -> Result<Program, RuntimeError> {

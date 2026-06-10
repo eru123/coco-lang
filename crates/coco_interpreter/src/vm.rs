@@ -18,6 +18,7 @@ use num_bigint::BigInt;
 
 use crate::builtins::call_builtin;
 use crate::ir::{read_i16, read_u16, Chunk, FnObj, *};
+use crate::stack::{CallStack, StackFrame};
 use crate::task::{TaskId, TaskScheduler};
 use crate::value::Value;
 
