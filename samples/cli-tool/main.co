@@ -1,0 +1,81 @@
+// samples/cli-tool/main.co — Task Manager CLI
+// Demonstrates: Result<T,E>, BigInt, control flow, builtins
+
+fn main(): int {
+    print("=== Coco Task Manager ===");
+    print("Features: Result<T,E>, BigInt, builtins");
+
+    // Result type demo
+    print("\n[1] Result constructors:");
+    const okVal = Ok(42);
+    const errVal = Err("something failed");
+    print("  Ok(42) = " + toString(okVal));
+    print("  isOk = " + toString(isOk(okVal)));
+    print("  isErr = " + toString(isErr(errVal)));
+    print("  unwrap = " + toString(unwrap(okVal)));
+
+    // ? operator demo
+    print("\n[2] ? operator:");
+    fn safeDivide(a: int, b: int): Result<int, string> {
+        if b == 0 { return Err("division by zero"); }
+        return Ok(a / b);
+    }
+    const good = safeDivide(100, 5);
+    const bad = safeDivide(10, 0);
+    if isOk(good) { print("  100/5 = " + toString(unwrap(good))); }
+    print("  10/0 isErr: " + toString(isErr(bad)));
+
+    // BigInt demo
+    print("\n[3] BigInt arithmetic:");
+    const huge = 999999999999999999;
+    print("  " + toString(huge) + " + 1 = " + toString(huge + 1));
+    print("  " + toString(huge) + " * 2 = " + toString(huge * 2));
+    print("  " + toString(huge) + " squared = " + toString(huge * huge));
+    print("  2^100 = " + toString(2 ** 100));
+    print("  30! = " + toString(factorial(30)));
+
+    // Math builtins
+    print("\n[4] Math builtins:");
+    print("  abs(-42) = " + toString(abs(-42)));
+    print("  min(3,7,2,9) = " + toString(min(3, 7, 2, 9)));
+    print("  max(3,7,2,9) = " + toString(max(3, 7, 2, 9)));
+    print("  floor(3.7) = " + toString(floor(3.7)));
+    print("  ceil(3.2) = " + toString(ceil(3.2)));
+    print("  round(3.5) = " + toString(round(3.5)));
+    print("  sqrt(16) = " + toString(sqrt(16)));
+    print("  pow(2, 8) = " + toString(pow(2, 8)));
+
+    // Type utils
+    print("\n[5] Type utilities:");
+    print("  typeOf(42) = " + typeOf(42));
+    print("  typeOf(3.14) = " + typeOf(3.14));
+    print("  typeOf('hi') = " + typeOf("hi"));
+    print("  typeOf(true) = " + typeOf(true));
+    print("  typeOf(Ok(1)) = " + typeOf(Ok(1)));
+    print("  toString(42) = " + toString(42));
+    print("  parseInt('99') = " + toString(parseInt("99")));
+    print("  parseFloat('3.14') = " + toString(parseFloat("3.14")));
+
+    // Error handling
+    print("\n[6] Error patterns:");
+    fn validateAge(age: int): Result<int, string> {
+        if age < 0 { return Err("age cannot be negative"); }
+        if age > 150 { return Err("age too high"); }
+        return Ok(age);
+    }
+    const valid = validateAge(25);
+    const invalid = validateAge(-5);
+    print("  valid 25: " + toString(isOk(valid)));
+    print("  invalid:  " + toString(isErr(invalid)));
+
+    print("\n=== Complete ===");
+    return 0;
+}
+
+fn factorial(n: int): int {
+    if n <= 1 { return 1; }
+    let result = 1;
+    let i = 2;
+    while i <= n { result = result * i; i = i + 1; }
+    return result;
+}

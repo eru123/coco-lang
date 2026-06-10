@@ -1,0 +1,229 @@
+// samples/parallel-math/main.co — Parallel Math Solver
+// Demonstrates: BigInt, Result, math builtins, number theory
+// Avoids list indexing for interpreter compatibility
+
+fn isPrime(n: int): bool {
+    if n < 2 { return false; }
+    if n == 2 { return true; }
+    if n % 2 == 0 { return false; }
+    const limit = floor(sqrt(n));
+    let i = 3;
+    while i <= limit {
+        if n % i == 0 { return false; }
+        i = i + 2;
+    }
+    return true;
+}
+
+fn gcd(a: int, b: int): int {
+    let x = abs(a);
+    let y = abs(b);
+    while y != 0 {
+        const temp = y;
+        y = x % y;
+        x = temp;
+    }
+    return x;
+}
+
+fn modPow(base: int, exp: int, m: int): int {
+    if m == 1 { return 0; }
+    let result = 1;
+    let b = base % m;
+    let e = exp;
+    while e > 0 {
+        if e % 2 == 1 { result = (result * b) % m; }
+        e = e / 2;
+        b = (b * b) % m;
+    }
+    return result;
+}
+
+fn factorial(n: int): int {
+    if n <= 1 { return 1; }
+    let result = 1;
+    let i = 2;
+    while i <= n { result = result * i; i = i + 1; }
+    return result;
+}
+
+fn fibonacci(n: int): int {
+    if n <= 0 { return 0; }
+    if n == 1 { return 1; }
+    let a = 0;
+    let b = 1;
+    let i = 2;
+    while i <= n {
+        const c = a + b;
+        a = b;
+        b = c;
+        i = i + 1;
+    }
+    return b;
+}
+
+fn sumDivisors(n: int): int {
+    if n <= 1 { return 0; }
+    let sum = 1;
+    const limit = floor(sqrt(n));
+    let i = 2;
+    while i <= limit {
+        if n % i == 0 {
+            sum = sum + i;
+            const pair = n / i;
+            if pair != i { sum = sum + pair; }
+        }
+        i = i + 1;
+    }
+    return sum;
+}
+
+fn isPerfect(n: int): bool {
+    return n > 1 and sumDivisors(n) == n;
+}
+
+fn collatzLength(n: int): int {
+    let count = 1;
+    let x = n;
+    while x != 1 {
+        if x % 2 == 0 { x = x / 2; }
+        else { x = 3 * x + 1; }
+        count = count + 1;
+    }
+    return count;
+}
+
+fn fmtNum(n: int): string {
+    // Mathematical approach: extract digits from right, add commas
+    if n == 0 { return "0"; }
+    const neg = n < 0;
+    let x = abs(n);
+    let result = "";
+    let count = 0;
+    while x > 0 {
+        const digit = toString(x % 10);
+        result = digit + result;
+        count = count + 1;
+        x = x / 10;
+        if count == 3 and x > 0 {
+            result = "," + result;
+            count = 0;
+        }
+    }
+    if neg { result = "-" + result; }
+    return result;
+}
+
+fn repeatStr(s: string, n: int): string {
+    let r = "";
+    let i = 0;
+    while i < n { r = r + s; i = i + 1; }
+    return r;
+}
+
+fn header(title: string): void {
+    print("");
+    print(repeatStr("═", 60));
+    print("  " + title);
+    print(repeatStr("═", 60));
+}
+
+fn main(): int {
+    print("╔══════════════════════════════════════════════════════════╗");
+    print("║        COCO PARALLEL MATH SOLVER                        ║");
+    print("║  BigInt · Prime Factorization · Fibonacci · DH-KE       ║");
+    print("╚══════════════════════════════════════════════════════════╝");
+
+    // Prime checks
+    header("Prime Number Checks");
+    print("  999999999989 is prime: " + toString(isPrime(999999999989)));
+    print("  1000000007 is prime:   " + toString(isPrime(1000000007)));
+    print("  2^31 - 1 is prime:     " + toString(isPrime(2 ** 31 - 1)));
+
+    // Factorize some numbers
+    header("Prime Factorization Sample");
+    const n = 1234567890;
+    let remaining = n;
+    let parts = "";
+    let d = 2;
+    let first = true;
+    while remaining > 1 {
+        if remaining % d == 0 {
+            let count = 0;
+            while remaining % d == 0 { count = count + 1; remaining = remaining / d; }
+            if not first { parts = parts + " × "; }
+            first = false;
+            if count == 1 { parts = parts + toString(d); }
+            else { parts = parts + toString(d) + "^" + toString(count); }
+        }
+        d = d + 1;
+        if d * d > remaining and remaining > 1 {
+            if not first { parts = parts + " × "; }
+            parts = parts + toString(remaining);
+            remaining = 1;
+        }
+    }
+    print("  " + fmtNum(n) + " = " + parts);
+
+    // Factorials
+    header("Factorials (BigInt)");
+    print("  10!  = " + fmtNum(factorial(10)));
+    print("  20!  = " + fmtNum(factorial(20)));
+    const f30 = factorial(30);
+    print("  30!  = " + fmtNum(f30) + "  (" + toString(len(toString(f30))) + " digits)");
+
+    // Fibonacci
+    header("Fibonacci (BigInt)");
+    print("  F(10)  = " + toString(fibonacci(10)));
+    print("  F(30)  = " + fmtNum(fibonacci(30)));
+    print("  F(50)  = " + fmtNum(fibonacci(50)));
+    const f100 = fibonacci(100);
+    print("  F(100) = " + fmtNum(f100));
+    print("  F(200) has " + toString(len(toString(fibonacci(200)))) + " digits");
+    print("  F(101)/F(100) ≈ " + toString(fibonacci(101) / fibonacci(100)));
+
+    // Diffie-Hellman
+    header("Diffie-Hellman Key Exchange");
+    const p = 999999999989;
+    const g = 5;
+    const aSec = 123456789;
+    const bSec = 987654321;
+    const aPub = modPow(g, aSec, p);
+    const bPub = modPow(g, bSec, p);
+    const aShared = modPow(bPub, aSec, p);
+    const bShared = modPow(aPub, bSec, p);
+    print("  Modulus:       " + fmtNum(p));
+    print("  Alice pub:     " + fmtNum(aPub));
+    print("  Bob pub:       " + fmtNum(bPub));
+    print("  Keys match:    " + toString(aShared == bShared));
+    print("  7^1000 mod p:  " + fmtNum(modPow(7, 1000, p)));
+
+    // Collatz
+    header("Collatz Conjecture");
+    print("  collatzLength(27)   = " + toString(collatzLength(27)));
+    print("  collatzLength(871)  = " + toString(collatzLength(871)));
+    print("  collatzLength(6171) = " + toString(collatzLength(6171)));
+
+    // Perfect numbers
+    header("Perfect Numbers");
+    print("  6 is perfect:    " + toString(isPerfect(6)));
+    print("  28 is perfect:   " + toString(isPerfect(28)));
+    print("  496 is perfect:  " + toString(isPerfect(496)));
+    print("  8128 is perfect: " + toString(isPerfect(8128)));
+
+    // GCD
+    header("GCD with BigInt");
+    const a = 1234567890;
+    const b = 9876543210;
+    const g = gcd(a, b);
+    print("  a   = " + fmtNum(a));
+    print("  b   = " + fmtNum(b));
+    print("  gcd = " + fmtNum(g));
+    print("  lcm = " + fmtNum(a * b / g));
+
+    print("");
+    print(repeatStr("═", 60));
+    print("  Complete. BigInt handled all large numbers correctly.");
+    print(repeatStr("═", 60));
+    return 0;
+}

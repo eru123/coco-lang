@@ -1,0 +1,222 @@
+// samples/tui-app/main.co — Terminal Monitoring Dashboard
+// Demonstrates: channels, coroutines, parallel{}, async data fetching, BigInt
+//
+// Simulates a real-time monitoring dashboard with:
+//   - Background coroutines collecting metrics
+//   - Channel-based event streaming
+//   - Parallel data fetching
+//   - Widget-based rendering
+
+import {
+    MetricPanel, ProgressBar, LogPanel, TablePanel,
+    Color, colorize, formatNumber,
+} from "./widgets";
+
+// ---------------------------------------------------------------------------
+// Data sources — simulate external systems being monitored
+// ---------------------------------------------------------------------------
+
+// Simulated API response type
+class ApiResponse {
+    constructor(
+        public status: int,
+        public data: string,
+    ) {}
+}
+
+// Simulate fetching server metrics
+async fn fetchServerMetrics(): ApiResponse {
+    // Simulate network latency with computation
+    const dummy = factorial(10);
+    return new ApiResponse(
+        status: 200,
+        data: "CPU:45%, RAM:62%, Disk:33%",
+    );
+}
+
+// Simulate fetching database stats
+async fn fetchDbStats(): ApiResponse {
+    const dummy = factorial(8);
+    return new ApiResponse(
+        status: 200,
+        data: "Connections:128, Queries/s:3400, Cache:87%",
+    );
+}
+
+// Simulate fetching queue depth
+async fn fetchQueueDepth(): ApiResponse {
+    return new ApiResponse(
+        status: 200,
+        data: "Pending:42, Processed:15832, Failed:3",
+    );
+}
+
+// Simulate fetching a large dataset for the table
+async fn fetchTableData(): list<list<string>> {
+    return [
+        ["web-01", "192.168.1.10", "healthy", "45%", "1.2TB"],
+        ["web-02", "192.168.1.11", "healthy", "52%", "0.9TB"],
+        ["web-03", "192.168.1.12", "warning", "89%", "1.5TB"],
+        ["db-01",  "192.168.2.10", "healthy", "31%", "4.2TB"],
+        ["db-02",  "192.168.2.11", "healthy", "28%", "3.8TB"],
+        ["cache-1","192.168.3.10", "healthy", "67%", "0.5TB"],
+    ];
+}
+
+// ---------------------------------------------------------------------------
+// Fast factorial for simulation
+// ---------------------------------------------------------------------------
+
+fn factorial(n: int): int {
+    if n <= 1 { return 1; }
+    return n * factorial(n - 1);
+}
+
+// ---------------------------------------------------------------------------
+// Simulated Fibonacci — heavy computation for progress bar
+// ---------------------------------------------------------------------------
+
+fn fib(n: int): int {
+    if n <= 1 { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard setup
+// ---------------------------------------------------------------------------
+
+fn main(): int {
+    print("\n" + colorize("╔══════════════════════════════════════════════════╗", Color::Cyan));
+    print(colorize("║       COCO MONITORING DASHBOARD (Simulated)       ║", Color::Cyan));
+    print(colorize("╚══════════════════════════════════════════════════╝", Color::Cyan));
+
+    // Create widgets
+    const cpuPanel = new MetricPanel(0, 0, "CPU Usage", Color::Green);
+    const memPanel = new MetricPanel(0, 3, "Memory Used", Color::Yellow);
+    const reqPanel = new MetricPanel(0, 6, "Total Requests", Color::Blue);
+    const errPanel = new MetricPanel(0, 9, "Error Count", Color::Red);
+
+    const progressBar = new ProgressBar(0, 12, "Data Processing");
+    const logPanel = new LogPanel(0, 15, 60, 8);
+    const tablePanel = new TablePanel(0, 23, 60, 10,
+        ["Host", "IP", "Status", "CPU", "Storage"]);
+
+    // Set simulated values
+    cpuPanel.setValue(45);
+    memPanel.setValue(62914560000);  // ~62 GB in bytes (BigInt!)
+    reqPanel.setValue(15832947);
+    errPanel.setValue(127);
+
+    progressBar.setProgress(72);
+
+    // Render all widgets
+    print(cpuPanel.render());
+    print(memPanel.render());
+    print(reqPanel.render());
+    print(errPanel.render());
+
+    // BigInt demo: show memory in human-readable format
+    const bytes = 62914560000;
+    const gb = bytes / 1073741824;
+    print("  Memory: " + formatNumber(bytes) + " bytes (~" + toString(gb) + " GB)");
+
+    print(progressBar.render());
+    print("  Processing " + formatNumber(15832947) + " records...");
+
+    logPanel.addLine("[INFO] Dashboard initialized");
+    logPanel.addLine("[INFO] Connected to 7 nodes");
+    logPanel.addLine("[WARN] web-03 CPU at 89%");
+    logPanel.addLine("[OK]   db-01 replication lag: 0ms");
+    logPanel.addLine("[INFO] Cache hit ratio: 87.3%");
+    print(logPanel.render());
+
+    // Fetch table data (simulated async)
+    const rows = fetchTableData();
+    tablePanel.setRows(rows);
+    print(tablePanel.render());
+
+    // -----------------------------------------------------------------------
+    // Concurrency demo: parallel data fetching
+    // -----------------------------------------------------------------------
+    print("\n" + colorize("═══════ Parallel Fetch Demo ═══════", Color::Cyan));
+    print("Fetching 3 data sources in parallel...");
+
+    // In a real app with actual async I/O:
+    //   const [server, db, queue] = await parallel {
+    //       run fetchServerMetrics();
+    //       run fetchDbStats();
+    //       run fetchQueueDepth();
+    //   };
+    //
+    // For now, simulate with synchronous calls:
+    const server = fetchServerMetrics();
+    const db = fetchDbStats();
+    const queue = fetchQueueDepth();
+
+    print("  Server:  " + server.data);
+    print("  DB:      " + db.data);
+    print("  Queue:   " + queue.data);
+
+    // -----------------------------------------------------------------------
+    // Channel demo: event stream
+    // -----------------------------------------------------------------------
+    print("\n" + colorize("═══════ Channel Event Stream ═══════", Color::Cyan));
+    print("Simulating event channel...");
+
+    // Create a channel for events
+    const events = chan<string>(10);
+
+    // In a real app with coroutines:
+    //   coro {
+    //       events.send("user.login: admin");
+    //       events.send("deploy.started: v2.1.0");
+    //       events.send("alert.cpu: web-03 at 95%");
+    //       events.send("deploy.complete: v2.1.0");
+    //       events.close();
+    //   }
+    //
+    //   for event in events {
+    //       print("  [EVENT] " + event);
+    //   }
+
+    // Simulated events (since coroutines need runtime support)
+    const sampleEvents = [
+        "user.login: admin",
+        "deploy.started: v2.1.0",
+        "alert.cpu: web-03 at 95%",
+        "deploy.complete: v2.1.0",
+        "user.login: operator",
+        "alert.resolve: web-03 CPU normal",
+    ];
+    for event in sampleEvents {
+        print("  [EVENT] " + event);
+    }
+
+    // -----------------------------------------------------------------------
+    // Parallel computation demo
+    // -----------------------------------------------------------------------
+    print("\n" + colorize("═══════ Parallel Math ═══════", Color::Cyan));
+    print("Computing Fibonacci numbers...");
+
+    // With real parallel support:
+    //   const [f30, f35, f40] = await parallel {
+    //       run fib(30);
+    //       run fib(35);
+    //       run fib(40);
+    //   };
+
+    const f30 = fib(30);
+    const f35 = fib(35);
+    const f40 = fib(40);
+
+    print("  fib(30) = " + formatNumber(f30));
+    print("  fib(35) = " + formatNumber(f35));
+    print("  fib(40) = " + formatNumber(f40));
+
+    // BigInt demo
+    const bigFib = fib(50);
+    print("  fib(50) = " + formatNumber(bigFib));
+
+    print("\n" + colorize("═══════ Dashboard Complete ═══════", Color::Green));
+    return 0;
+}
