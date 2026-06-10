@@ -941,6 +941,7 @@ impl Compiler {
                 Err(CompileError::new("super only valid in method call position"))
             }
             Expr::Match(match_expr) => self.compile_match(match_expr),
+            Expr::Elvis(elvis) => self.compile_elvis(elvis),
             Expr::Template(t) => self.compile_template(t),
             Expr::Lazy(inner) => {
                 // Compile inner expression as an async lambda and spawn it
@@ -1107,6 +1108,26 @@ impl Compiler {
             BitXor => self.emit_op(OP_BIT_XOR),
             Shl => self.emit_op(OP_SHL),
             Shr => self.emit_op(OP_SHR),
+            // Ranges: push both ends and build range list
+            Range => {
+                // Pop right and left, build range by calling builtin range()
+                let range_idx = self.name_constant("range");
+                self.emit_op_u16(OP_LOAD_GLOBAL, range_idx);
+                self.emit_op_u8(OP_CALL, 2); // range(start, end)
+            }
+            RangeInclusive => {
+                // Inclusive: range(start, end + 1)
+                let one_idx = self.add_constant(Value::Int(BigInt::from(1)));
+                self.emit_op_u16(OP_CONST, one_idx);
+                self.emit_op(OP_ADD);
+                let range_idx = self.name_constant("range");
+                self.emit_op_u16(OP_LOAD_GLOBAL, range_idx);
+                self.emit_op_u8(OP_CALL, 2);
+            }
+            Elvis => {
+                // Already handled as Expr::Elvis, shouldn't reach here
+                return Err(CompileError::new("elvis should be handled as Expr::Elvis"));
+            }
             _ => return Err(CompileError::new(format!("unhandled binary op"))),
         }
         Ok(())
@@ -1310,8 +1331,20 @@ impl Compiler {
 
     fn compile_member(&mut self, mem: &MemberExpr) -> CResult<()> {
         self.compile_expr(&mem.object)?;
-        let name_idx = self.name_constant(&mem.property.name);
-        self.emit_op_u16(OP_MEMBER, name_idx);
+        if mem.optional {
+            // a?.b — if object is null, push null; else access member
+            let end_label = self.new_label();
+            self.emit_op(OP_DUP);
+            self.emit_op(OP_NULL);
+            self.emit_op(OP_EQ);
+            self.emit_jump(OP_JUMP_IF_TRUE, end_label);
+            let name_idx = self.name_constant(&mem.property.name);
+            self.emit_op_u16(OP_MEMBER, name_idx);
+            self.place_label(end_label);
+        } else {
+            let name_idx = self.name_constant(&mem.property.name);
+            self.emit_op_u16(OP_MEMBER, name_idx);
+        }
         Ok(())
     }
 
@@ -1386,7 +1419,7 @@ impl Compiler {
         let scrut_slot = self.add_local(&scrut_name);
         self.compile_expr(&match_expr.scrutinee)?;
         self.emit_op_u16(OP_STORE_LOCAL, scrut_slot as u16);
-        self.emit_op(OP_POP);
+        // No POP — STORE_LOCAL consumes the top value
 
         let end_label = self.new_label();
         let mut arm_labels: Vec<Label> = Vec::new();
@@ -1484,7 +1517,6 @@ impl Compiler {
                 let local_slot = self.add_local(&ident.name);
                 self.emit_op_u16(OP_LOAD_LOCAL, scrut_slot as u16);
                 self.emit_op_u16(OP_STORE_LOCAL, local_slot as u16);
-                self.emit_op(OP_POP);
             }
             Pattern::Literal(_) | Pattern::IsType(_) | Pattern::Wildcard(_) => {
                 // No binding needed.
@@ -1506,6 +1538,22 @@ impl Compiler {
         self.emit_jump(OP_JUMP_IF_FALSE, end_label);
         self.emit_op(OP_POP);
         self.compile_expr(&nc.right)?;
+        self.place_label(end_label);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Elvis operator (a ?: b) — short-circuit on truthy
+    // -----------------------------------------------------------------------
+
+    fn compile_elvis(&mut self, elvis: &ElvisExpr) -> CResult<()> {
+        // Evaluate left, if truthy keep it, else evaluate right
+        self.compile_expr(&elvis.left)?;
+        let end_label = self.new_label();
+        self.emit_op(OP_DUP);
+        self.emit_jump(OP_JUMP_IF_TRUE, end_label);
+        self.emit_op(OP_POP);
+        self.compile_expr(&elvis.right)?;
         self.place_label(end_label);
         Ok(())
     }
