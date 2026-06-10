@@ -1,12 +1,12 @@
 //! Coco compiler CLI — lex, parse, fmt, check commands.
 
 use clap::{Parser as ClapParser, Subcommand};
-use coco_diagnostics::{Diagnostic, DiagnosticLevel};
+use coco_diagnostics::Diagnostic;
 use coco_formatter::Formatter;
 use coco_lexer::{Lexer, TokenKind};
 use coco_parser::Parser;
 use coco_safety as safety;
-use coco_span::{FileId, SourceFile};
+use coco_span::{FileId, SourceMap};
 use coco_syntax::Item;
 use num_traits::ToPrimitive;
 use std::fs;
@@ -255,13 +255,10 @@ fn cmd_parse(file: &Path) {
     let mut parser = Parser::new(&source);
     let program = parser.parse_program();
 
-    // Print diagnostics
+    // Print diagnostics with ariadne
     let diagnostics = parser.diagnostics();
     if !diagnostics.is_empty() {
-        eprintln!("Diagnostics for {}:", resolved.display());
-        for diag in diagnostics {
-            eprintln!("  - {}", diag);
-        }
+        report_parser_diagnostics(&source, &resolved, &diagnostics);
     }
 
     // Print AST
@@ -303,14 +300,7 @@ fn cmd_fmt(file: &Path, write: bool) {
 
     let diagnostics = parser.diagnostics();
     if !diagnostics.is_empty() {
-        eprintln!(
-            "Warning: {} diagnostics while parsing {}:",
-            diagnostics.len(),
-            resolved.display()
-        );
-        for diag in diagnostics {
-            eprintln!("  - {}", diag);
-        }
+        report_parser_diagnostics(&source, &resolved, &diagnostics);
     }
 
     let mut formatter = Formatter::new();
@@ -339,14 +329,12 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool, _use_vm: bool) {
         let mut parser = Parser::new(&source);
         let program = parser.parse_program();
         if !parser.diagnostics().is_empty() {
+            report_parser_diagnostics(&source, &resolved, &parser.diagnostics());
             eprintln!(
                 "{}: {} parse error(s)",
                 resolved.display(),
                 parser.diagnostics().len()
             );
-            for diag in parser.diagnostics() {
-                eprintln!("  - {}", diag);
-            }
             std::process::exit(1);
         }
 
@@ -368,11 +356,6 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool, _use_vm: bool) {
                 safety_result.errors.len()
             );
             std::process::exit(1);
-        }
-        if safety_result.has_warnings() {
-            for w in &safety_result.warnings {
-                eprintln!("warning[{}]: {}", w.code, w.message);
-            }
         }
     }
 
@@ -495,14 +478,7 @@ fn cmd_check(file: &Path) {
 
     let diagnostics = parser.diagnostics();
     if !diagnostics.is_empty() {
-        eprintln!(
-            "{}: {} parse error(s)",
-            resolved.display(),
-            diagnostics.len()
-        );
-        for diag in diagnostics {
-            eprintln!("  - {}", diag);
-        }
+        report_parser_diagnostics(&source, &resolved, &diagnostics);
     }
 
     let safety_result = safety::analyze(&program);
@@ -512,6 +488,13 @@ fn cmd_check(file: &Path) {
     let type_ok = !typeck_result.has_errors();
     let safety_ok = !safety_result.has_errors();
 
+    if !type_ok {
+        report_type_errors(&source, &resolved, &typeck_result);
+    }
+    if !safety_ok {
+        report_safety_errors(&source, &resolved, &safety_result);
+    }
+
     if parse_ok && type_ok && safety_ok {
         println!(
             "{}: OK ({} items parsed, types OK, safety OK)",
@@ -519,26 +502,13 @@ fn cmd_check(file: &Path) {
             program.items.len()
         );
     } else {
-        if !parse_ok {
-            eprintln!("{}: parse FAILED", resolved.display());
-        }
-        if !type_ok {
-            eprintln!(
-                "{}: {} type error(s)",
-                resolved.display(),
-                typeck_result.error_count()
-            );
-        }
-        if !safety_ok {
-            eprintln!(
-                "{}: {} safety error(s)",
-                resolved.display(),
-                safety_result.error_count()
-            );
-        }
-        for w in &safety_result.warnings {
-            eprintln!("  warning[{}]: {}", w.code, w.message);
-        }
+        eprintln!(
+            "{}: {} parse error(s), {} type error(s), {} safety error(s)",
+            resolved.display(),
+            diagnostics.len(),
+            typeck_result.error_count(),
+            safety_result.error_count()
+        );
     }
 }
 
@@ -554,14 +524,7 @@ fn cmd_typecheck(file: &Path) {
     let mut parser = Parser::new(&source);
     let program = parser.parse_program();
     if !parser.diagnostics().is_empty() {
-        eprintln!(
-            "{}: {} parse error(s)",
-            resolved.display(),
-            parser.diagnostics().len()
-        );
-        for diag in parser.diagnostics() {
-            eprintln!("  - {}", diag);
-        }
+        report_parser_diagnostics(&source, &resolved, &parser.diagnostics());
         std::process::exit(1);
     }
 
@@ -591,14 +554,7 @@ fn cmd_safety(file: &Path) {
     let mut parser = Parser::new(&source);
     let program = parser.parse_program();
     if !parser.diagnostics().is_empty() {
-        eprintln!(
-            "{}: {} parse error(s)",
-            resolved.display(),
-            parser.diagnostics().len()
-        );
-        for diag in parser.diagnostics() {
-            eprintln!("  - {}", diag);
-        }
+        report_parser_diagnostics(&source, &resolved, &parser.diagnostics());
         std::process::exit(1);
     }
 
@@ -613,12 +569,6 @@ fn cmd_safety(file: &Path) {
         std::process::exit(1);
     }
 
-    if result.has_warnings() {
-        for w in &result.warnings {
-            eprintln!("warning[{}]: {}", w.code, w.message);
-        }
-    }
-
     println!(
         "{}: safety OK ({} warnings)",
         resolved.display(),
@@ -626,31 +576,53 @@ fn cmd_safety(file: &Path) {
     );
 }
 
+/// Build a SourceMap, register the main source file, and return it along with its FileId.
+fn build_source_map(source: &str, file: &Path) -> (SourceMap, FileId) {
+    let mut map = SourceMap::new();
+    let id = map.add_file(file.to_path_buf(), source.to_string());
+    (map, id)
+}
+
+/// Emit safety errors with ariadne-rendered diagnostics.
 fn report_safety_errors(source: &str, file: &Path, result: &safety::SafetyResult) {
-    let source_file = SourceFile::new(FileId(0), file.to_path_buf(), source.to_string());
+    let (source_map, file_id) = build_source_map(source, file);
     for error in &result.errors {
-        let location = source_file.get_location(error.span.start);
-        eprintln!("error[{}]: {}", error.code, error.message);
-        eprintln!(
-            " --> {}:{}:{}",
-            file.display(),
-            location.line,
-            location.column
-        );
+        let mut diag = Diagnostic::error(file_id, format!("[{}] {}", error.code, error.message));
+        if !error.span.is_empty() {
+            diag = diag.with_label(error.span, "here", true);
+        }
+        diag.emit(&source_map);
+    }
+    for warning in &result.warnings {
+        let mut diag = Diagnostic::warning(file_id, format!("[{}] {}", warning.code, warning.message));
+        if !warning.span.is_empty() {
+            diag = diag.with_label(warning.span, "here", true);
+        }
+        diag.emit(&source_map);
     }
 }
 
+/// Emit type errors with ariadne-rendered diagnostics.
 fn report_type_errors(source: &str, file: &Path, result: &coco_typeck::TypeckResult) {
-    let source_file = SourceFile::new(FileId(0), file.to_path_buf(), source.to_string());
+    let (source_map, file_id) = build_source_map(source, file);
     for error in &result.errors {
-        let location = source_file.get_location(error.span.start);
-        eprintln!("error[{}]: {}", error.code, error.message);
-        eprintln!(
-            " --> {}:{}:{}",
-            file.display(),
-            location.line,
-            location.column
-        );
+        let mut diag = Diagnostic::error(file_id, format!("[{}] {}", error.code, error.message));
+        if !error.span.is_empty() {
+            diag = diag.with_label(error.span, "here", true);
+        }
+        diag.emit(&source_map);
+    }
+}
+
+/// Emit parser diagnostics with ariadne-rendered labels.
+fn report_parser_diagnostics(source: &str, file: &Path, diagnostics: &[String]) {
+    if diagnostics.is_empty() {
+        return;
+    }
+    let (source_map, file_id) = build_source_map(source, file);
+    for diag_msg in diagnostics {
+        let diag = Diagnostic::error(file_id, diag_msg.clone());
+        diag.emit(&source_map);
     }
 }
 
