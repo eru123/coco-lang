@@ -26,7 +26,14 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Pipe(_) => Ty::Unknown,
         Expr::Assignment(_) => Ty::Void,
         Expr::Postfix(_) => Ty::Unknown,
-        Expr::Lambda(_) => Ty::Unknown,
+        Expr::Lambda(lambda) => {
+            let params: Vec<Ty> = lambda.params.iter().map(|p| {
+                p.type_ann.as_ref().map(crate::convert::ast_type_to_ty).unwrap_or(Ty::Unknown)
+            }).collect();
+            let ret = lambda.return_type.as_ref().map(crate::convert::ast_type_to_ty).unwrap_or(Ty::Unknown);
+            let ret = if lambda.is_async { Ty::Task(Box::new(ret)) } else { ret };
+            Ty::Function { params, ret: Box::new(ret) }
+        }
         Expr::Match(_) => Ty::Unknown,
         Expr::This(_) | Expr::Dollar(_) => env.current_self().cloned().unwrap_or(Ty::Unknown),
         Expr::DollarDollar(_) => Ty::Unknown,

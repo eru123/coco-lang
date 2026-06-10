@@ -26,6 +26,8 @@ pub enum Ty {
     },
     Named(std::string::String),
     Result(Box<Ty>, Box<Ty>),
+    /// An async task that yields a value of the inner type.
+    Task(Box<Ty>),
     /// Used when a type cannot be determined (e.g., unannotated parameter).
     Unknown,
 }
@@ -128,6 +130,7 @@ impl Ty {
                 Box::new(ok.subst_impl(pairs)),
                 Box::new(err.subst_impl(pairs)),
             ),
+            Ty::Task(inner) => Ty::Task(Box::new(inner.subst_impl(pairs))),
             other => other.clone(),
         }
     }
@@ -180,6 +183,7 @@ impl fmt::Display for Ty {
             }
             Ty::Named(name) => write!(f, "{}", name),
             Ty::Result(ok, err) => write!(f, "Result<{}, {}>", ok, err),
+            Ty::Task(inner) => write!(f, "Task<{}>", inner),
             Ty::Unknown => write!(f, "unknown"),
         }
     }

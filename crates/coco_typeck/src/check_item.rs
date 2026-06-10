@@ -247,6 +247,12 @@ fn fn_sig_from_fn(fn_decl: &FnDecl) -> FnSig {
         .as_ref()
         .map(|tps| tps.iter().map(|tp| tp.name.name.clone()).collect())
         .unwrap_or_default();
+    // Async functions return Task<T> instead of T
+    let ret = if fn_decl.is_async {
+        Ty::Task(Box::new(ret))
+    } else {
+        ret
+    };
     FnSig {
         params,
         ret,
