@@ -1,0 +1,48 @@
+// Coroutine test
+// Demonstrates: coro{}, fire-and-forget execution, scope isolation
+
+fn main(): int {
+    // Test 1: coro with print
+    print("before");
+    coro {
+        print("inside");
+    }
+    print("after");
+
+    // Test 2: coro with variable in own scope
+    let x = 10;
+    coro {
+        let y = 42;
+        print(x + y); // 52
+    }
+    // y is not accessible here (scope isolation)
+    print(x); // 10
+
+    // Test 3: multiple coro blocks
+    coro {
+        print("first");
+    }
+    coro {
+        print("second");
+    }
+    coro {
+        print("third");
+    }
+
+    // Test 4: coro with computation using BigInt
+    coro {
+        const big = 999999999999 * 999999999999;
+        print(big);
+    }
+    print("done");
+
+    // Test 5: coro inside conditional
+    let flag = true;
+    if flag {
+        coro {
+            print("conditional coro");
+        }
+    }
+
+    return 0;
+}

@@ -1,0 +1,49 @@
+// Parallel concurrency test
+// Demonstrates: parallel{}, await, async fn, structured concurrency
+
+async fn square(x: int): int {
+    return x * x;
+}
+
+async fn cube(x: int): int {
+    return x * x * x;
+}
+
+async fn add(a: int, b: int): int {
+    return a + b;
+}
+
+fn main(): int {
+    // Test 1: parallel with two tasks
+    const r1 = await parallel {
+        run square(5);
+        run cube(3);
+    };
+    print(r1); // 27 (cube(3) = 27, last result)
+
+    // Test 2: parallel with three tasks
+    const r2 = await parallel {
+        run square(4);
+        run cube(2);
+        run add(10, 20);
+    };
+    print(r2); // 30 (add(10,20) = 30)
+
+    // Test 3: parallel with single task
+    const r3 = await parallel {
+        run square(7);
+    };
+    print(r3); // 49
+
+    // Test 4: parallel inside a regular function
+    fn compute(): int {
+        const x = await parallel {
+            run square(3);
+            run cube(3);
+        };
+        return x;
+    }
+    print(compute()); // 27
+
+    return 0;
+}

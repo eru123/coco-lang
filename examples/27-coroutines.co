@@ -1,0 +1,113 @@
+// Coroutines in Coco
+// Demonstrates: coro{}, fire-and-forget execution, parallel{}, scope isolation
+//
+// `coro { ... }` creates a fire-and-forget coroutine. The body executes
+// immediately in the tree-walking interpreter, or as a spawned task in
+// the bytecode VM. Coroutines are useful for background cleanup, logging,
+// metrics collection, and other non-critical side effects.
+
+// Simulated metrics collector
+fn collectMetrics(): void {
+    print("  [metrics] collecting system metrics...");
+    print("  [metrics] CPU: 45%, Memory: 62%, Disk: 33%");
+}
+
+// Simulated cache warmer
+fn warmCache(): void {
+    print("  [cache] warming cache entries...");
+    print("  [cache] 128 entries warmed");
+}
+
+// Simulated background logger
+fn backgroundLog(msg: string): void {
+    print("  [log] " + msg);
+}
+
+fn main(): int {
+    print("=== Coco Coroutines ===");
+
+    // ---------------------------------------------------------------
+    // Example 1: Basic fire-and-forget
+    // ---------------------------------------------------------------
+    print("\n[1] Fire-and-forget:");
+    print("  starting work...");
+    coro {
+        print("  [coro] background task running");
+        let result = 1;
+        let i = 1;
+        while i <= 5 { result = result * i; i = i + 1; }
+        print("  [coro] 5! = " + toString(result));
+    }
+    print("  main continues immediately");
+
+    // ---------------------------------------------------------------
+    // Example 2: Multiple coroutines
+    // ---------------------------------------------------------------
+    print("\n[2] Multiple coroutines:");
+    coro { collectMetrics(); }
+    coro { warmCache(); }
+    coro { backgroundLog("application started"); }
+    print("  all coroutines launched");
+
+    // ---------------------------------------------------------------
+    // Example 3: Coroutine with computation
+    // ---------------------------------------------------------------
+    print("\n[3] Coroutine computation:");
+    const huge = 999999999999;
+    coro {
+        const squared = huge * huge;
+        print("  [coro] BigInt squared: " + toString(squared));
+    }
+    print("  main has BigInt: " + toString(huge));
+
+    // ---------------------------------------------------------------
+    // Example 4: Conditional coroutines
+    // ---------------------------------------------------------------
+    print("\n[4] Conditional coroutines:");
+    const debugMode = true;
+    if debugMode {
+        coro {
+            print("  [debug] debug mode enabled");
+            print("  [debug] build: 2026-06-10, version: 0.1.0");
+        }
+    } else {
+        print("  production mode");
+    }
+    print("  initialization complete");
+
+    // ---------------------------------------------------------------
+    // Example 5: Coroutine + parallel
+    // ---------------------------------------------------------------
+    print("\n[5] Coroutine with parallel:");
+    async fn heavyTask(n: int): int {
+        let r = 1;
+        let i = 1;
+        while i <= n { r = r * i; i = i + 1; }
+        return r;
+    }
+
+    coro {
+        print("  [coro] launching parallel work...");
+        const result = await parallel {
+            run heavyTask(5);
+            run heavyTask(7);
+        };
+        print("  [coro] parallel result: " + toString(result));
+    }
+    print("  main not waiting for coro");
+
+    // ---------------------------------------------------------------
+    // Example 6: Scope isolation
+    // ---------------------------------------------------------------
+    print("\n[6] Scope isolation:");
+    let outer = 100;
+    coro {
+        let inner = 42;
+        print("  [coro] outer=" + toString(outer) + " inner=" + toString(inner));
+    }
+    print("  main outer=" + toString(outer));
+    // inner is not accessible here — scope isolation
+
+    print("\n=== Complete ===");
+    return 0;
+}

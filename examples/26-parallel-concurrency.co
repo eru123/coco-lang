@@ -1,0 +1,107 @@
+// Parallel concurrency in Coco
+// Demonstrates: parallel{}, await, async fn, structured concurrency
+//
+// `parallel { run ... }` executes multiple async tasks concurrently.
+// Results are collected in order of the `run` clauses.
+// Use `await parallel { ... }` to collect all results.
+
+// Simulated I/O-bound operations
+async fn fetchUser(id: int): string {
+    // In production: await http.get("/users/" + toString(id))
+    return "User#" + toString(id);
+}
+
+async fn fetchPosts(userId: int): list<string> {
+    // In production: await db.query("SELECT * FROM posts WHERE user_id = ?", [userId])
+    return ["Post A by user " + toString(userId), "Post B by user " + toString(userId)];
+}
+
+async fn computeScore(data: int): int {
+    // Simulate CPU-bound work
+    let result = 1;
+    let i = 1;
+    while i <= data { result = result * i; i = i + 1; }
+    return result;
+}
+
+fn main(): int {
+    print("=== Coco Parallel Concurrency ===");
+
+    // ---------------------------------------------------------------
+    // Example 1: Basic parallel execution
+    // ---------------------------------------------------------------
+    print("\n[1] Basic parallel:");
+    const results = await parallel {
+        run fetchUser(1);
+        run fetchUser(2);
+        run fetchUser(3);
+    };
+    print("  Last result: " + results);    // User#3
+
+    // ---------------------------------------------------------------
+    // Example 2: Mixed workloads
+    // ---------------------------------------------------------------
+    print("\n[2] Mixed workloads:");
+    const user = await parallel {
+        run fetchUser(42);
+        run computeScore(5);   // 5! = 120
+    };
+    print("  Result: " + toString(user));  // 120
+
+    // ---------------------------------------------------------------
+    // Example 3: Parallel with result handling
+    // ---------------------------------------------------------------
+    print("\n[3] Result handling:");
+    async fn safeDivide(a: int, b: int): Result<int, string> {
+        if b == 0 { return Err("division by zero"); }
+        return Ok(a / b);
+    }
+
+    const div1 = await parallel {
+        run safeDivide(100, 5);
+        run safeDivide(200, 4);
+    };
+    if isOk(div1) { print("  100/5 or 200/4 = " + toString(unwrap(div1))); }
+
+    const div2 = await parallel {
+        run safeDivide(100, 5);
+        run safeDivide(10, 0);
+    };
+    // The last result (10/0) is an Err
+    print("  Contains error: " + toString(isErr(div2)));
+
+    // ---------------------------------------------------------------
+    // Example 4: Parallel inside functions
+    // ---------------------------------------------------------------
+    print("\n[4] Parallel in functions:");
+    async fn loadDashboard(userId: int): string {
+        const user = await fetchUser(userId);
+        const posts = await fetchPosts(userId);
+        return user + " has " + toString(len(posts)) + " posts";
+    }
+
+    const dash = await loadDashboard(7);
+    print("  " + dash);
+
+    // ---------------------------------------------------------------
+    // Example 5: Nested parallel (structured)
+    // ---------------------------------------------------------------
+    print("\n[5] Nested parallel:");
+    async fn processBatch(start: int, count: int): string {
+        let names = "";
+        let i = 0;
+        while i < count {
+            const name = await fetchUser(start + i);
+            if names != "" { names = names + ", "; }
+            names = names + name;
+            i = i + 1;
+        }
+        return names;
+    }
+
+    const batch = await processBatch(100, 3);
+    print("  Users: " + batch);
+
+    print("\n=== Complete ===");
+    return 0;
+}
