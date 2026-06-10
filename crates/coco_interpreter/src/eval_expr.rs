@@ -534,7 +534,7 @@ impl Interpreter {
                         for arg in &call.args {
                             args.push(self.eval_expr(&arg.value)?);
                         }
-                        return call_builtin(&name, &args);
+                        return call_builtin(&name, &args, &mut self.heap);
                     }
                     _ => return Err(Signal::Error(RuntimeError::new("not a callable value"))),
                 }
@@ -548,7 +548,7 @@ impl Interpreter {
                     for arg in &call.args {
                         args.push(self.eval_expr(&arg.value)?);
                     }
-                    return call_builtin(&name, &args);
+                    return call_builtin(&name, &args, &mut self.heap);
                 }
                 _ => return Err(Signal::Error(RuntimeError::new("not a callable value"))),
             }

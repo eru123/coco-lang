@@ -829,7 +829,7 @@ impl Vm {
                 Ok(task_id)
             }
             Value::BuiltinFn(name) => {
-                let result = call_builtin(&name, &args)
+                let result = call_builtin(&name, &args, &mut self.heap)
                     .map_err(|e| VmError::new(format!("builtin error: {:?}", e)))?;
                 let task_id = self.scheduler.spawn(Value::Null, 0, 0, vec![result.clone()]);
                 self.scheduler.complete(task_id, result);
@@ -896,7 +896,7 @@ impl Vm {
                 // Collect args
                 let args: Vec<Value> = self.stack.drain(fn_idx + 1..).collect();
                 self.stack.pop(); // pop the BuiltinFn itself
-                let result = call_builtin(&name, &args)
+                let result = call_builtin(&name, &args, &mut self.heap)
                     .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
                 self.push(result);
             }
@@ -966,7 +966,7 @@ impl Vm {
                 }
             }
             Value::BuiltinFn(name) => {
-                let result = call_builtin(&name, &args)
+                let result = call_builtin(&name, &args, &mut self.heap)
                     .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
                 self.push(result);
             }
