@@ -800,6 +800,24 @@ impl Formatter {
             Expr::DollarDollar(_) => self.write_str("$$"),
             Expr::Super(_) => self.write_str("super"),
             Expr::Parallel(_) => self.write_str("<parallel>"),
+            Expr::Template(t) => {
+                self.write_str("`");
+                for part in &t.parts {
+                    match part {
+                        TemplatePart::Static(s) => self.write_str(s),
+                        TemplatePart::Expr(e) => {
+                            self.write_str("${");
+                            self.format_expr(e);
+                            self.write_str("}");
+                        }
+                    }
+                }
+                self.write_str("`");
+            }
+            Expr::Lazy(e) => {
+                self.write_str("lazy ");
+                self.format_expr(e);
+            }
             Expr::New(n) => {
                 self.write_str("new ");
                 self.write_str(&n.type_name.name);

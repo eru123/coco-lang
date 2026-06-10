@@ -33,6 +33,11 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Super(_) => Ty::Unknown,
         Expr::New(new_expr) => Ty::Named(new_expr.type_name.name.clone()),
         Expr::Parallel(_) => Ty::Unknown,
+        Expr::Template(_) => Ty::String,
+        Expr::Lazy(inner) => {
+            let _ = infer_expr(inner, env);
+            Ty::Unknown // deferred — wraps in Task<T> when Ty::Task is added
+        }
     }
 }
 

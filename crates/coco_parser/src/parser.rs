@@ -816,6 +816,61 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a template literal: splits `text ${expr} more` into alternating
+    /// static string parts and expression holes.
+    fn parse_template(&mut self, raw: String, span: Span) -> Expr {
+        let mut parts: Vec<TemplatePart> = Vec::new();
+        let mut current = String::new();
+        let mut chars = raw.chars().peekable();
+        // The raw text includes the backtick delimiters; strip them.
+        let inner = if raw.starts_with('`') && raw.ends_with('`') {
+            &raw[1..raw.len() - 1]
+        } else {
+            &raw
+        };
+
+        let mut i = 0;
+        let bytes = inner.as_bytes();
+        while i < bytes.len() {
+            if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+                // End current static part
+                if !current.is_empty() {
+                    parts.push(TemplatePart::Static(current.clone()));
+                    current.clear();
+                }
+                // Find matching }
+                i += 2; // skip ${
+                let mut depth = 1;
+                let expr_start = i;
+                while i < bytes.len() && depth > 0 {
+                    if bytes[i] == b'{' {
+                        depth += 1;
+                    } else if bytes[i] == b'}' {
+                        depth -= 1;
+                    }
+                    if depth > 0 {
+                        i += 1;
+                    }
+                }
+                let expr_end = i;
+                let expr_str = std::str::from_utf8(&bytes[expr_start..expr_end]).unwrap_or("");
+                // Parse the expression
+                let mut expr_parser = Parser::new(expr_str);
+                let parsed = expr_parser.parse_expr();
+                parts.push(TemplatePart::Expr(parsed));
+                i += 1; // skip closing }
+            } else {
+                current.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+        if !current.is_empty() {
+            parts.push(TemplatePart::Static(current));
+        }
+
+        Expr::Template(Box::new(TemplateExpr { span, parts }))
+    }
+
     fn parse_loop_stmt(&mut self) -> Option<LoopStmt> {
         let start = self.current.span.start;
         self.expect(TokenKind::Loop);
@@ -1355,11 +1410,23 @@ impl<'a> Parser<'a> {
                     Expr::Literal(Literal::Null(Span::new(start, start)))
                 }
             }
+            TokenKind::Lazy => {
+                let span = self.current.span;
+                self.advance();
+                let expr = self.parse_expr_bp(0);
+                Expr::Lazy(Box::new(expr))
+            }
+            TokenKind::TemplateLiteral => {
+                let text = self.current.text.clone();
+                let span = self.current.span;
+                self.advance();
+                self.parse_template(text, span)
+            }
             // Keywords that are valid as identifiers in expression context
             TokenKind::Ok | TokenKind::Err | TokenKind::Result
             | TokenKind::Typeof | TokenKind::As | TokenKind::Is
             | TokenKind::From | TokenKind::Use
-            | TokenKind::Await | TokenKind::Lazy
+            | TokenKind::Await
             | TokenKind::Coro | TokenKind::Select => {
                 let text = self.current.text.clone();
                 let span = self.current.span;

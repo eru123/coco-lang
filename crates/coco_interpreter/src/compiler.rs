@@ -941,6 +941,25 @@ impl Compiler {
                 Err(CompileError::new("super only valid in method call position"))
             }
             Expr::Match(match_expr) => self.compile_match(match_expr),
+            Expr::Template(t) => self.compile_template(t),
+            Expr::Lazy(inner) => {
+                // Compile inner expression as an async lambda and spawn it
+                let params: Vec<String> = Vec::new();
+                let body = Block { span: inner.span(), stmts: vec![
+                    Stmt::Return(ReturnStmt { span: inner.span(), value: Some((**inner).clone()) })
+                ]};
+                let chunk = self.compile_function_body("<lazy>", &params, &body)?;
+                let fn_obj = FnObj {
+                    name: "<lazy>".to_string(),
+                    arity: 0,
+                    chunk,
+                    is_async: true,
+                };
+                let const_idx = self.add_constant(Value::FnObj(fn_obj));
+                self.emit_op_u16(OP_MAKE_CLOSURE, const_idx);
+                self.emit_op_u8(OP_ASYNC_CALL, 0);
+                Ok(())
+            }
             _ => Err(CompileError::new("unsupported expression")),
         }
     }
@@ -1488,6 +1507,47 @@ impl Compiler {
         self.emit_op(OP_POP);
         self.compile_expr(&nc.right)?;
         self.place_label(end_label);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Template literal: "text ${expr} more text"
+    // -----------------------------------------------------------------------
+
+    fn compile_template(&mut self, t: &TemplateExpr) -> CResult<()> {
+        // Compile as string concatenation of static parts and toString'd expressions
+        let mut first = true;
+        for part in &t.parts {
+            match part {
+                TemplatePart::Static(s) => {
+                    if first {
+                        first = false;
+                    } else {
+                        // String concat with previous part
+                        self.emit_op(OP_ADD);
+                    }
+                    let idx = self.add_constant(Value::String(s.clone()));
+                    self.emit_op_u16(OP_CONST, idx);
+                }
+                TemplatePart::Expr(e) => {
+                    if first {
+                        first = false;
+                    } else {
+                        self.emit_op(OP_ADD);
+                    }
+                    self.compile_expr(e)?;
+                    // Convert to string via builtin: toString()
+                    let to_string_idx = self.name_constant("toString");
+                    self.emit_op_u16(OP_LOAD_GLOBAL, to_string_idx);
+                    self.emit_op_u8(OP_CALL, 1);
+                }
+            }
+        }
+        if first {
+            // Empty template: ""
+            let idx = self.add_constant(Value::String(String::new()));
+            self.emit_op_u16(OP_CONST, idx);
+        }
         Ok(())
     }
 

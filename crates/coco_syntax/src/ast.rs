@@ -463,6 +463,23 @@ pub enum Expr {
     Postfix(Box<PostfixExpr>),
     Group(Box<Expr>),
     Parallel(Box<ParallelExpr>),
+    Template(Box<TemplateExpr>),
+    Lazy(Box<Expr>),
+}
+
+/// A template literal: `text ${expr} more text`
+#[derive(Debug, Clone)]
+pub struct TemplateExpr {
+    pub span: Span,
+    /// Alternating static string parts and expression holes.
+    /// Always starts and ends with a string part (possibly empty).
+    pub parts: Vec<TemplatePart>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TemplatePart {
+    Static(String),
+    Expr(Expr),
 }
 
 #[derive(Debug, Clone)]
@@ -863,6 +880,8 @@ impl Expr {
             Expr::Postfix(e) => e.span,
             Expr::Group(e) => e.span(),
             Expr::Parallel(e) => e.span,
+            Expr::Template(e) => e.span,
+            Expr::Lazy(e) => e.span(),
         }
     }
 }
