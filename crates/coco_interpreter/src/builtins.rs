@@ -18,6 +18,7 @@ use num_traits::ToPrimitive;
 enum TcpResource {
     Listener(TcpListener),
     Stream(TcpStream),
+    Udp(std::net::UdpSocket),
 }
 
 /// Global registry mapping handle IDs to TCP resources.
@@ -57,9 +58,64 @@ fn with_tcp_listener<F: FnOnce(&TcpListener) -> Result<Value, Signal>>(
     let reg = TCP_REGISTRY.lock().unwrap();
     match reg.get(&handle) {
         Some(TcpResource::Listener(l)) => f(l),
-        Some(_) => Err(Signal::Error(RuntimeError::new("TCP handle is not a listener"))),
+        Some(_) => Err(Signal::Error(RuntimeError::new("handle is not a TCP listener"))),
         None => Err(Signal::Error(RuntimeError::new("invalid TCP handle"))),
     }
+}
+
+fn with_udp_socket<F: FnOnce(&std::net::UdpSocket) -> Result<Value, Signal>>(
+    handle: usize,
+    f: F,
+) -> Result<Value, Signal> {
+    let reg = TCP_REGISTRY.lock().unwrap();
+    match reg.get(&handle) {
+        Some(TcpResource::Udp(s)) => f(s),
+        Some(_) => Err(Signal::Error(RuntimeError::new("handle is not a UDP socket"))),
+        None => Err(Signal::Error(RuntimeError::new("invalid UDP handle"))),
+    }
+}
+
+// ============================================================================
+// Base64 encode / decode (no external dependencies)
+// ============================================================================
+
+const B64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn b64_encode(data: &[u8]) -> String {
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(B64_CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(B64_CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        out.push(if chunk.len() > 1 { B64_CHARS[((triple >> 6) & 0x3F) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { B64_CHARS[(triple & 0x3F) as usize] as char } else { '=' });
+    }
+    out
+}
+
+fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+    let s = s.trim_end_matches('=');
+    let mut bytes = Vec::new();
+    let mut buffer: u32 = 0;
+    let mut bits = 0;
+    for c in s.chars() {
+        if c.is_whitespace() { continue; }
+        let val = match c {
+            'A'..='Z' => c as u32 - 'A' as u32,
+            'a'..='z' => c as u32 - 'a' as u32 + 26,
+            '0'..='9' => c as u32 - '0' as u32 + 52,
+            '+' => 62,
+            '/' => 63,
+            _ => return Err(format!("invalid base64 character: {}", c)),
+        };
+        buffer = (buffer << 6) | val;
+        bits += 6;
+        if bits >= 8 { bits -= 8; bytes.push((buffer >> bits) as u8); buffer &= (1 << bits) - 1; }
+    }
+    Ok(bytes)
 }
 
 /// Execute a built-in function by name with the given arguments.
@@ -555,6 +611,214 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
                 return Err(Signal::Error(RuntimeError::new("json_stringify() expects 1 argument (value)")));
             }
             Ok(Value::String(coco_to_json_string(&args[0])))
+        }
+
+        // ---- String operations ----
+        "str_split" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_split(str, delim) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_split: arg 1 must be string"))) };
+            let delim = match &args[1] { Value::String(d) => d.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_split: arg 2 must be string"))) };
+            let parts: Vec<Value> = s.split(&delim).map(|p| Value::String(p.to_string())).collect();
+            let cow = coco_gc::CoW::new(parts); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "str_replace" => {
+            if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("str_replace(str, from, to) expects 3 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_replace: arg 1 must be string"))) };
+            let from = match &args[1] { Value::String(f) => f.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_replace: arg 2 must be string"))) };
+            let to = match &args[2] { Value::String(t) => t.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_replace: arg 3 must be string"))) };
+            Ok(Value::String(s.replace(&from, &to)))
+        }
+        "str_trim" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("str_trim(str) expects 1 arg"))); }
+            match &args[0] { Value::String(s) => Ok(Value::String(s.trim().to_string())), _ => Err(Signal::Error(RuntimeError::new("str_trim expects a string"))) }
+        }
+        "str_substring" => {
+            if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("str_substring(str, start, end) expects 3 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 1 must be string"))) };
+            let start = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 2 must be int"))) };
+            let end = match &args[2] { Value::Int(n) => n.to_usize().unwrap_or(s.len()), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 3 must be int"))) };
+            let chars: Vec<char> = s.chars().collect();
+            let end = end.min(chars.len());
+            if start > end { return Ok(Value::String(String::new())); }
+            Ok(Value::String(chars[start..end].iter().collect()))
+        }
+        "str_indexOf" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_indexOf(str, search) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_indexOf: arg 1 must be string"))) };
+            let search = match &args[1] { Value::String(f) => f.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_indexOf: arg 2 must be string"))) };
+            match s.find(&search) { Some(i) => Ok(Value::Int(BigInt::from(i))), None => Ok(Value::Int(BigInt::from(-1))) }
+        }
+        "str_toUpper" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("str_toUpper(str) expects 1 arg"))); }
+            match &args[0] { Value::String(s) => Ok(Value::String(s.to_uppercase())), _ => Err(Signal::Error(RuntimeError::new("str_toUpper expects a string"))) }
+        }
+        "str_toLower" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("str_toLower(str) expects 1 arg"))); }
+            match &args[0] { Value::String(s) => Ok(Value::String(s.to_lowercase())), _ => Err(Signal::Error(RuntimeError::new("str_toLower expects a string"))) }
+        }
+        "str_startsWith" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_startsWith(str, prefix) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_startsWith: arg 1 must be string"))) };
+            let prefix = match &args[1] { Value::String(p) => p.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_startsWith: arg 2 must be string"))) };
+            Ok(Value::Bool(s.starts_with(&prefix)))
+        }
+        "str_endsWith" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_endsWith(str, suffix) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_endsWith: arg 1 must be string"))) };
+            let suffix = match &args[1] { Value::String(p) => p.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_endsWith: arg 2 must be string"))) };
+            Ok(Value::Bool(s.ends_with(&suffix)))
+        }
+
+        // ---- Process / CLI ----
+        "process_args" => {
+            let args: Vec<Value> = std::env::args().map(|a| Value::String(a)).collect();
+            let cow = coco_gc::CoW::new(args); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "process_env" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("process_env(key) expects 1 arg"))); }
+            let key = match &args[0] { Value::String(k) => k.clone(), _ => return Err(Signal::Error(RuntimeError::new("process_env expects a string key"))) };
+            match std::env::var(&key) { Ok(v) => Ok(Value::String(v)), Err(_) => Ok(Value::Null) }
+        }
+        "process_exit" => {
+            let code = if args.is_empty() { 0 } else { match &args[0] { Value::Int(n) => n.to_i32().unwrap_or(0), _ => 0 } };
+            std::process::exit(code);
+        }
+        "process_cwd" => {
+            match std::env::current_dir() { Ok(p) => Ok(Value::String(p.to_string_lossy().to_string())), Err(e) => Err(Signal::Error(RuntimeError::new(format!("cwd: {}", e)))) }
+        }
+
+        // ---- Time ----
+        "time_now" => {
+            match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                Ok(d) => Ok(Value::Int(BigInt::from(d.as_millis() as i64))),
+                Err(_) => Ok(Value::Int(BigInt::from(0))),
+            }
+        }
+        "time_sleep" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("time_sleep(ms) expects 1 arg"))); }
+            let ms = match &args[0] { Value::Int(n) => n.to_u64().unwrap_or(0), Value::Float(f) => (*f * 1000.0) as u64, _ => return Err(Signal::Error(RuntimeError::new("time_sleep expects a number (milliseconds)"))) };
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            Ok(Value::Null)
+        }
+
+        // ---- Type casts ----
+        "int" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("int(x) expects 1 arg"))); }
+            match &args[0] { Value::Int(n) => Ok(Value::Int(n.clone())), Value::Float(f) => Ok(Value::Int(BigInt::from(*f as i64))), Value::String(s) => match s.parse::<BigInt>() { Ok(n) => Ok(Value::Int(n)), Err(_) => Err(Signal::Error(RuntimeError::new(format!("cannot convert '{}' to int", s)))) }, Value::Bool(b) => Ok(Value::Int(BigInt::from(if *b { 1 } else { 0 }))), _ => Err(Signal::Error(RuntimeError::new("int() cannot convert this value"))) }
+        }
+        "float" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("float(x) expects 1 arg"))); }
+            match &args[0] { Value::Float(f) => Ok(Value::Float(*f)), Value::Int(n) => { use num_traits::ToPrimitive; Ok(Value::Float(n.to_f64().unwrap_or(0.0))) }, Value::String(s) => match s.parse::<f64>() { Ok(f) => Ok(Value::Float(f)), Err(_) => Err(Signal::Error(RuntimeError::new(format!("cannot convert '{}' to float", s)))) }, Value::Bool(b) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })), _ => Err(Signal::Error(RuntimeError::new("float() cannot convert this value"))) }
+        }
+        "bool" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("bool(x) expects 1 arg"))); }
+            Ok(Value::Bool(args[0].is_truthy()))
+        }
+
+        // ---- Error constructor ----
+        "error" => {
+            let msg = if args.is_empty() { "error".to_string() } else { format!("{}", args[0]) };
+            let mut map = HashMap::new();
+            map.insert("message".to_string(), Value::String(msg));
+            map.insert("__error__".to_string(), Value::Bool(true));
+            let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr)))
+        }
+
+        // ---- Encoding ----
+        "base64_encode" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("base64_encode(str) expects 1 arg"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => format!("{}", args[0]) };
+            Ok(Value::String(b64_encode(s.as_bytes())))
+        }
+        "base64_decode" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("base64_decode(str) expects 1 arg"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("base64_decode expects a string"))) };
+            match b64_decode(&s) { Ok(v) => Ok(Value::String(String::from_utf8_lossy(&v).to_string())), Err(e) => Err(Signal::Error(RuntimeError::new(e))) }
+        }
+        "hex_encode" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("hex_encode(str) expects 1 arg"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => format!("{}", args[0]) };
+            Ok(Value::String(s.as_bytes().iter().map(|b| format!("{:02x}", b)).collect::<String>()))
+        }
+        "hex_decode" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("hex_decode(str) expects 1 arg"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("hex_decode expects a string"))) };
+            if s.len() % 2 != 0 { return Err(Signal::Error(RuntimeError::new("hex_decode: odd length string"))); }
+            let bytes: Result<Vec<u8>, _> = (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i+2], 16)).collect();
+            match bytes { Ok(v) => Ok(Value::String(String::from_utf8_lossy(&v).to_string())), Err(e) => Err(Signal::Error(RuntimeError::new(format!("hex_decode: {}", e)))) }
+        }
+
+        // ---- Extended socket ops ----
+        "tcp_readLine" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("tcp_readLine(handle) expects 1 arg"))); }
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_readLine expects an int handle"))) };
+            with_tcp_stream(handle, |s| {
+                let mut buf = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    match s.read(&mut byte) { Ok(0) => break, Ok(_) => { buf.push(byte[0]); if byte[0] == b'\n' { break; } }, Err(e) => return Err(Signal::Error(RuntimeError::new(format!("tcp_readLine: {}", e)))) }
+                }
+                Ok(Value::String(String::from_utf8_lossy(&buf).trim_end_matches(|c| c == '\r' || c == '\n').to_string()))
+            })
+        }
+        "tcp_setTimeout" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("tcp_setTimeout(handle, ms) expects 2 args"))); }
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_setTimeout expects an int handle"))) };
+            let ms = match &args[1] { Value::Int(n) => n.to_u64().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_setTimeout expects int milliseconds"))) };
+            with_tcp_stream(handle, |s| {
+                s.set_read_timeout(Some(std::time::Duration::from_millis(ms))).map_err(|e| Signal::Error(RuntimeError::new(format!("tcp_setTimeout: {}", e))))?;
+                Ok(Value::Null)
+            })
+        }
+
+        // ---- UDP socket ops ----
+        "udp_bind" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("udp_bind(port) expects 1 arg"))); }
+            let port = match &args[0] { Value::Int(n) => n.to_u16().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_bind expects an int port"))) };
+            match std::net::UdpSocket::bind(format!("0.0.0.0:{}", port)) {
+                Ok(socket) => { let h = alloc_tcp_handle(); register_tcp(h, TcpResource::Udp(socket)); Ok(Value::Int(BigInt::from(h))) }
+                Err(e) => Err(Signal::Error(RuntimeError::new(format!("udp_bind: {}", e)))),
+            }
+        }
+        "udp_send" => {
+            if args.len() != 4 { return Err(Signal::Error(RuntimeError::new("udp_send(handle, host, port, data) expects 4 args"))); }
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects an int handle"))) };
+            let host = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects a string host"))) };
+            let port = match &args[2] { Value::Int(n) => n.to_u16().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects an int port"))) };
+            let data = match &args[3] { Value::String(s) => s.clone(), _ => format!("{}", args[3]) };
+            with_udp_socket(handle, |s| {
+                s.send_to(data.as_bytes(), format!("{}:{}", host, port)).map_err(|e| Signal::Error(RuntimeError::new(format!("udp_send: {}", e))))?;
+                Ok(Value::Null)
+            })
+        }
+        "udp_recv" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("udp_recv(handle, max_bytes) expects 2 args"))); }
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects an int handle"))) };
+            let max = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1024), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects int max_bytes"))) };
+            with_udp_socket(handle, |s| {
+                let mut buf = vec![0u8; max];
+                match s.recv_from(&mut buf) { Ok((n, addr)) => { let mut map = HashMap::new(); map.insert("data".to_string(), Value::String(String::from_utf8_lossy(&buf[..n]).to_string())); map.insert("address".to_string(), Value::String(addr.to_string())); let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr))) }, Err(e) => Err(Signal::Error(RuntimeError::new(format!("udp_recv: {}", e)))) }
+            })
+        }
+        "udp_close" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("udp_close(handle) expects 1 arg"))); }
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_close expects an int handle"))) };
+            take_tcp(handle); Ok(Value::Null)
+        }
+
+        // ---- Regex ----
+        "regex_match" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("regex_match(pattern, str) expects 2 args"))); }
+            let pat = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("regex_match expects a string pattern"))) };
+            let s = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("regex_match expects a string to search"))) };
+            match regex::Regex::new(&pat) { Ok(re) => Ok(Value::Bool(re.is_match(&s))), Err(e) => Err(Signal::Error(RuntimeError::new(format!("regex: {}", e)))) }
+        }
+        "regex_replace" => {
+            if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("regex_replace(pattern, replacement, str) expects 3 args"))); }
+            let pat = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("regex_replace expects a string pattern"))) };
+            let repl = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("regex_replace expects a string replacement"))) };
+            let s = match &args[2] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("regex_replace expects a string"))) };
+            match regex::Regex::new(&pat) { Ok(re) => Ok(Value::String(re.replace_all(&s, &repl[..]).to_string())), Err(e) => Err(Signal::Error(RuntimeError::new(format!("regex: {}", e)))) }
         }
 
         // ---- Concurrency primitives ----
