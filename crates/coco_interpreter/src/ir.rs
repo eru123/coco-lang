@@ -278,6 +278,8 @@ pub struct FnObj {
     pub name: String,
     pub arity: usize,
     pub chunk: Chunk,
+    /// Whether this function was declared with `async`.
+    pub is_async: bool,
 }
 
 // ============================================================================

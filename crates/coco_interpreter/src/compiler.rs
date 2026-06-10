@@ -20,7 +20,7 @@ use crate::ir::{
     OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_MOD, OP_MUL, OP_NE,
     OP_NEG, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE, OP_POW, OP_RETURN, OP_SHL, OP_SHR,
     OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL, OP_STORE_MEMBER, OP_SUB, OP_THROW, OP_TRUE,
-    OP_TRY_BEGIN, OP_TRY_END,
+    OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL,
 };
 use crate::value::Value;
 use coco_syntax::*;
@@ -95,6 +95,8 @@ pub struct Compiler {
     loop_stack: Vec<LoopLabels>,
     /// Whether we are inside a function body.
     in_function: bool,
+    /// Whether we are compiling inside a `lazy` expression wrapper.
+    in_lazy: bool,
 }
 
 impl Compiler {
@@ -106,6 +108,7 @@ impl Compiler {
             scope_depth: 0,
             loop_stack: Vec::new(),
             in_function: false,
+            in_lazy: false,
         }
     }
 
@@ -810,6 +813,20 @@ impl Compiler {
     // -----------------------------------------------------------------------
 
     fn compile_unary(&mut self, un: &UnaryExpr) -> CResult<()> {
+        match un.op {
+            UnaryOp::Await => {
+                self.compile_expr(&un.expr)?;
+                self.emit_op(OP_AWAIT);
+                return Ok(());
+            }
+            UnaryOp::Lazy => {
+                self.in_lazy = true;
+                self.compile_expr(&un.expr)?;
+                self.in_lazy = false;
+                return Ok(());
+            }
+            _ => {}
+        }
         self.compile_expr(&un.expr)?;
         match un.op {
             UnaryOp::Neg => self.emit_op(OP_NEG),
@@ -830,7 +847,8 @@ impl Compiler {
         for arg in &call.args {
             self.compile_expr(&arg.value)?;
         }
-        self.emit_op_u8(OP_CALL, arg_count as u8);
+        let op = if self.in_lazy { OP_LAZY_CALL } else { OP_CALL };
+        self.emit_op_u8(op, arg_count as u8);
         Ok(())
     }
 
@@ -971,6 +989,7 @@ impl Compiler {
             name: "<lambda>".to_string(),
             arity,
             chunk,
+            is_async: lambda.is_async,
         };
         let const_idx = self.add_constant(Value::FnObj(fn_obj));
         self.emit_op_u16(OP_MAKE_CLOSURE, const_idx);
@@ -992,6 +1011,7 @@ impl Compiler {
             name: name.clone(),
             arity,
             chunk,
+            is_async: fn_decl.is_async,
         };
 
         let const_idx = self.add_constant(Value::FnObj(fn_obj));

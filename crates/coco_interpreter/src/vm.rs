@@ -220,6 +220,7 @@ impl Vm {
             name: "<script>".to_string(),
             arity: 0,
             chunk: chunk.clone(),
+            is_async: false,
         });
         self.push(script_fn.clone());
         self.frames.push(CallFrame {
@@ -635,6 +636,29 @@ impl Vm {
 
         match callee {
             Value::FnObj(fn_obj) => {
+                if fn_obj.is_async {
+                    // Async call: pop args and callee, spawn task, push TaskHandle.
+                    let mut args = Vec::with_capacity(arg_count);
+                    for _ in 0..arg_count {
+                        args.push(self.pop());
+                    }
+                    args.reverse();
+                    let _callee = self.pop(); // pop the FnObj itself
+
+                    let mut new_stack = vec![Value::FnObj(fn_obj.clone())];
+                    for arg in args {
+                        new_stack.push(arg);
+                    }
+                    let task_id = self.scheduler.spawn(
+                        Value::FnObj(fn_obj),
+                        0,
+                        1,
+                        new_stack,
+                    );
+                    self.push(Value::TaskHandle(task_id));
+                    return Ok(());
+                }
+
                 let arity = fn_obj.arity;
                 if arg_count != arity {
                     return Err(VmError::new(format!(
