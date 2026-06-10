@@ -1,0 +1,38 @@
+// std/string — String manipulation utilities for Coco.
+// Wraps the str_* builtins with a clean API.
+
+export fn split(s: string, delim: string): list<string> {
+    return str_split(s, delim);
+}
+
+export fn replace(s: string, from: string, to: string): string {
+    return str_replace(s, from, to);
+}
+
+export fn trim(s: string): string {
+    return str_trim(s);
+}
+
+export fn substring(s: string, start: int, end: int): string {
+    return str_substring(s, start, end);
+}
+
+export fn indexOf(s: string, search: string): int {
+    return str_indexOf(s, search);
+}
+
+export fn toUpper(s: string): string {
+    return str_toUpper(s);
+}
+
+export fn toLower(s: string): string {
+    return str_toLower(s);
+}
+
+export fn startsWith(s: string, prefix: string): bool {
+    return str_startsWith(s, prefix);
+}
+
+export fn endsWith(s: string, suffix: string): bool {
+    return str_endsWith(s, suffix);
+}

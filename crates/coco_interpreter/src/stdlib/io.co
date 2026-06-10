@@ -1,0 +1,3 @@
+// std/io — Standard input/output streams.
+export fn stdout(data: string): void { print(data); }
+export fn stderr(data: string): void { print("ERROR: " + data); }

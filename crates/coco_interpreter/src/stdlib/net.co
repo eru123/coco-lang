@@ -1,0 +1,18 @@
+// std/net — TCP and UDP networking for Coco.
+// Wraps low-level tcp_* and udp_* builtins.
+
+// --- TCP Server ---
+export fn tcpListen(port: int): int { return tcp_listen(port); }
+export fn tcpAccept(server: int): map<string, mixed> { return tcp_accept(server); }
+export fn tcpRead(conn: int, maxBytes: int): string|null { return tcp_read(conn, maxBytes); }
+export fn tcpReadLine(conn: int): string { return tcp_readLine(conn); }
+export fn tcpWrite(conn: int, data: string): void { tcp_write(conn, data); }
+export fn tcpClose(conn: int): void { tcp_close(conn); }
+export fn tcpConnect(host: string, port: int): int { return tcp_connect(host, port); }
+export fn tcpSetTimeout(conn: int, ms: int): void { tcp_setTimeout(conn, ms); }
+
+// --- UDP ---
+export fn udpBind(port: int): int { return udp_bind(port); }
+export fn udpSend(handle: int, host: string, port: int, data: string): void { udp_send(handle, host, port, data); }
+export fn udpRecv(handle: int, maxBytes: int): map<string, mixed> { return udp_recv(handle, maxBytes); }
+export fn udpClose(handle: int): void { udp_close(handle); }

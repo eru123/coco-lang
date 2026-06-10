@@ -1,0 +1,5 @@
+// std/encoding — Base64 and hex encoding for Coco.
+export fn base64Encode(data: string): string { return base64_encode(data); }
+export fn base64Decode(data: string): string { return base64_decode(data); }
+export fn hexEncode(data: string): string { return hex_encode(data); }
+export fn hexDecode(data: string): string { return hex_decode(data); }

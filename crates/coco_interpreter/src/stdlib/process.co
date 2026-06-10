@@ -1,0 +1,5 @@
+// std/process — CLI args, environment, exit codes.
+export fn args(): list<string> { return process_args(); }
+export fn env(key: string): string|null { return process_env(key); }
+export fn exit(code: int): void { process_exit(code); }
+export fn cwd(): string { return process_cwd(); }

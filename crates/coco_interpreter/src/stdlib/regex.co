@@ -1,0 +1,8 @@
+// std/regex — Regular expression matching for Coco.
+// Wraps the regex_match and regex_replace builtins.
+export fn match(pattern: string, s: string): bool {
+    return regex_match(pattern, s);
+}
+export fn replace(pattern: string, replacement: string, s: string): string {
+    return regex_replace(pattern, replacement, s);
+}

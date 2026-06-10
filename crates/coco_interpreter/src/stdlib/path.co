@@ -1,0 +1,27 @@
+// std/path — Cross-platform path manipulation (pure Coco).
+export fn join(a: string, b: string): string {
+    if str_endsWith(a, "/") { return a + b; }
+    return a + "/" + b;
+}
+export fn dirname(p: string): string {
+    const idx = str_indexOf(p, "/");
+    if idx == -1 { return "."; }
+    return str_substring(p, 0, idx);
+}
+export fn basename(p: string): string {
+    let last = 0;
+    let i = 0;
+    // Manual last-index-of
+    const s = p;
+    while i < len(s) {
+        if str_substring(s, i, i + 1) == "/" { last = i + 1; }
+        i = i + 1;
+    }
+    return str_substring(s, last, len(s));
+}
+export fn extname(p: string): string {
+    const name = basename(p);
+    const idx = str_indexOf(name, ".");
+    if idx == -1 { return ""; }
+    return str_substring(name, idx, len(name));
+}

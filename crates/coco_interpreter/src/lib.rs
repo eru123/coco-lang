@@ -26,6 +26,16 @@ pub fn get_stdlib_source(module: &str) -> Option<&'static str> {
         "std/fs" => Some(include_str!("stdlib/fs.co")),
         "std/json" => Some(include_str!("stdlib/json.co")),
         "std/http" => Some(include_str!("stdlib/http.co")),
+        "std/string" => Some(include_str!("stdlib/string.co")),
+        "std/process" => Some(include_str!("stdlib/process.co")),
+        "std/time" => Some(include_str!("stdlib/time.co")),
+        "std/encoding" => Some(include_str!("stdlib/encoding.co")),
+        "std/path" => Some(include_str!("stdlib/path.co")),
+        "std/math" => Some(include_str!("stdlib/math.co")),
+        "std/io" => Some(include_str!("stdlib/io.co")),
+        "std/regex" => Some(include_str!("stdlib/regex.co")),
+        "std/net" => Some(include_str!("stdlib/net.co")),
+        "std/collections" => Some(include_str!("stdlib/collections.co")),
         _ => None,
     }
 }

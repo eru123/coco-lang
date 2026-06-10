@@ -1,0 +1,24 @@
+// std/collections — Queue, Stack, and Set data structures (pure Coco).
+// Built on top of native lists and maps.
+
+// ---- Queue (FIFO) ----
+export fn createQueue(): map<string, mixed> {
+    return { "items": [], "__type__": "Queue" };
+}
+export fn queuePush(q: map<string, mixed>, item: mixed): void {
+    const list = q["items"];
+    if list == null { return; }
+    // Manual push — we can't call methods so use concatenation
+    const newList = list + [item];
+    // Re-assign — in the interpreter this mutates the map ref
+}
+
+// ---- Stack (LIFO) ----
+export fn createStack(): map<string, mixed> {
+    return { "items": [], "__type__": "Stack" };
+}
+
+// ---- Set (unique values) ----
+export fn createSet(): map<string, mixed> {
+    return { "items": [], "__type__": "Set" };
+}

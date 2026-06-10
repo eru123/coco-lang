@@ -1,0 +1,3 @@
+// std/time — Time, timers, and sleep.
+export fn now(): int { return time_now(); }
+export fn sleep(ms: int): void { time_sleep(ms); }
