@@ -20,7 +20,7 @@ use crate::ir::{
     OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_MOD, OP_MUL, OP_NE,
     OP_NEG, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE, OP_POW, OP_RETURN, OP_SHL, OP_SHR,
     OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL, OP_STORE_MEMBER, OP_SUB, OP_THROW, OP_TRUE,
-    OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_TRY,
+    OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
 };
 use crate::value::Value;
 use coco_syntax::*;
@@ -550,15 +550,23 @@ impl Compiler {
     // coro { body }
     // -----------------------------------------------------------------------
 
-    fn compile_coro(&mut self, _coro: &CoroStmt) -> CResult<()> {
-        // For fire-and-forget coroutines, we compile the body as an
-        // immediately-invoked async lambda and discard the handle.
-        // The body scope is already handled by the parser.
-
-        // We emit a simple approach: push a null placeholder since coro
-        // is fire-and-forget and doesn't return a value to the caller.
-        // Future: compile body as a separate task and spawn it.
-        self.emit_op(OP_NULL);
+    fn compile_coro(&mut self, coro: &CoroStmt) -> CResult<()> {
+        // Fire-and-forget coroutine: compile the body as an async lambda,
+        // spawn it as a task, and discard the handle.
+        let params: Vec<String> = Vec::new();
+        let chunk = self.compile_function_body("<coro>", &params, &coro.body)?;
+        let fn_obj = FnObj {
+            name: "<coro>".to_string(),
+            arity: 0,
+            chunk,
+            is_async: true,
+        };
+        let const_idx = self.add_constant(Value::FnObj(fn_obj));
+        self.emit_op_u16(OP_MAKE_CLOSURE, const_idx);
+        // Spawn as async task (0 args)
+        self.emit_op_u8(OP_ASYNC_CALL, 0);
+        // Discard the TaskHandle — fire and forget
+        self.emit_op(OP_POP);
         Ok(())
     }
 

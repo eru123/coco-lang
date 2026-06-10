@@ -656,6 +656,7 @@ impl<'a> Parser<'a> {
                 let span = self.current.span;
                 self.advance();
                 let body = self.parse_block()?;
+                self.eat(TokenKind::Semi); // optional trailing semicolon
                 Some(Stmt::Coro(CoroStmt { span, body }))
             }
             TokenKind::Select => {

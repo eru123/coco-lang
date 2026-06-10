@@ -19,7 +19,27 @@ impl Interpreter {
             Stmt::Continue(_) => Err(Signal::Flow(ControlFlow::Continue)),
             Stmt::Throw(throw) => self.exec_throw(throw),
             Stmt::Try(try_stmt) => self.exec_try(try_stmt),
-            _ => Ok(Value::Null),
+            Stmt::Parallel(parallel) => {
+                // Execute all runs sequentially in the tree-walking interpreter
+                let mut last = Value::Null;
+                for run in &parallel.runs {
+                    last = self.eval_expr(&run.expr)?;
+                }
+                Ok(last)
+            }
+            Stmt::Coro(_coro) => {
+                // Fire-and-forget coroutine in the tree-walking interpreter.
+                // Execute body in a new scope, return Null regardless.
+                self.env.push_scope();
+                let _result = self.exec_block(&_coro.body);
+                self.env.pop_scope();
+                Ok(Value::Null)
+            }
+            _ => {
+                // Log unhandled statement variants
+                eprintln!("[exec_stmt] unhandled statement variant");
+                Ok(Value::Null)
+            },
         }
     }
 
