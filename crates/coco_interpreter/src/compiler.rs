@@ -127,8 +127,14 @@ impl Compiler {
         // First pass: register all function declarations so forward references
         // work (functions can call other functions defined later).
         for item in &program.items {
-            if let Item::FnDecl(fn_decl) = item {
-                self.declare_function(fn_decl)?;
+            match item {
+                Item::FnDecl(fn_decl) => { self.declare_function(fn_decl)?; }
+                Item::Export(export) => {
+                    if let Item::FnDecl(fn_decl) = &*export.item {
+                        self.declare_function(fn_decl)?;
+                    }
+                }
+                _ => {}
             }
         }
         // Second pass: compile each item.
@@ -312,6 +318,7 @@ impl Compiler {
             Item::ClassDecl(class_decl) => self.compile_class_decl(class_decl),
             Item::InterfaceDecl(iface_decl) => self.compile_interface_decl(iface_decl),
             Item::TraitDecl(trait_decl) => self.compile_trait_decl(trait_decl),
+            Item::Export(export) => self.compile_item(&export.item),
             _ => Ok(()),
         }
     }

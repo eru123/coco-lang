@@ -20,6 +20,7 @@ impl Interpreter {
             Item::InterfaceDecl(iface_decl) => self.exec_interface_decl(iface_decl),
             Item::TraitDecl(trait_decl) => self.exec_trait_decl(trait_decl),
             Item::Import(import) => self.exec_import(import),
+            Item::Export(export) => self.exec_item(&export.item),
             _ => Ok(Value::Null),
         }
     }
