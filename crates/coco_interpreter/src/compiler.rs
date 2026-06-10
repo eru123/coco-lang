@@ -786,6 +786,7 @@ impl Compiler {
                 // For now, we'll handle it in compile_call when used as super.method()
                 Err(CompileError::new("super only valid in method call position"))
             }
+            Expr::Match(match_expr) => self.compile_match(match_expr),
             _ => Err(CompileError::new("unsupported expression")),
         }
     }
@@ -1192,6 +1193,130 @@ impl Compiler {
         self.compile_expr(&tern.else_expr)?;
 
         self.place_label(end_label);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Match expression
+    // -----------------------------------------------------------------------
+
+    fn compile_match(&mut self, match_expr: &MatchExpr) -> CResult<()> {
+        // Compile the scrutinee and store it in a temporary local.
+        // Only valid in function bodies.
+        if !self.in_function {
+            return Err(CompileError::new(
+                "match expressions currently require function scope",
+            ));
+        }
+
+        let scrut_name = format!("__match_scrut_{}", self.locals.len());
+        let scrut_slot = self.add_local(&scrut_name);
+        self.compile_expr(&match_expr.scrutinee)?;
+        self.emit_op_u16(OP_STORE_LOCAL, scrut_slot as u16);
+        self.emit_op(OP_POP);
+
+        let end_label = self.new_label();
+        let mut arm_labels: Vec<Label> = Vec::new();
+
+        // Create a label for each arm (for jump-if-false to target).
+        for _ in 0..match_expr.arms.len() {
+            arm_labels.push(self.new_label());
+        }
+
+        for (i, arm) in match_expr.arms.iter().enumerate() {
+            let is_last = i == match_expr.arms.len() - 1;
+
+            // For non-last arms (and non-wildcard last arms), emit pattern check.
+            let needs_check = !is_last || !matches!(arm.pattern, Pattern::Wildcard(_));
+
+            if needs_check {
+                // Emit the pattern comparison.
+                self.compile_pattern_test(scrut_slot, &arm.pattern)?;
+                self.emit_jump(OP_JUMP_IF_FALSE, arm_labels[i]);
+            }
+
+            // Compile the arm body in a new scope (for pattern bindings).
+            self.begin_scope();
+            self.compile_pattern_bind(scrut_slot, &arm.pattern)?;
+            self.compile_expr(&arm.body)?;
+            self.end_scope();
+
+            // Jump to end (skip remaining arms).
+            self.emit_jump(OP_JUMP, end_label);
+
+            // Place the label for the next arm to jump here.
+            self.place_label(arm_labels[i]);
+        }
+
+        // If no arm matched, push Null (fallback).
+        self.emit_op(OP_NULL);
+
+        self.place_label(end_label);
+        Ok(())
+    }
+
+    /// Emit instructions to test whether the scrutinee value (in `scrut_slot`)
+    /// matches a pattern. Leaves the result on the stack as a bool.
+    fn compile_pattern_test(&mut self, scrut_slot: usize, pattern: &Pattern) -> CResult<()> {
+        match pattern {
+            Pattern::Literal(lit) => {
+                // Load scrutinee, load literal, compare.
+                self.emit_op_u16(OP_LOAD_LOCAL, scrut_slot as u16);
+                match lit {
+                    Literal::Int(n, _) => {
+                        let idx = self.add_constant(Value::Int(BigInt::from(*n as i64)));
+                        self.emit_op_u16(OP_CONST, idx);
+                    }
+                    Literal::Float(n, _) => {
+                        let idx = self.add_constant(Value::Float(*n));
+                        self.emit_op_u16(OP_CONST, idx);
+                    }
+                    Literal::String(s, _) => {
+                        let idx = self.add_constant(Value::String(s.clone()));
+                        self.emit_op_u16(OP_CONST, idx);
+                    }
+                    Literal::Bool(b, _) => {
+                        if *b {
+                            self.emit_op(OP_TRUE);
+                        } else {
+                            self.emit_op(OP_FALSE);
+                        }
+                    }
+                    Literal::Null(_) => self.emit_op(OP_NULL),
+                    Literal::Char(c, _) => {
+                        let idx = self.add_constant(Value::String(c.to_string()));
+                        self.emit_op_u16(OP_CONST, idx);
+                    }
+                }
+                self.emit_op(OP_EQ);
+            }
+            Pattern::Ident(_) | Pattern::Wildcard(_) => {
+                // Always matches — push true.
+                self.emit_op(OP_TRUE);
+            }
+            Pattern::IsType(_) => {
+                return Err(CompileError::new(
+                    "is-type patterns not yet supported in bytecode compiler",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Emit instructions to bind pattern variables in the current scope.
+    fn compile_pattern_bind(&mut self, scrut_slot: usize, pattern: &Pattern) -> CResult<()> {
+        match pattern {
+            Pattern::Ident(ident) => {
+                // Bind the scrutinee value to a new local.
+                let local_slot = self.add_local(&ident.name);
+                self.emit_op_u16(OP_LOAD_LOCAL, scrut_slot as u16);
+                self.emit_op_u16(OP_STORE_LOCAL, local_slot as u16);
+                self.emit_op(OP_POP);
+            }
+            Pattern::Literal(_) | Pattern::IsType(_) | Pattern::Wildcard(_) => {
+                // No binding needed.
+            }
+        }
         Ok(())
     }
 
