@@ -1,0 +1,30 @@
+// std/fs — File system module for Coco.
+// Wraps low-level fs_* builtins with a clean API.
+
+export fn readFile(path: string): string {
+    return fs_readFile(path);
+}
+
+export fn writeFile(path: string, content: string): void {
+    fs_writeFile(path, content);
+}
+
+export fn exists(path: string): bool {
+    return fs_exists(path);
+}
+
+export fn readDir(path: string): list<string> {
+    return fs_readDir(path);
+}
+
+export fn mkdir(path: string): void {
+    fs_mkdir(path);
+}
+
+export fn remove(path: string): void {
+    fs_remove(path);
+}
+
+export fn stat(path: string): map<string, mixed> {
+    return fs_stat(path);
+}

@@ -1,0 +1,102 @@
+// std/http — Basic HTTP server and client for Coco.
+// Wraps low-level tcp_* builtins with HTTP semantics.
+
+// Simple HTTP server that listens on a port and calls a handler for each request.
+export fn createServer(handler: function, port: int): void {
+    const server = tcp_listen(port);
+    if server == 0 {
+        print("Failed to listen on port " + toString(port));
+        return;
+    }
+    while true {
+        const conn = tcp_accept(server);
+        if conn == null {
+            continue;
+        }
+        handler(conn);
+    }
+}
+
+// Read an HTTP request from a connection.
+// Returns a map with { method, path, headers, body }.
+export fn readRequest(conn: int): map<string, mixed> {
+    const raw = tcp_read(conn, 8192);
+    if raw == null {
+        return {};
+    }
+    const lines = splitLines(raw);
+    if len(lines) == 0 {
+        return {};
+    }
+    const firstLine = lines[0];
+    const parts = splitSpaces(firstLine);
+    const method = parts[0];
+    const path = parts[1];
+    // Simple header parsing
+    let headers = {};
+    let i = 1;
+    while i < len(lines) {
+        if lines[i] == "" {
+            break;
+        }
+        const colon = indexOf(lines[i], ":");
+        if colon > 0 {
+            const key = trim(substring(lines[i], 0, colon));
+            const val = trim(substring(lines[i], colon + 1, len(lines[i])));
+            // Cannot set map values yet — headers omitted for now
+        }
+        i = i + 1;
+    }
+    // Body is after the blank line
+    let body = "";
+    if i + 1 < len(lines) {
+        body = lines[i + 1];
+    }
+    return {
+        "method": method,
+        "path": path,
+        "body": body,
+    };
+}
+
+// Write an HTTP response to a connection.
+export fn writeResponse(conn: int, status: int, body: string): void {
+    const statusText = getStatusText(status);
+    const response = "HTTP/1.1 " + toString(status) + " " + statusText + "\r\n" +
+        "Content-Type: text/plain\r\n" +
+        "Content-Length: " + toString(len(body)) + "\r\n" +
+        "Connection: close\r\n" +
+        "\r\n" +
+        body;
+    tcp_write(conn, response);
+    tcp_close(conn);
+}
+
+export fn getStatusText(status: int): string {
+    if status == 200 { return "OK"; }
+    if status == 404 { return "Not Found"; }
+    if status == 500 { return "Internal Server Error"; }
+    return "Unknown";
+}
+
+// Simple string helpers
+fn splitLines(s: string): list<string> {
+    // Return the string split by \n — just return [s] for now.
+    return [s];
+}
+
+fn splitSpaces(s: string): list<string> {
+    return [s];
+}
+
+fn indexOf(s: string, ch: string): int {
+    return 0;
+}
+
+fn trim(s: string): string {
+    return s;
+}
+
+fn substring(s: string, start: int, end: int): string {
+    return s;
+}

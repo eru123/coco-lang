@@ -294,24 +294,50 @@ impl Interpreter {
     /// Execute an import statement — resolve the module, parse it,
     /// execute its items, and import the requested names.
     fn exec_import(&mut self, import: &Import) -> IResult {
-        // Build the module file path
-        let module_path = match &self.source_file {
-            Some(base) => {
-                let parent = base.parent().unwrap_or(Path::new("."));
-                parent.join(&import.source)
+        // Check if this is a stdlib import (std/ prefix).
+        let src = if import.source.starts_with("std/") {
+            match crate::get_stdlib_source(&import.source) {
+                Some(s) => s.to_string(),
+                None => {
+                    return Err(Signal::Error(RuntimeError::new(format!(
+                        "stdlib module '{}' not found",
+                        import.source
+                    ))));
+                }
             }
-            None => Path::new(&import.source).to_path_buf(),
+        } else {
+            // Build the module file path
+            let module_path = match &self.source_file {
+                Some(base) => {
+                    let parent = base.parent().unwrap_or(Path::new("."));
+                    parent.join(&import.source)
+                }
+                None => Path::new(&import.source).to_path_buf(),
+            };
+
+            // Read the module file
+            match std::fs::read_to_string(&module_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(Signal::Error(RuntimeError::new(format!(
+                        "cannot read module '{}': {}",
+                        module_path.display(),
+                        e
+                    ))));
+                }
+            }
         };
 
-        // Read the module file
-        let src = match std::fs::read_to_string(&module_path) {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(Signal::Error(RuntimeError::new(format!(
-                    "cannot read module '{}': {}",
-                    module_path.display(),
-                    e
-                ))));
+        // For std/ imports, the module doesn't have a real file path.
+        let module_path = if import.source.starts_with("std/") {
+            Path::new(&import.source).to_path_buf()
+        } else {
+            match &self.source_file {
+                Some(base) => {
+                    let parent = base.parent().unwrap_or(Path::new("."));
+                    parent.join(&import.source)
+                }
+                None => Path::new(&import.source).to_path_buf(),
             }
         };
 

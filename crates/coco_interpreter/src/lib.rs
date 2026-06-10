@@ -16,6 +16,20 @@ pub mod task;
 pub mod value;
 pub mod vm;
 
+// ============================================================================
+// Embedded stdlib sources
+// ============================================================================
+
+/// Returns the source code for a stdlib module, or None if not found.
+pub fn get_stdlib_source(module: &str) -> Option<&'static str> {
+    match module {
+        "std/fs" => Some(include_str!("stdlib/fs.co")),
+        "std/json" => Some(include_str!("stdlib/json.co")),
+        "std/http" => Some(include_str!("stdlib/http.co")),
+        _ => None,
+    }
+}
+
 pub use error::RuntimeError;
 pub use value::Value;
 

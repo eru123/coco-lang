@@ -1,0 +1,10 @@
+// std/json — JSON parsing and serialization for Coco.
+// Wraps the json_parse and json_stringify builtins.
+
+export fn parse(json: string): mixed {
+    return json_parse(json);
+}
+
+export fn stringify(value: mixed): string {
+    return json_stringify(value);
+}
