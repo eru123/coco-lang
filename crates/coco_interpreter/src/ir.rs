@@ -105,6 +105,7 @@ pub const OP_CATCH: u8 = 83;
 pub const OP_ASYNC_CALL: u8 = 90;
 pub const OP_AWAIT: u8 = 91;
 pub const OP_LAZY_CALL: u8 = 92;
+pub const OP_TRY: u8 = 93; // ? operator — propagate Err, unwrap Ok
 
 /// Compound-assignment op sub-kinds carried by OP_ASSIGN_OP after the
 /// right-hand side is already on the stack (left is below it).
@@ -170,6 +171,7 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_ASYNC_CALL => "ASYNC_CALL",
         OP_AWAIT => "AWAIT",
         OP_LAZY_CALL => "LAZY_CALL",
+        OP_TRY => "TRY",
         _ => "???",
     }
 }
@@ -198,7 +200,7 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
 
         OP_CALL | OP_ASYNC_CALL | OP_LAZY_CALL => Some(1),
 
-        OP_AWAIT => Some(0),
+        OP_AWAIT | OP_TRY => Some(0),
 
         OP_NULL
         | OP_TRUE

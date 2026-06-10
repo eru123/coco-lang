@@ -564,6 +564,40 @@ impl Vm {
             }
             OP_CATCH => {} // Error value already on stack from THROW.
 
+            // ---- Error propagation (? operator) ----
+            OP_TRY => {
+                let val = self.pop();
+                match val {
+                    Value::Ok(v) => self.push(*v),
+                    Value::Err(e) => {
+                        // Propagate the error as an exception.
+                        self.push(Value::Err(e));
+                        // Use throw mechanism.
+                        if let Some(&(handler_ip, target_depth)) = self.handlers.last() {
+                            while self.stack.len() > target_depth {
+                                self.stack.pop();
+                            }
+                            self.handlers.pop();
+                            if let Some(frame) = self.frames.last_mut() {
+                                frame.ip = handler_ip;
+                            }
+                            return Ok(());
+                        } else {
+                            return Err(VmError::new(format!(
+                                "unhandled error propagation: {:?}",
+                                self.stack.last().unwrap()
+                            )));
+                        }
+                    }
+                    other => {
+                        return Err(VmError::new(format!(
+                            "? operator requires Result type, got {}",
+                            other
+                        )));
+                    }
+                }
+            }
+
             _ => {
                 return Err(VmError::new(format!(
                     "unknown opcode: {} ({})",
@@ -944,6 +978,8 @@ impl Vm {
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Null, Value::Null) => true,
             (Value::TaskHandle(a), Value::TaskHandle(b)) => a == b,
+            (Value::Ok(a), Value::Ok(b)) => Self::vm_eq(a, b),
+            (Value::Err(a), Value::Err(b)) => Self::vm_eq(a, b),
             _ => false,
         }
     }

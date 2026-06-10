@@ -20,7 +20,7 @@ use crate::ir::{
     OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_MOD, OP_MUL, OP_NE,
     OP_NEG, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE, OP_POW, OP_RETURN, OP_SHL, OP_SHR,
     OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL, OP_STORE_MEMBER, OP_SUB, OP_THROW, OP_TRUE,
-    OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL,
+    OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_TRY,
 };
 use crate::value::Value;
 use coco_syntax::*;
@@ -604,6 +604,7 @@ impl Compiler {
             Expr::Group(inner) => self.compile_expr(inner),
             Expr::Assignment(assign) => self.compile_assignment(assign),
             Expr::Lambda(lambda) => self.compile_lambda(lambda),
+            Expr::Postfix(postfix) => self.compile_postfix(postfix),
             _ => Err(CompileError::new("unsupported expression")),
         }
     }
@@ -893,6 +894,21 @@ impl Compiler {
         let op = if self.in_lazy { OP_LAZY_CALL } else { OP_CALL };
         self.emit_op_u8(op, arg_count as u8);
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Postfix (? operator)
+    // -----------------------------------------------------------------------
+
+    fn compile_postfix(&mut self, postfix: &PostfixExpr) -> CResult<()> {
+        match &postfix.op {
+            PostfixOp::Question => {
+                self.compile_expr(&postfix.object)?;
+                self.emit_op(OP_TRY);
+                Ok(())
+            }
+            _ => Err(CompileError::new("unsupported postfix operation")),
+        }
     }
 
     // -----------------------------------------------------------------------

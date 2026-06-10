@@ -24,6 +24,10 @@ pub enum Value {
     FnObj(FnObj),
     /// Handle to an async task managed by the scheduler.
     TaskHandle(usize),
+    /// Result::Ok variant wrapping a success value.
+    Ok(Box<Value>),
+    /// Result::Err variant wrapping an error value.
+    Err(Box<Value>),
 }
 
 /// A user-defined function captured at runtime.
@@ -66,6 +70,8 @@ impl fmt::Display for Value {
             Value::BuiltinFn(name) => write!(f, "<builtin {}>", name),
             Value::FnObj(fo) => write!(f, "<fn {}>", fo.name),
             Value::TaskHandle(id) => write!(f, "<task {}>", id),
+            Value::Ok(v) => write!(f, "Ok({})", v),
+            Value::Err(v) => write!(f, "Err({})", v),
         }
     }
 }
@@ -84,6 +90,8 @@ impl fmt::Debug for Value {
             Value::BuiltinFn(name) => write!(f, "BuiltinFn({})", name),
             Value::FnObj(fo) => write!(f, "FnObj({})", fo.name),
             Value::TaskHandle(id) => write!(f, "TaskHandle({})", id),
+            Value::Ok(v) => write!(f, "Ok({:?})", v),
+            Value::Err(v) => write!(f, "Err({:?})", v),
         }
     }
 }
@@ -100,6 +108,14 @@ impl Value {
             Value::List(l) => !l.data.is_empty(),
             Value::Map(m) => !m.data.is_empty(),
             Value::Function(_) | Value::BuiltinFn(_) | Value::FnObj(_) | Value::TaskHandle(_) => true,
+            Value::Ok(_) => true,
+            Value::Err(v) => match v.as_ref() {
+                Value::Null => false,
+                Value::Bool(b) => *b,
+                Value::Int(n) => *n != 0,
+                Value::String(s) => !s.is_empty(),
+                _ => true,
+            },
         }
     }
 
