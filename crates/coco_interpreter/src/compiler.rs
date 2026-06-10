@@ -24,6 +24,7 @@ use crate::ir::{
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
 };
 use crate::value::Value;
+use coco_parser::Parser;
 use coco_syntax::*;
 use num_bigint::BigInt;
 
@@ -319,8 +320,46 @@ impl Compiler {
             Item::InterfaceDecl(iface_decl) => self.compile_interface_decl(iface_decl),
             Item::TraitDecl(trait_decl) => self.compile_trait_decl(trait_decl),
             Item::Export(export) => self.compile_item(&export.item),
+            Item::Import(import) => self.compile_import(import),
             _ => Ok(()),
         }
+    }
+
+    /// Compile an import statement by resolving the module, parsing it,
+    /// and inlining its exported items into the current chunk as globals.
+    fn compile_import(&mut self, import: &Import) -> CResult<()> {
+        let src = if import.source.starts_with("std/") {
+            match crate::get_stdlib_source(&import.source) {
+                Some(s) => s.to_string(),
+                None => {
+                    return Err(CompileError::new(format!(
+                        "stdlib module '{}' not found",
+                        import.source
+                    )));
+                }
+            }
+        } else {
+            // File-based imports deferred for VM mode.
+            return Ok(());
+        };
+
+        // Parse the module
+        let mut parser = Parser::new(&src);
+        let module = parser.parse_program();
+
+        // Compile items — exported items become globals, others are skipped.
+        for item in &module.items {
+            match item {
+                Item::Export(export) => {
+                    // Compile the exported item — it will register as a global.
+                    self.compile_item(&export.item)?;
+                }
+                // Non-exported items are skipped in module context for VM
+                // (they're private helpers not visible to importers).
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     fn compile_let(&mut self, let_decl: &LetDecl) -> CResult<()> {
