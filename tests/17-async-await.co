@@ -1,0 +1,45 @@
+// Async/await runtime verification.
+// Tests that async functions compile and execute through the task scheduler.
+
+async fn double(x: int): int {
+    return x * 2;
+}
+
+async fn add(a: int, b: int): int {
+    return a + b;
+}
+
+async fn factorial(n: int): int {
+    if n <= 1 {
+        return 1;
+    }
+    const prev = await factorial(n - 1);
+    return n * prev;
+}
+
+fn main(): int {
+    // Call async function — returns a task handle
+    const task = double(21);
+    print(task);
+
+    // Await the task to get the result
+    const result = await double(21);
+    print(result);
+
+    // Multiple async calls
+    const a = await add(10, 20);
+    print(a);
+
+    const b = await add(100, 200);
+    print(b);
+
+    // Recursive async (factorial)
+    const fact = await factorial(10);
+    print(fact);
+
+    // Async with larger numbers (bigint compatible)
+    const big = await double(999999999999);
+    print(big);
+
+    return 0;
+}

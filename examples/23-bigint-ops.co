@@ -1,0 +1,47 @@
+// BigInt in Coco — arbitrary-precision integers by default.
+// No special syntax needed. Every integer literal is a BigInt.
+// The old i64 overflow limit no longer exists.
+
+fn main(): int {
+    // Small numbers still work exactly as before
+    const a = 42;
+    const b = 100;
+    print(a + b);   // 142
+
+    // Numbers that would overflow i64 (~9.2e18)
+    const huge = 99999999999999999999999;
+    print(huge);          // 99999999999999999999999
+    print(huge + 1);      // 100000000000000000000000
+    print(huge * huge);   // massive exact product
+
+    // Large factorials
+    fn factorial(n: int): int {
+        if n <= 1 { return 1; }
+        return n * factorial(n - 1);
+    }
+    print(factorial(50));  // 30414093201713378043612608166064768844377641568960512000000000000
+
+    // Large powers — 2^200
+    print(2 ** 200);       // 1606938044258990275541962092341162602522202993782792835301376
+
+    // Negative bigints work too
+    const neg = -huge;
+    print(neg);            // -99999999999999999999999
+
+    // All arithmetic operators work: + - * / % **
+    print(huge % 7);       // exact remainder
+    print(huge / 3);       // integer division
+
+    // Comparison operators
+    print(huge > 99999999999999999999998);  // true
+    print(huge < 0);                        // false
+
+    // Bitwise operations on bigints
+    const mask = (1 << 100) - 1;
+    print(mask);           // 2^100 - 1
+
+    // Mixed int/float operations promote to float
+    print(huge + 0.5);     // float result
+
+    return 0;
+}

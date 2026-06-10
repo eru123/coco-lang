@@ -1,0 +1,52 @@
+// Result type with Ok/Err values and ? operator.
+// Demonstrates ADR-009: Dual Error Model (Exceptions + Result).
+
+fn divide(a: int, b: int): Result<int, string> {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+fn safeAdd(a: int, b: int): Result<int, string> {
+    return Ok(a + b);
+}
+
+// Using ? to propagate errors
+fn compute(x: int, y: int): Result<int, string> {
+    const div = divide(x, y)?;
+    const sum = safeAdd(div, 10)?;
+    return Ok(sum);
+}
+
+fn main(): int {
+    // Ok and Err constructors
+    const okVal = Ok(42);
+    const errVal = Err("something went wrong");
+
+    print(okVal);
+    print(errVal);
+
+    // Type checking for Result
+    print(isOk(okVal));
+    print(isErr(errVal));
+
+    // Unwrap Ok
+    print(unwrap(okVal));
+
+    // Successful computation
+    const result = compute(100, 5);
+    if isOk(result) {
+        print(unwrap(result));
+    }
+
+    // Division by zero
+    const bad = divide(10, 0);
+    print(isErr(bad));
+
+    // ? operator in practice
+    const good = divide(20, 4);
+    print(isOk(good));
+
+    return 0;
+}

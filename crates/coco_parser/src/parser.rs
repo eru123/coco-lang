@@ -1046,8 +1046,32 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            // Handle ternary `? ... : ...`
+            // Handle ternary `? ... : ...` vs postfix `?`
             if self.current.kind == TokenKind::Question {
+                // Clone lexer to peek at the next token.
+                let mut peek_lexer = self.lexer.clone();
+                let next = peek_lexer.next_token();
+                let is_postfix_q = matches!(
+                    next.kind,
+                    TokenKind::Semi
+                        | TokenKind::RParen
+                        | TokenKind::RBrace
+                        | TokenKind::Comma
+                        | TokenKind::RBracket
+                        | TokenKind::Colon
+                        | TokenKind::Eof
+                );
+                if is_postfix_q {
+                    let span = Span::new(lhs.span_start(), self.current.span.end);
+                    self.advance();
+                    lhs = Expr::Postfix(Box::new(PostfixExpr {
+                        span,
+                        object: lhs,
+                        op: PostfixOp::Question,
+                    }));
+                    lhs = self.parse_postfix(lhs);
+                    continue;
+                }
                 lhs = self.parse_ternary_expr(lhs);
                 lhs = self.parse_postfix(lhs);
                 continue;
@@ -1304,6 +1328,20 @@ impl<'a> Parser<'a> {
             TokenKind::LBrace => self.parse_object_literal(),
             TokenKind::Match => self.parse_match_expr(),
             TokenKind::Async | TokenKind::Fn | TokenKind::Function => self.parse_lambda_expr(),
+            // Keywords that are valid as identifiers in expression context
+            TokenKind::Ok | TokenKind::Err | TokenKind::Result
+            | TokenKind::Typeof | TokenKind::As | TokenKind::Is
+            | TokenKind::From | TokenKind::Use
+            | TokenKind::Await | TokenKind::Lazy | TokenKind::Parallel
+            | TokenKind::Coro | TokenKind::Select => {
+                let text = self.current.text.clone();
+                let span = self.current.span;
+                self.advance();
+                Expr::Ident(Ident {
+                    name: text,
+                    span,
+                })
+            }
             _ => {
                 let span = self.current.span;
                 self.advance();
@@ -1745,7 +1783,7 @@ impl<'a> Parser<'a> {
     fn parse_primary_type(&mut self) -> Type {
         let start = self.current.span.start;
         match self.current.kind {
-            TokenKind::Ident => {
+            TokenKind::Ident | TokenKind::Result => {
                 let name = self.current.text.clone();
                 let span = self.current.span;
                 self.advance();

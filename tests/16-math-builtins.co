@@ -1,0 +1,60 @@
+// Math built-in functions and type utilities.
+// Demonstrates the new standard library builtins.
+
+fn main(): int {
+    // abs — absolute value
+    print(abs(42));
+    print(abs(-42));
+    print(abs(0));
+
+    // min / max
+    print(min(3, 7, 2, 9));
+    print(max(3, 7, 2, 9));
+
+    // floor / ceil / round
+    print(floor(3.7));
+    print(ceil(3.2));
+    print(round(3.5));
+
+    // sqrt — square root
+    print(sqrt(16));
+    print(sqrt(2));
+
+    // pow — power function
+    print(pow(2, 10));
+    print(pow(3, 4));
+
+    // random — random numbers
+    const r1 = random();
+    print(r1 >= 0);
+    print(r1 < 1);
+
+    const r2 = random(100);
+    print(r2 >= 0);
+    print(r2 < 100);
+
+    // toString — convert to string
+    print(toString(42));
+    print(toString(3.14));
+    print(toString(true));
+
+    // parseInt / parseFloat
+    print(parseInt("42"));
+    print(parseFloat("3.14"));
+
+    // len — length of strings, lists
+    print(len("hello"));
+    print(len([1, 2, 3]));
+
+    // typeOf — runtime type inspection
+    print(typeOf(42));
+    print(typeOf(3.14));
+    print(typeOf("hello"));
+    print(typeOf(true));
+    print(typeOf(null));
+    print(typeOf([1, 2]));
+    print(typeOf(Ok(1)));
+    print(typeOf(Err("oops")));
+
+    return 0;
+}

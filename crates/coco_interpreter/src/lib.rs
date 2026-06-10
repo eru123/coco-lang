@@ -65,6 +65,84 @@ impl Interpreter {
             Value::BuiltinFn("parseFloat".to_string()),
             false,
         );
+        // Result constructors
+        env.define(
+            "Ok".to_string(),
+            Value::BuiltinFn("Ok".to_string()),
+            false,
+        );
+        env.define(
+            "Err".to_string(),
+            Value::BuiltinFn("Err".to_string()),
+            false,
+        );
+        // Math
+        env.define(
+            "abs".to_string(),
+            Value::BuiltinFn("abs".to_string()),
+            false,
+        );
+        env.define(
+            "min".to_string(),
+            Value::BuiltinFn("min".to_string()),
+            false,
+        );
+        env.define(
+            "max".to_string(),
+            Value::BuiltinFn("max".to_string()),
+            false,
+        );
+        env.define(
+            "floor".to_string(),
+            Value::BuiltinFn("floor".to_string()),
+            false,
+        );
+        env.define(
+            "ceil".to_string(),
+            Value::BuiltinFn("ceil".to_string()),
+            false,
+        );
+        env.define(
+            "round".to_string(),
+            Value::BuiltinFn("round".to_string()),
+            false,
+        );
+        env.define(
+            "sqrt".to_string(),
+            Value::BuiltinFn("sqrt".to_string()),
+            false,
+        );
+        env.define(
+            "pow".to_string(),
+            Value::BuiltinFn("pow".to_string()),
+            false,
+        );
+        env.define(
+            "random".to_string(),
+            Value::BuiltinFn("random".to_string()),
+            false,
+        );
+        // Type checking
+        env.define(
+            "typeOf".to_string(),
+            Value::BuiltinFn("typeOf".to_string()),
+            false,
+        );
+        env.define(
+            "isOk".to_string(),
+            Value::BuiltinFn("isOk".to_string()),
+            false,
+        );
+        env.define(
+            "isErr".to_string(),
+            Value::BuiltinFn("isErr".to_string()),
+            false,
+        );
+        env.define(
+            "unwrap".to_string(),
+            Value::BuiltinFn("unwrap".to_string()),
+            false,
+        );
 
         Self {
             env,

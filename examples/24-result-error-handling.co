@@ -1,0 +1,75 @@
+// Result<T, E> error handling in Coco.
+// Demonstrates the dual error model: Result for expected failures,
+// exceptions for unexpected ones (ADR-009).
+
+// Division that returns Result instead of throwing
+fn divide(a: int, b: int): Result<int, string> {
+    if b == 0 {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+// Parsing that can fail
+fn parsePort(input: string): Result<int, string> {
+    const n = parseInt(input);
+    if n == null {
+        return Err("not a valid number");
+    }
+    if n < 1 or n > 65535 {
+        return Err("port must be between 1 and 65535");
+    }
+    return Ok(n);
+}
+
+// Using ? to propagate errors cleanly
+fn computeRatio(a: int, b: int, c: int): Result<int, string> {
+    const div1 = divide(a, b)?;
+    const div2 = divide(div1, c)?;
+    return Ok(div2 * 100);
+}
+
+fn main(): int {
+    // Basic Result creation
+    const okVal = Ok(42);
+    const errVal = Err("something broke");
+    print(okVal);       // Ok(42)
+    print(errVal);      // Err(something broke)
+
+    // Pattern matching with isOk / isErr / unwrap
+    print(isOk(okVal));     // true
+    print(isErr(errVal));   // true
+    print(unwrap(okVal));   // 42
+
+    // Safe handling of Results
+    const port = parsePort("8080");
+    if isOk(port) {
+        print("Port: " + toString(unwrap(port)));
+    } else {
+        print("Invalid port");
+    }
+
+    // Bad input
+    const bad = parsePort("not-a-number");
+    print(isErr(bad));      // true
+
+    // Range validation
+    const tooHigh = parsePort("99999");
+    print(isErr(tooHigh));  // true
+
+    // ? operator in action — clean error propagation
+    const ratio = computeRatio(100, 2, 5);
+    if isOk(ratio) {
+        print(unwrap(ratio));  // 1000
+    }
+
+    // Error propagation with ?
+    const fail = computeRatio(100, 0, 5);
+    print(isErr(fail));     // true
+
+    // typeOf works with Result values
+    print(typeOf(Ok(1)));   // result
+    print(typeOf(Err("x"))); // result
+
+    return 0;
+}

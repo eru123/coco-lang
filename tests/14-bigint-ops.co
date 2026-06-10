@@ -1,0 +1,42 @@
+// BigInt arithmetic: all integers now support arbitrary precision.
+// The old i64 limit no longer applies.
+
+fn factorial(n: int): int {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main(): int {
+    // Basic arithmetic still works
+    print(2 + 2);
+    print(10 - 3);
+    print(4 * 5);
+    print(100 / 7);
+
+    // Large numbers that overflow i64
+    const huge = 99999999999999999999;
+    print(huge);
+    print(huge + 1);
+    print(huge * 2);
+
+    // Factorial of 30 — far exceeds i64::MAX (~9.2e18)
+    const fact30 = factorial(30);
+    print(fact30);
+
+    // Exponentiation with large bases
+    const power = 2 ** 100;
+    print(power);
+
+    // Negative bigints
+    const neg = -99999999999999999999;
+    print(neg);
+
+    // BigInt comparison
+    print(huge > 1000);
+    print(huge == huge);
+    print(neg < 0);
+
+    return 0;
+}

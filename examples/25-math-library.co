@@ -1,0 +1,52 @@
+// Coco standard library: math and utility builtins.
+// Shows the built-in functions available without imports.
+
+fn isPrime(n: int): bool {
+    if n < 2 { return false; }
+    const limit = floor(sqrt(n));
+    for i in 2..(limit + 1) {
+        if n % i == 0 { return false; }
+    }
+    return true;
+}
+
+fn main(): int {
+    // ---- Math ----
+    print("abs(-42) = " + toString(abs(-42)));
+    print("min(3,7,2,9) = " + toString(min(3, 7, 2, 9)));
+    print("max(3,7,2,9) = " + toString(max(3, 7, 2, 9)));
+    print("floor(3.7) = " + toString(floor(3.7)));
+    print("ceil(3.2) = " + toString(ceil(3.2)));
+    print("round(3.5) = " + toString(round(3.5)));
+    print("sqrt(16) = " + toString(sqrt(16)));
+    print("pow(2, 8) = " + toString(pow(2, 8)));
+
+    // ---- Type conversion ----
+    print("parseInt('99') = " + toString(parseInt("99")));
+    print("parseFloat('3.14') = " + toString(parseFloat("3.14")));
+    print("toString(42) = " + toString(42));
+    print("toString(true) = " + toString(true));
+
+    // ---- Length ----
+    print("len('hello') = " + toString(len("hello")));
+    print("len([10,20,30]) = " + toString(len([10, 20, 30])));
+
+    // ---- Random ----
+    print("random() < 1: " + toString(random() < 1));
+    print("random(100) >= 0: " + toString(random(100) >= 0));
+
+    // ---- Prime check using math builtins ----
+    const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
+    for p in primes {
+        print(toString(p) + " is prime: " + toString(isPrime(p)));
+    }
+
+    // ---- typeOf introspection ----
+    print("typeOf(42): " + typeOf(42));
+    print("typeOf(3.14): " + typeOf(3.14));
+    print("typeOf('hi'): " + typeOf("hi"));
+    print("typeOf(true): " + typeOf(true));
+    print("typeOf(null): " + typeOf(null));
+
+    return 0;
+}

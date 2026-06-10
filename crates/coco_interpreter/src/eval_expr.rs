@@ -25,6 +25,7 @@ impl Interpreter {
             Expr::Group(inner) => self.eval_expr(inner),
             Expr::Assignment(assign) => self.eval_assignment(assign),
             Expr::Lambda(lambda) => self.eval_lambda(lambda),
+            Expr::Postfix(postfix) => self.eval_postfix(postfix),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported expression: {:?}",
                 std::mem::discriminant(expr)
@@ -221,9 +222,38 @@ impl Interpreter {
                     "bitwise NOT requires integer",
                 ))),
             },
+            UnaryOp::Await => {
+                // In the tree-walking interpreter, await is a no-op.
+                // The value is already computed synchronously.
+                Ok(val)
+            }
+            UnaryOp::Lazy => {
+                // Lazy is a no-op in the tree-walking interpreter.
+                Ok(val)
+            }
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported unary op {:?}",
                 un.op
+            )))),
+        }
+    }
+
+    fn eval_postfix(&mut self, postfix: &PostfixExpr) -> IResult {
+        let val = self.eval_expr(&postfix.object)?;
+        match &postfix.op {
+            PostfixOp::Question => match val {
+                Value::Ok(v) => Ok(*v),
+                Value::Err(e) => Err(Signal::Error(RuntimeError::new(format!(
+                    "error propagated: {}",
+                    e
+                )))),
+                _ => Err(Signal::Error(RuntimeError::new(
+                    "? operator requires a Result value",
+                ))),
+            },
+            _ => Err(Signal::Error(RuntimeError::new(format!(
+                "unsupported postfix op {:?}",
+                postfix.op
             )))),
         }
     }
