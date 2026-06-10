@@ -1,6 +1,8 @@
 use crate::error::{RuntimeError, Signal};
-use crate::value::Value;
+use crate::value::{AtomicInner, ChannelInner, Value};
 use num_bigint::BigInt;
+use num_traits::ToPrimitive;
+use std::sync::{Arc, Mutex};
 
 /// Execute a built-in function by name with the given arguments.
 pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
@@ -260,6 +262,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 Value::TaskHandle(_) => "task",
                 Value::Ok(_) => "result",
                 Value::Err(_) => "result",
+                Value::Channel(_) => "channel",
+                Value::Atomic(_) => "atomic",
             };
             Ok(Value::String(type_name.to_string()))
         }
@@ -291,9 +295,262 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
         }
 
+        // ---- Concurrency primitives ----
+        "chan" => {
+            let cap = if args.is_empty() {
+                0 // unbuffered
+            } else if args.len() == 1 {
+                match &args[0] {
+                    Value::Int(n) => n.to_usize().unwrap_or(0),
+                    _ => {
+                        return Err(Signal::Error(RuntimeError::new(
+                            "chan() capacity must be an integer",
+                        )))
+                    }
+                }
+            } else {
+                return Err(Signal::Error(RuntimeError::new(
+                    "chan() expects 0 or 1 arguments",
+                )));
+            };
+            Ok(Value::Channel(Arc::new(Mutex::new(ChannelInner::new(
+                cap,
+            )))))
+        }
+        "Atomic" => {
+            if args.len() != 1 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "Atomic() expects 1 argument",
+                )));
+            }
+            Ok(Value::Atomic(Arc::new(Mutex::new(AtomicInner::new(
+                args[0].clone(),
+            )))))
+        }
+
+        // Channel methods (called via member dispatch)
+        "chan_send" => {
+            if args.len() != 2 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "channel.send() expects 1 argument (value)",
+                )));
+            }
+            let ch = match &args[0] {
+                Value::Channel(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "send() called on non-channel",
+                    )))
+                }
+            };
+            let mut inner = ch.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("channel lock poisoned: {}", e)))
+            })?;
+            if inner.closed {
+                return Err(Signal::Error(RuntimeError::new(
+                    "cannot send on closed channel",
+                )));
+            }
+            if inner.capacity > 0 && inner.queue.len() >= inner.capacity {
+                return Err(Signal::Error(RuntimeError::new(
+                    "channel is full (blocking send not yet supported)",
+                )));
+            }
+            inner.queue.push_back(args[1].clone());
+            Ok(Value::Null)
+        }
+        "chan_recv" => {
+            if args.len() != 1 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "channel.recv() expects 0 arguments (caller is channel)",
+                )));
+            }
+            let ch = match &args[0] {
+                Value::Channel(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "recv() called on non-channel",
+                    )))
+                }
+            };
+            let mut inner = ch.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("channel lock poisoned: {}", e)))
+            })?;
+            if inner.queue.is_empty() {
+                if inner.closed {
+                    return Ok(Value::Null);
+                }
+                return Err(Signal::Error(RuntimeError::new(
+                    "channel is empty (blocking recv not yet supported)",
+                )));
+            }
+            let val = inner.queue.pop_front().unwrap_or(Value::Null);
+            Ok(val)
+        }
+        "chan_close" => {
+            if args.len() != 1 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "channel.close() expects 0 arguments",
+                )));
+            }
+            let ch = match &args[0] {
+                Value::Channel(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "close() called on non-channel",
+                    )))
+                }
+            };
+            let mut inner = ch.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("channel lock poisoned: {}", e)))
+            })?;
+            inner.closed = true;
+            Ok(Value::Null)
+        }
+
+        // Atomic methods (called via member dispatch)
+        "atomic_load" => {
+            if args.len() != 1 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "atomic.load() expects 0 arguments",
+                )));
+            }
+            let atm = match &args[0] {
+                Value::Atomic(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "load() called on non-atomic",
+                    )))
+                }
+            };
+            let inner = atm.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
+            })?;
+            Ok(inner.value.clone())
+        }
+        "atomic_store" => {
+            if args.len() != 2 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "atomic.store() expects 1 argument (value)",
+                )));
+            }
+            let atm = match &args[0] {
+                Value::Atomic(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "store() called on non-atomic",
+                    )))
+                }
+            };
+            let mut inner = atm.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
+            })?;
+            inner.value = args[1].clone();
+            Ok(Value::Null)
+        }
+        "atomic_add" => {
+            if args.len() != 2 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "atomic.add() expects 1 argument (value)",
+                )));
+            }
+            let atm = match &args[0] {
+                Value::Atomic(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "add() called on non-atomic",
+                    )))
+                }
+            };
+            let mut inner = atm.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
+            })?;
+            match (&inner.value, &args[1]) {
+                (Value::Int(a), Value::Int(b)) => {
+                    inner.value = Value::Int(a + b);
+                }
+                (Value::Float(a), Value::Float(b)) => {
+                    inner.value = Value::Float(a + b);
+                }
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "atomic.add() expects numeric values",
+                    )))
+                }
+            }
+            Ok(Value::Null)
+        }
+        "atomic_sub" => {
+            if args.len() != 2 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "atomic.sub() expects 1 argument (value)",
+                )));
+            }
+            let atm = match &args[0] {
+                Value::Atomic(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "sub() called on non-atomic",
+                    )))
+                }
+            };
+            let mut inner = atm.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
+            })?;
+            match (&inner.value, &args[1]) {
+                (Value::Int(a), Value::Int(b)) => {
+                    inner.value = Value::Int(a - b);
+                }
+                (Value::Float(a), Value::Float(b)) => {
+                    inner.value = Value::Float(a - b);
+                }
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "atomic.sub() expects numeric values",
+                    )))
+                }
+            }
+            Ok(Value::Null)
+        }
+        "atomic_cas" => {
+            if args.len() != 3 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "atomic.compareAndSwap() expects 2 arguments (old, new)",
+                )));
+            }
+            let atm = match &args[0] {
+                Value::Atomic(arc) => arc.clone(),
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "compareAndSwap() called on non-atomic",
+                    )))
+                }
+            };
+            let mut inner = atm.lock().map_err(|e| {
+                Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
+            })?;
+            let swapped = values_eq(&inner.value, &args[1]);
+            if swapped {
+                inner.value = args[2].clone();
+            }
+            Ok(Value::Bool(swapped))
+        }
+
         _ => Err(Signal::Error(RuntimeError::new(format!(
             "unknown builtin '{}'",
             name
         )))),
+    }
+}
+
+/// Equality comparison for atomic CAS.
+fn values_eq(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Int(a), Value::Int(b)) => a == b,
+        (Value::Float(a), Value::Float(b)) => a == b,
+        (Value::String(a), Value::String(b)) => a == b,
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::Null, Value::Null) => true,
+        _ => false,
     }
 }
