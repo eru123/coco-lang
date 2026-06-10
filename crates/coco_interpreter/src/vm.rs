@@ -12,6 +12,7 @@
 //! Execution is a single `match`-based dispatch loop over bytecode opcodes.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use coco_gc::{CoW, Gc, Heap};
 use num_bigint::BigInt;
@@ -1386,6 +1387,30 @@ impl Vm {
             (Value::TaskHandle(a), Value::TaskHandle(b)) => a == b,
             (Value::Ok(a), Value::Ok(b)) => Self::vm_eq(a, b),
             (Value::Err(a), Value::Err(b)) => Self::vm_eq(a, b),
+            // Structural equality for lists
+            (Value::List(a), Value::List(b)) => {
+                if a.data.len() != b.data.len() {
+                    return false;
+                }
+                a.data.iter().zip(b.data.iter()).all(|(x, y)| Self::vm_eq(x, y))
+            }
+            // Structural equality for maps (key-value pairs)
+            (Value::Map(a), Value::Map(b)) => {
+                if a.data.len() != b.data.len() {
+                    return false;
+                }
+                a.data.iter().all(|(k, v)| {
+                    b.data.get(k).map(|bv| Self::vm_eq(v, bv)).unwrap_or(false)
+                })
+            }
+            // Reference equality for channels
+            (Value::Channel(a), Value::Channel(b)) => Arc::ptr_eq(a, b),
+            // Reference equality for atomics
+            (Value::Atomic(a), Value::Atomic(b)) => Arc::ptr_eq(a, b),
+            // BuiltinFn equality: compare by name
+            (Value::BuiltinFn(a), Value::BuiltinFn(b)) => a == b,
+            // FnObj equality: compare by name and arity
+            (Value::FnObj(a), Value::FnObj(b)) => a.name == b.name && a.arity == b.arity,
             _ => false,
         }
     }
