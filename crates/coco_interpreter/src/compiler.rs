@@ -310,7 +310,7 @@ impl Compiler {
             }
             Item::Stmt(stmt) => self.compile_stmt(stmt),
             Item::ClassDecl(class_decl) => self.compile_class_decl(class_decl),
-            Item::InterfaceDecl(_) => Ok(()), // interfaces are compile-time contracts
+            Item::InterfaceDecl(iface_decl) => self.compile_interface_decl(iface_decl),
             Item::TraitDecl(trait_decl) => self.compile_trait_decl(trait_decl),
             _ => Ok(()),
         }
@@ -1297,12 +1297,37 @@ impl Compiler {
         // __class__ marker
         values.push(("__class__".to_string(), Value::String(class_name.clone())));
 
-        // Parent class (deferred — the class map won't have __parent__ at compile
-        // time; the interpreter-like approach resolves it dynamically. For the VM,
-        // we store the parent name and resolve at first use. For simple compilation
-        // we skip extends for now and rely on the interpreter backend for inheritance.)
+        // extends — store parent class name for runtime resolution
+        if let Some(parent) = &class_decl.extends {
+            if let Type::Named(named) = parent {
+                values.push(("__parent_name__".to_string(), Value::String(named.name.name.clone())));
+            }
+        }
 
-        // Members
+        // implements — store interface names for runtime validation
+        if !class_decl.implements.is_empty() {
+            let iface_names: Vec<String> = class_decl.implements.iter()
+                .filter_map(|t| match t { Type::Named(n) => Some(n.name.name.clone()), _ => None })
+                .collect();
+            if !iface_names.is_empty() {
+                values.push(("__implements__".to_string(), Value::String(iface_names.join(","))));
+            }
+        }
+
+        // use traits — store trait names for runtime mixin
+        let mut trait_names: Vec<String> = Vec::new();
+        for member in &class_decl.members {
+            if let ClassMember::UseTrait(use_trait) = member {
+                for t in &use_trait.traits {
+                    trait_names.push(t.name.clone());
+                }
+            }
+        }
+        if !trait_names.is_empty() {
+            values.push(("__use_traits__".to_string(), Value::String(trait_names.join(","))));
+        }
+
+        // Members: constructor, methods, properties
         for member in &class_decl.members {
             match member {
                 ClassMember::Constructor(ctor) => {
@@ -1326,14 +1351,37 @@ impl Compiler {
                         &params,
                         &method.body,
                     )?;
+                    let is_static = method.modifiers.contains(&Modifier::Static);
                     values.push((method.name.name.clone(), Value::FnObj(FnObj {
                         name: format!("{}.{}", class_name, method.name.name),
                         arity: params.len(),
                         chunk: meth_chunk,
                         is_async: method.is_async,
                     })));
+                    // Store static methods too
+                    if !is_static {
+                        // Non-static methods are already stored above
+                    }
+                    if !method.modifiers.is_empty() {
+                        let mod_str = method.modifiers.iter()
+                            .map(|m| format!("{:?}", m))
+                            .collect::<Vec<_>>().join(",");
+                        values.push((format!("__mod_{}", method.name.name), Value::String(mod_str)));
+                    }
                 }
-                _ => {}
+                ClassMember::Property(prop) => {
+                    // Store property default as __prop_<name>
+                    let prop_key = format!("__prop_{}", prop.name.name);
+                    let default_val = Value::Null; // Default values resolved at runtime
+                    values.push((prop_key, default_val));
+                    if !prop.modifiers.is_empty() {
+                        let mod_str = prop.modifiers.iter()
+                            .map(|m| format!("{:?}", m))
+                            .collect::<Vec<_>>().join(",");
+                        values.push((format!("__modprop_{}", prop.name.name), Value::String(mod_str)));
+                    }
+                }
+                ClassMember::UseTrait(_) => {} // handled above
             }
         }
 
@@ -1349,6 +1397,9 @@ impl Compiler {
                 Value::String(s) => {
                     let val_idx = self.add_constant(Value::String(s.clone()));
                     self.emit_op_u16(OP_CONST, val_idx);
+                }
+                Value::Null => {
+                    self.emit_op(OP_NULL);
                 }
                 _ => {}
             }
@@ -1399,6 +1450,46 @@ impl Compiler {
         self.emit_op_u16(OP_BUILD_MAP, pair_count as u16);
 
         let name_idx = self.name_constant(&trait_decl.name.name);
+        self.emit_op_u16(OP_DEFINE_GLOBAL, name_idx);
+        Ok(())
+    }
+
+    /// Compile an interface declaration — store method signatures as a map.
+    fn compile_interface_decl(&mut self, iface_decl: &InterfaceDecl) -> CResult<()> {
+        let mut values: Vec<(String, Value)> = Vec::new();
+
+        values.push(("__interface__".to_string(), Value::String(iface_decl.name.name.clone())));
+
+        if let Some(parent) = &iface_decl.extends {
+            if let Type::Named(named) = parent {
+                values.push(("__extends__".to_string(), Value::String(named.name.name.clone())));
+            }
+        }
+
+        for member in &iface_decl.members {
+            match member {
+                InterfaceMember::MethodSignature(sig) => {
+                    values.push((sig.name.name.clone(), Value::String("method".to_string())));
+                }
+                InterfaceMember::PropertySignature(sig) => {
+                    values.push((format!("__prop_{}", sig.name.name), Value::String("property".to_string())));
+                }
+            }
+        }
+
+        for (key, val) in &values {
+            let key_idx = self.add_constant(Value::String(key.clone()));
+            self.emit_op_u16(OP_CONST, key_idx);
+            let val_idx = if let Value::String(s) = val {
+                self.add_constant(Value::String(s.clone()))
+            } else {
+                self.add_constant(Value::Null)
+            };
+            self.emit_op_u16(OP_CONST, val_idx);
+        }
+
+        self.emit_op_u16(OP_BUILD_MAP, values.len() as u16);
+        let name_idx = self.name_constant(&iface_decl.name.name);
         self.emit_op_u16(OP_DEFINE_GLOBAL, name_idx);
         Ok(())
     }

@@ -726,6 +726,38 @@ impl Vm {
                 let class_name = class_map.get("__class__")
                     .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })
                     .unwrap_or_default();
+
+                // Runtime implements validation
+                if let Some(Value::String(iface_names)) = class_map.get("__implements__") {
+                    let defined: Vec<&str> = class_map.keys()
+                        .filter(|k| !k.starts_with("__"))
+                        .map(|k| k.as_str())
+                        .collect();
+                    for iface_name in iface_names.split(',') {
+                        let iface_name = iface_name.trim();
+                        if let Some(iface_val) = self.globals.get(iface_name) {
+                            if let Value::Map(iface_map) = iface_val {
+                                for (method_name, _) in &iface_map.data {
+                                    if !method_name.starts_with("__")
+                                        && !defined.contains(&method_name.as_str())
+                                    {
+                                        return Err(VmError::new(format!(
+                                            "class '{}' does not implement interface method '{}' from '{}'",
+                                            class_name, method_name, iface_name
+                                        )));
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(VmError::new(format!(
+                                "interface '{}' not found (implemented by class '{}')",
+                                iface_name, class_name
+                            )));
+                        }
+                    }
+                }
+
+                // Create instance
                 let mut instance_map = HashMap::new();
                 instance_map.insert("__class__".to_string(), Value::String(class_name.clone()));
                 for (key, val) in class_map.iter() {
@@ -1331,12 +1363,50 @@ impl Vm {
                 }
                 // OOP prototype chain lookup via __class__
                 if let Some(Value::String(class_name)) = map.data.get("__class__") {
-                    let mut current = self.globals.get(class_name).cloned();
-                    while let Some(Value::Map(ref class_map)) = current {
-                        if let Some(method) = class_map.data.get(prop) {
-                            return Ok(method.clone());
+                    if let Some(class_val) = self.globals.get(class_name) {
+                        if let Value::Map(class_map) = class_val {
+                            // Check current class methods
+                            if let Some(method) = class_map.data.get(prop) {
+                                return Ok(method.clone());
+                            }
+                            // Resolve parent class via __parent_name__ or __parent__
+                            let parent = class_map.data.get("__parent__").cloned()
+                                .or_else(|| {
+                                    class_map.data.get("__parent_name__")
+                                        .and_then(|v| match v {
+                                            Value::String(name) => self.globals.get(name).cloned(),
+                                            _ => None,
+                                        })
+                                });
+                            let mut current = parent;
+                            while let Some(Value::Map(ref parent_map)) = current {
+                                if let Some(method) = parent_map.data.get(prop) {
+                                    return Ok(method.clone());
+                                }
+                                // Resolve next parent
+                                current = parent_map.data.get("__parent__").cloned()
+                                    .or_else(|| {
+                                        parent_map.data.get("__parent_name__")
+                                            .and_then(|v| match v {
+                                                Value::String(name) => self.globals.get(name).cloned(),
+                                                _ => None,
+                                            })
+                                    });
+                            }
+                            // Trait mixin resolution via __use_traits__
+                            if let Some(Value::String(trait_names)) = class_map.data.get("__use_traits__") {
+                                for trait_name in trait_names.split(',') {
+                                    let trait_name = trait_name.trim();
+                                    if let Some(trait_val) = self.globals.get(trait_name) {
+                                        if let Value::Map(trait_map) = trait_val {
+                                            if let Some(method) = trait_map.data.get(prop) {
+                                                return Ok(method.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        current = class_map.data.get("__parent__").cloned();
                     }
                 }
                 Ok(Value::Null)
