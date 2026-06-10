@@ -12,10 +12,12 @@
 //! - For loops (`for`, `while`, `loop`), assume the body may execute zero
 //!   times — don't propagate initialization out of the loop body.
 
+use std::collections::HashMap;
+
 use coco_syntax::*;
 
 use crate::diagnostics::SafetyError;
-use crate::env::SafetyEnv;
+use crate::env::{Binding, SafetyEnv};
 
 /// Check definite assignment for an entire program.
 pub fn check_def_assign(items: &[Item], env: &mut SafetyEnv) -> Vec<SafetyError> {
@@ -83,41 +85,67 @@ fn check_stmt(stmt: &Stmt, env: &mut SafetyEnv, errors: &mut Vec<SafetyError>) {
         }
         Stmt::If(s) => {
             check_expr(&s.condition, env, errors);
-            // Copy state for branch analysis
-            let before_body = snapshot_initialized(env);
+            // Snapshot state before any branch for later restoration.
+            let before_branches = env.snapshot();
             check_block(&s.then_block, env, errors);
+            let after_then = env.snapshot();
 
-            // Collect what's initialized after then-branch
-            let after_then = snapshot_initialized(env);
-            restore_initialized(env, &before_body);
-
-            let mut else_initialized = before_body.clone();
-
-            // Check else-if chain
-            let mut any_else = false;
-            for elif in &s.else_ifs {
-                check_expr(&elif.condition, env, errors);
-                check_block(&elif.block, env, errors);
-                // FIXME: proper else-if merging needs more sophisticated dataflow
-                any_else = true;
-            }
-
-            // Check else block
-            if let Some(ref else_block) = s.else_block {
-                check_block(else_block, env, errors);
-                else_initialized = snapshot_initialized(env);
-                any_else = true;
-            }
-
-            // After if/else, a variable is initialized only if it was
-            // initialized in all paths. Conservative: if no else branch,
-            // don't propagate initialization from then-branch.
-            if any_else {
-                // Intersection: keep only vars initialized in BOTH branches
-                restore_initialized(env, &before_body);
-                merge_initialized(env, &after_then, &else_initialized);
+            // Process else-if chain: each elif accumulates into the model
+            // that the "else" path (including elifs + final else) could
+            // execute. We treat elifs as an extended else chain — only
+            // variables initialized in ALL paths through the chain
+            // (including the final else) are considered initialized.
+            if s.else_ifs.is_empty() && s.else_block.is_none() {
+                // No else branch at all — restore pre-if state (conservative).
+                env.restore(&before_branches);
             } else {
-                // No else — don't trust then-only initialization
+                // We have else-ifs and/or an else block. Accumulate
+                // initialization from all alternative paths.
+                let mut accumulated_else: Option<Vec<HashMap<String, Binding>>> = None;
+
+                for elif in &s.else_ifs {
+                    env.restore(&before_branches);
+                    check_expr(&elif.condition, env, errors);
+                    check_block(&elif.block, env, errors);
+                    let after_elif = env.snapshot();
+
+                    accumulated_else = Some(match accumulated_else {
+                        None => after_elif,
+                        Some(prev) => {
+                            // Intersection merge: keep only vars initialized
+                            // in BOTH the accumulated else path AND this elif.
+                            let mut merged_env = SafetyEnv::new();
+                            merged_env.restore(&prev);
+                            merged_env.merge_initialized(&prev, &after_elif);
+                            merged_env.snapshot()
+                        }
+                    });
+                }
+
+                if let Some(ref else_block) = s.else_block {
+                    env.restore(&before_branches);
+                    check_block(else_block, env, errors);
+                    let after_else = env.snapshot();
+
+                    accumulated_else = Some(match accumulated_else {
+                        None => after_else,
+                        Some(prev) => {
+                            let mut merged_env = SafetyEnv::new();
+                            // Start from the accumulated else state and merge with after_else
+                            merged_env.restore(&prev);
+                            merged_env.merge_initialized(&prev, &after_else);
+                            merged_env.snapshot()
+                        }
+                    });
+                }
+
+                // Merge then-branch with accumulated else path
+                if let Some(else_snap) = accumulated_else {
+                    env.restore(&before_branches);
+                    env.merge_initialized(&after_then, &else_snap);
+                } else {
+                    env.restore(&before_branches);
+                }
             }
         }
         Stmt::For(s) => {
@@ -317,26 +345,6 @@ fn mark_target_initialized(target: &Expr, env: &mut SafetyEnv) {
         // Nested destructuring not handled yet
         _ => {}
     }
-}
-
-/// Snapshot the initialized set of all known variables.
-type InitSnapshot = std::collections::HashSet<String>;
-
-fn snapshot_initialized(_env: &SafetyEnv) -> InitSnapshot {
-    // SafetyEnv doesn't expose iteration, but we can track snapshots
-    // at a higher level. For now return empty — branch merging is best-effort.
-    InitSnapshot::new()
-}
-
-fn restore_initialized(_env: &mut SafetyEnv, _snapshot: &InitSnapshot) {
-    // Not implemented — see comment in merge_initialized
-}
-
-fn merge_initialized(_env: &mut SafetyEnv, _a: &InitSnapshot, _b: &InitSnapshot) {
-    // Intersection merge — not yet implemented.
-    // This is deferred; the current implementation is conservative:
-    // if a variable is only initialized in one branch, it's treated as
-    // uninitialized after the if/else.
 }
 
 #[cfg(test)]

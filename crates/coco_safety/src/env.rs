@@ -91,6 +91,59 @@ impl SafetyEnv {
     pub fn exists(&self, name: &str) -> bool {
         self.lookup(name).is_some()
     }
+
+    /// Take a snapshot of all bindings across all scopes.
+    /// Returns a clone of the entire scope stack for later restoration.
+    pub fn snapshot(&self) -> Vec<HashMap<String, Binding>> {
+        self.scopes.clone()
+    }
+
+    /// Restore the environment to a previously captured snapshot.
+    pub fn restore(&mut self, snapshot: &[HashMap<String, Binding>]) {
+        self.scopes = snapshot.to_vec();
+    }
+
+    /// Merge two environments by intersection: after the merge,
+    /// a variable is initialized only if it was initialized in BOTH
+    /// the `then_branch` and `else_branch` final states.
+    ///
+    /// Variables that were defined in only one branch are kept but
+    /// marked as not initialized (conservative).
+    pub fn merge_initialized(
+        &mut self,
+        then_snapshot: &[HashMap<String, Binding>],
+        else_snapshot: &[HashMap<String, Binding>],
+    ) {
+        // Build the set of initialized variable names in each branch.
+        let then_init: std::collections::HashSet<String> = initialized_names(then_snapshot);
+        let else_init: std::collections::HashSet<String> = initialized_names(else_snapshot);
+
+        // Intersection: only vars initialized in BOTH branches stay initialized.
+        let intersection: std::collections::HashSet<String> =
+            then_init.intersection(&else_init).cloned().collect();
+
+        // Mark all current bindings: initialized only if in intersection.
+        for scope in self.scopes.iter_mut() {
+            for (name, binding) in scope.iter_mut() {
+                if !intersection.contains(name) {
+                    binding.initialized = false;
+                }
+            }
+        }
+    }
+}
+
+/// Collect all variable names that are initialized across all scopes.
+fn initialized_names(scopes: &[HashMap<String, Binding>]) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for scope in scopes {
+        for (name, binding) in scope {
+            if binding.initialized {
+                names.insert(name.clone());
+            }
+        }
+    }
+    names
 }
 
 impl Default for SafetyEnv {
