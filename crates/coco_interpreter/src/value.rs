@@ -1,11 +1,54 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use coco_gc::{CoW, Gc};
 use coco_syntax::{Block, Param};
 use num_bigint::BigInt;
 
 use crate::ir::FnObj;
+
+// ============================================================================
+// Channel inner state
+// ============================================================================
+
+/// Internal state of a channel: a bounded buffer with close flag.
+#[derive(Debug)]
+pub struct ChannelInner {
+    pub queue: VecDeque<Value>,
+    pub capacity: usize,
+    pub closed: bool,
+}
+
+impl ChannelInner {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            queue: VecDeque::new(),
+            capacity,
+            closed: false,
+        }
+    }
+}
+
+// ============================================================================
+// Atomic inner state
+// ============================================================================
+
+/// Internal state of an atomic cell.
+#[derive(Debug)]
+pub struct AtomicInner {
+    pub value: Value,
+}
+
+impl AtomicInner {
+    pub fn new(value: Value) -> Self {
+        Self { value }
+    }
+}
+
+// ============================================================================
+// Runtime values
+// ============================================================================
 
 /// Runtime values in the Coco interpreter.
 ///
@@ -29,6 +72,10 @@ pub enum Value {
     Ok(Box<Value>),
     /// Result::Err variant wrapping an error value.
     Err(Box<Value>),
+    /// Channel — typed buffered communication. Thread-safe via Arc<Mutex<...>>.
+    Channel(Arc<Mutex<ChannelInner>>),
+    /// Atomic — thread-safe mutable cell. Thread-safe via Arc<Mutex<...>>.
+    Atomic(Arc<Mutex<AtomicInner>>),
 }
 
 /// A user-defined function captured at runtime.
@@ -73,6 +120,14 @@ impl fmt::Display for Value {
             Value::TaskHandle(id) => write!(f, "<task {}>", id),
             Value::Ok(v) => write!(f, "Ok({})", v),
             Value::Err(v) => write!(f, "Err({})", v),
+            Value::Channel(_) => write!(f, "<channel>"),
+            Value::Atomic(inner) => {
+                if let Ok(guard) = inner.lock() {
+                    write!(f, "Atomic({})", guard.value)
+                } else {
+                    write!(f, "<atomic (poisoned)>")
+                }
+            }
         }
     }
 }
@@ -93,6 +148,14 @@ impl fmt::Debug for Value {
             Value::TaskHandle(id) => write!(f, "TaskHandle({})", id),
             Value::Ok(v) => write!(f, "Ok({:?})", v),
             Value::Err(v) => write!(f, "Err({:?})", v),
+            Value::Channel(_) => write!(f, "Channel"),
+            Value::Atomic(inner) => {
+                if let Ok(guard) = inner.lock() {
+                    write!(f, "Atomic({:?})", guard.value)
+                } else {
+                    write!(f, "Atomic(poisoned)")
+                }
+            }
         }
     }
 }
@@ -110,6 +173,8 @@ impl Value {
             Value::Map(m) => !m.data.is_empty(),
             Value::Function(_) | Value::BuiltinFn(_) | Value::FnObj(_) | Value::TaskHandle(_) => true,
             Value::Ok(_) => true,
+            Value::Channel(_) => true,
+            Value::Atomic(_) => true,
             Value::Err(v) => match v.as_ref() {
                 Value::Null => false,
                 Value::Bool(b) => *b,
