@@ -798,6 +798,7 @@ impl Formatter {
             Expr::This(_) => self.write_str("this"),
             Expr::Dollar(_) => self.write_str("$"),
             Expr::DollarDollar(_) => self.write_str("$$"),
+            Expr::Parallel(_) => self.write_str("<parallel>"),
             Expr::New(n) => {
                 self.write_str("new ");
                 self.write_str(&n.type_name.name);

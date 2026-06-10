@@ -189,6 +189,27 @@ impl Vm {
             self.stack = task.stack.clone();
             self.yield_flag = false;
             self.current_task = task_id;
+
+            // If this task was awaiting another, replace the TaskHandle on the
+            // stack with the result value.
+            if let Some(awaited_id) = task.awaited_task {
+                if let Some(awaited) = self.scheduler.get(awaited_id) {
+                    match &awaited.state {
+                        crate::task::TaskState::Completed(val) => {
+                            // Find and replace the TaskHandle with the result
+                            if let Some(pos) = self.stack.iter().rposition(|v| {
+                                matches!(v, Value::TaskHandle(id) if *id == awaited_id)
+                            }) {
+                                self.stack[pos] = val.clone();
+                            }
+                        }
+                        crate::task::TaskState::Failed(err) => {
+                            return Err(VmError::new(err.clone()));
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
 
         // Run until frames exhausted or yield flag set.
@@ -326,6 +347,8 @@ impl Vm {
                         self.step_ip(step);
                         return Ok(());
                     }
+                    // Push the handle back — we'll replace it with the result on resume.
+                    self.push(Value::TaskHandle(target_id));
                     self.scheduler.suspend_awaiting(self.current_task, target_id);
                     self.step_ip(step);
                     self.yield_flag = true;

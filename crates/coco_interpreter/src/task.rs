@@ -60,6 +60,8 @@ pub struct Task {
     pub stack: Vec<Value>,
     /// IDs of tasks that are awaiting this one.
     pub awaiters: Vec<TaskId>,
+    /// The task this task is currently awaiting (if suspended).
+    pub awaited_task: Option<TaskId>,
 }
 
 /// Cooperative async task scheduler.
@@ -116,6 +118,7 @@ impl TaskScheduler {
             },
             stack,
             awaiters: Vec::new(),
+            awaited_task: None,
         };
         self.tasks.insert(id, task);
         self.ready_queue.push_back(id);
@@ -178,6 +181,7 @@ impl TaskScheduler {
     pub fn suspend_awaiting(&mut self, current_id: TaskId, target_id: TaskId) {
         if let Some(current) = self.tasks.get_mut(&current_id) {
             current.state = TaskState::Pending;
+            current.awaited_task = Some(target_id);
         }
         if let Some(target) = self.tasks.get_mut(&target_id) {
             // If target is already complete, immediately re-enqueue current.

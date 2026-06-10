@@ -26,6 +26,7 @@ impl Interpreter {
             Expr::Assignment(assign) => self.eval_assignment(assign),
             Expr::Lambda(lambda) => self.eval_lambda(lambda),
             Expr::Postfix(postfix) => self.eval_postfix(postfix),
+            Expr::Parallel(parallel) => self.eval_parallel(parallel),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported expression: {:?}",
                 std::mem::discriminant(expr)
@@ -236,6 +237,16 @@ impl Interpreter {
                 un.op
             )))),
         }
+    }
+
+    fn eval_parallel(&mut self, parallel: &ParallelExpr) -> IResult {
+        // In the tree-walking interpreter, evaluate all runs sequentially.
+        let mut results = Vec::new();
+        for run in &parallel.runs {
+            results.push(self.eval_expr(&run.expr)?);
+        }
+        // Return the last result (or null if empty)
+        Ok(results.pop().unwrap_or(Value::Null))
     }
 
     fn eval_postfix(&mut self, postfix: &PostfixExpr) -> IResult {

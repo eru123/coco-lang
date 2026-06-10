@@ -1328,11 +1328,24 @@ impl<'a> Parser<'a> {
             TokenKind::LBrace => self.parse_object_literal(),
             TokenKind::Match => self.parse_match_expr(),
             TokenKind::Async | TokenKind::Fn | TokenKind::Function => self.parse_lambda_expr(),
+            TokenKind::Parallel => {
+                let start = self.current.span.start;
+                self.advance();
+                if let Some(parallel_stmt) = self.parse_parallel_stmt_body() {
+                    let end = parallel_stmt.span.end;
+                    Expr::Parallel(Box::new(ParallelExpr {
+                        span: Span::new(start, end),
+                        runs: parallel_stmt.runs,
+                    }))
+                } else {
+                    Expr::Literal(Literal::Null(Span::new(start, start)))
+                }
+            }
             // Keywords that are valid as identifiers in expression context
             TokenKind::Ok | TokenKind::Err | TokenKind::Result
             | TokenKind::Typeof | TokenKind::As | TokenKind::Is
             | TokenKind::From | TokenKind::Use
-            | TokenKind::Await | TokenKind::Lazy | TokenKind::Parallel
+            | TokenKind::Await | TokenKind::Lazy
             | TokenKind::Coro | TokenKind::Select => {
                 let text = self.current.text.clone();
                 let span = self.current.span;

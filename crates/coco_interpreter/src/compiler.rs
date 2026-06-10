@@ -516,24 +516,33 @@ impl Compiler {
     }
 
     // -----------------------------------------------------------------------
-    // parallel { run expr; ... }
+    // parallel expression (in expression context)
+    // -----------------------------------------------------------------------
+
+    fn compile_parallel_expr(&mut self, parallel: &ParallelExpr) -> CResult<()> {
+        // Interleave: spawn task, await it, spawn next, await it.
+        // This ensures results stack correctly.
+        for run in &parallel.runs {
+            self.compile_expr(&run.expr)?;  // pushes TaskHandle
+            self.emit_op(OP_AWAIT);         // awaits and replaces with result
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // parallel { run expr; ... } (statement)
     // -----------------------------------------------------------------------
 
     fn compile_parallel(&mut self, parallel: &ParallelStmt) -> CResult<()> {
-        let count = parallel.runs.len();
-        if count == 0 {
+        if parallel.runs.is_empty() {
+            self.emit_op(OP_NULL);
             return Ok(());
         }
 
-        // Compile each run — the call expression returns a TaskHandle.
+        // Interleave: spawn task, await it, spawn next, await it.
         for run in &parallel.runs {
-            self.compile_expr(&run.expr)?;
-        }
-
-        // Await all results in reverse order (stack discipline).
-        // Each OP_AWAIT pops a TaskHandle, suspends if needed, pushes result.
-        for _ in 0..count {
-            self.emit_op(OP_AWAIT);
+            self.compile_expr(&run.expr)?;  // pushes TaskHandle
+            self.emit_op(OP_AWAIT);         // awaits and replaces with result
         }
 
         // The results are now on the stack in order of the runs.
@@ -606,6 +615,7 @@ impl Compiler {
             Expr::Assignment(assign) => self.compile_assignment(assign),
             Expr::Lambda(lambda) => self.compile_lambda(lambda),
             Expr::Postfix(postfix) => self.compile_postfix(postfix),
+            Expr::Parallel(parallel) => self.compile_parallel_expr(parallel),
             _ => Err(CompileError::new("unsupported expression")),
         }
     }
@@ -860,8 +870,12 @@ impl Compiler {
     fn compile_unary(&mut self, un: &UnaryExpr) -> CResult<()> {
         match un.op {
             UnaryOp::Await => {
+                // If the inner expression is a parallel block, it already emitted AWAITs
+                let is_parallel = matches!(&un.expr, Expr::Parallel(_));
                 self.compile_expr(&un.expr)?;
-                self.emit_op(OP_AWAIT);
+                if !is_parallel {
+                    self.emit_op(OP_AWAIT);
+                }
                 return Ok(());
             }
             UnaryOp::Lazy => {

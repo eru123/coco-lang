@@ -461,6 +461,13 @@ pub enum Expr {
     Assignment(Box<AssignmentExpr>),
     Postfix(Box<PostfixExpr>),
     Group(Box<Expr>),
+    Parallel(Box<ParallelExpr>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ParallelExpr {
+    pub span: Span,
+    pub runs: Vec<RunClause>,
 }
 
 #[derive(Debug, Clone)]
@@ -853,6 +860,7 @@ impl Expr {
             Expr::Assignment(e) => e.span,
             Expr::Postfix(e) => e.span,
             Expr::Group(e) => e.span(),
+            Expr::Parallel(e) => e.span,
         }
     }
 }
