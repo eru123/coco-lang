@@ -122,6 +122,23 @@ pub const OP_CHANNEL_RECV: u8 = 100; // blocking recv from channel
 pub const OP_ATOMIC_LOAD: u8 = 101; // load atomic value
 pub const OP_ATOMIC_STORE: u8 = 102; // store atomic value
 
+// Float-specific arithmetic
+pub const OP_ADD_F: u8 = 103; // float addition
+pub const OP_SUB_F: u8 = 104; // float subtraction
+pub const OP_MUL_F: u8 = 105; // float multiplication
+pub const OP_DIV_F: u8 = 106; // float division
+
+// Runtime type introspection
+pub const OP_TYPE_IS: u8 = 107; // check value against type (pops type-name-const-idx, value; pushes bool)
+pub const OP_TYPEOF: u8 = 108; // return type name of stack top as string
+
+// Pipe and iteration
+pub const OP_PIPE_VAL: u8 = 109; // push current pipe value ($$)
+pub const OP_ITER_MAP: u8 = 110; // get next key from map iterator
+
+// Closures
+pub const OP_CLOSE_UPVALUE: u8 = 111; // close upvalue: move stack value to heap
+
 /// Compound-assignment op sub-kinds carried by OP_ASSIGN_OP after the
 /// right-hand side is already on the stack (left is below it).
 pub const ASSIGN_OP_ADD: u8 = 0;
@@ -196,6 +213,15 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_CHANNEL_RECV => "CHANNEL_RECV",
         OP_ATOMIC_LOAD => "ATOMIC_LOAD",
         OP_ATOMIC_STORE => "ATOMIC_STORE",
+        OP_ADD_F => "ADD_F",
+        OP_SUB_F => "SUB_F",
+        OP_MUL_F => "MUL_F",
+        OP_DIV_F => "DIV_F",
+        OP_TYPE_IS => "TYPE_IS",
+        OP_TYPEOF => "TYPEOF",
+        OP_PIPE_VAL => "PIPE_VAL",
+        OP_ITER_MAP => "ITER_MAP",
+        OP_CLOSE_UPVALUE => "CLOSE_UPVALUE",
         _ => "???",
     }
 }
@@ -231,6 +257,10 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
         OP_SELECT_TRY_RECV => Some(2), // u16 jump offset
 
         OP_THIS | OP_AWAIT | OP_TRY | OP_CHANNEL_SEND | OP_CHANNEL_RECV | OP_ATOMIC_LOAD | OP_ATOMIC_STORE => Some(0),
+
+        OP_TYPE_IS => Some(2), // u16 const index for type name
+
+        OP_ADD_F | OP_SUB_F | OP_MUL_F | OP_DIV_F | OP_TYPEOF | OP_PIPE_VAL | OP_ITER_MAP | OP_CLOSE_UPVALUE => Some(0),
 
         OP_NULL
         | OP_TRUE

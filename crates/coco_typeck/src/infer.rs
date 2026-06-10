@@ -155,6 +155,8 @@ fn infer_binary(bin: &BinaryExpr, env: &TypeEnv) -> Ty {
         | BinaryOp::BitXorAssign => Ty::Void,
         // Range
         BinaryOp::Range | BinaryOp::RangeInclusive => Ty::Unknown,
+        // Is type test
+        BinaryOp::Is => Ty::Bool,
     }
 }
 

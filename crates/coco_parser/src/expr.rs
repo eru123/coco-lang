@@ -45,6 +45,9 @@ pub fn infix_bp(kind: TokenKind) -> Option<(u8, u8)> {
         // Bitwise AND (left-associative)
         TokenKind::BitAnd => Some((50, 51)),
 
+        // Type testing (left-associative)
+        TokenKind::Is => Some((53, 54)),
+
         // Equality (left-associative)
         TokenKind::Eq | TokenKind::Ne => Some((55, 56)),
 
@@ -100,6 +103,7 @@ pub fn token_to_binary_op(kind: TokenKind) -> Option<BinaryOp> {
         TokenKind::Shr => BinaryOp::Shr,
         TokenKind::Range => BinaryOp::Range,
         TokenKind::RangeInclusive => BinaryOp::RangeInclusive,
+        TokenKind::Is => BinaryOp::Is,
         TokenKind::PipeRight => BinaryOp::PipeRight,
         TokenKind::PipeLeft => BinaryOp::PipeLeft,
         TokenKind::QuestionQuestion => BinaryOp::NullCoalesce,

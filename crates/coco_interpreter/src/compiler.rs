@@ -22,7 +22,7 @@ use crate::ir::{
     OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
     OP_STORE_MEMBER, OP_SUB, OP_SUPER_METHOD, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
-    OP_SELECT_TRY_RECV,
+    OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF, OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE,
 };
 use crate::value::Value;
 use coco_parser::Parser;
@@ -942,6 +942,7 @@ impl Compiler {
             }
             Expr::Match(match_expr) => self.compile_match(match_expr),
             Expr::Elvis(elvis) => self.compile_elvis(elvis),
+            Expr::Pipe(pipe) => self.compile_pipe(pipe),
             Expr::Template(t) => self.compile_template(t),
             Expr::Lazy(inner) => {
                 // Compile inner expression as an async lambda and spawn it
@@ -1082,6 +1083,17 @@ impl Compiler {
             }
             PowAssign => {
                 return self.compile_binary_assign(&bin.left, &bin.right, Some(OP_POW));
+            }
+            // Is type check — only compile left, use constant for type name
+            Is => {
+                self.compile_expr(&bin.left)?;
+                let type_name = match &bin.right {
+                    Expr::Literal(Literal::String(s, _)) => s.clone(),
+                    _ => "unknown".to_string(),
+                };
+                let type_idx = self.add_constant(Value::String(type_name));
+                self.emit_op_u16(OP_TYPE_IS, type_idx);
+                return Ok(());
             }
             _ => {}
         }
@@ -1234,6 +1246,11 @@ impl Compiler {
 
     fn compile_unary(&mut self, un: &UnaryExpr) -> CResult<()> {
         match un.op {
+            UnaryOp::Typeof => {
+                self.compile_expr(&un.expr)?;
+                self.emit_op(OP_TYPEOF);
+                return Ok(());
+            }
             UnaryOp::Await => {
                 // If the inner expression is a parallel block, it already emitted AWAITs
                 let is_parallel = matches!(&un.expr, Expr::Parallel(_));
@@ -1539,6 +1556,20 @@ impl Compiler {
         self.emit_op(OP_POP);
         self.compile_expr(&nc.right)?;
         self.place_label(end_label);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Pipe operator (a |> f)
+    // -----------------------------------------------------------------------
+
+    fn compile_pipe(&mut self, pipe: &PipeExpr) -> CResult<()> {
+        // Compile left, then call right with left as first arg.
+        // |>: left |> right → right(left)
+        self.compile_expr(&pipe.left)?;
+        self.emit_op(OP_DUP); // keep copy for $$
+        self.compile_expr(&pipe.right)?;
+        self.emit_op_u8(OP_CALL, 1); // call right(left)
         Ok(())
     }
 

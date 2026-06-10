@@ -870,6 +870,65 @@ impl Vm {
                 }
             }
 
+            // ---- Float arithmetic ----
+            OP_ADD_F => self.binop(|a, b| Self::vm_add_f(a, b))?,
+            OP_SUB_F => self.binop(|a, b| Self::vm_sub_f(a, b))?,
+            OP_MUL_F => self.binop(|a, b| Self::vm_mul_f(a, b))?,
+            OP_DIV_F => self.binop(|a, b| Self::vm_div_f(a, b))?,
+
+            // ---- Type introspection ----
+            OP_TYPE_IS => {
+                let idx = self.read_u16_operand() as usize;
+                let type_name = self.string_constant(idx)?;
+                let val = self.pop();
+                let result = Self::vm_type_is(&val, &type_name);
+                self.push(Value::Bool(result));
+            }
+            OP_TYPEOF => {
+                let val = self.pop();
+                let type_str = Self::vm_typeof(&val);
+                self.push(Value::String(type_str));
+            }
+
+            // ---- Pipe ----
+            OP_PIPE_VAL => {
+                // $$ is the value most recently passed through a pipe.
+                // For now, it's the top-of-stack value (kept by the pipe compiler).
+                let val = self.peek();
+                self.push(val);
+            }
+
+            // ---- Map iteration ----
+            OP_ITER_MAP => {
+                // Pop map and index, push next key (or null if done)
+                let idx_val = self.pop();
+                let map_val = self.pop();
+                match (&map_val, &idx_val) {
+                    (Value::Map(map), Value::Int(i)) => {
+                        use num_traits::ToPrimitive;
+                        let idx = i.to_usize().unwrap_or(usize::MAX);
+                        let keys: Vec<&String> = map.data.keys().collect();
+                        if idx < keys.len() {
+                            self.push(Value::String(keys[idx].clone()));
+                            self.push(Value::Int(BigInt::from(idx + 1)));
+                            self.push(map_val);
+                            self.push(Value::Bool(true));
+                        } else {
+                            self.push(Value::Null);
+                            self.push(Value::Bool(false));
+                        }
+                    }
+                    _ => return Err(VmError::new("ITER_MAP requires a map and int index")),
+                }
+            }
+
+            // ---- Closures ----
+            OP_CLOSE_UPVALUE => {
+                // Move the top-of-stack value to the heap (upvalue capture).
+                // Currently a no-op since all values are already heap-allocated or Copy.
+                // Future: move the value to an upvalue slot that outlives the stack frame.
+            }
+
             _ => {
                 return Err(VmError::new(format!(
                     "unknown opcode: {} ({})",
@@ -1421,6 +1480,75 @@ impl Vm {
             Value::Float(f) => Ok(Value::Float(-f)),
             _ => Err(VmError::new("cannot negate non-number")),
         }
+    }
+
+    fn vm_add_f(a: Value, b: Value) -> VmResult<Value> {
+        match (a, b) {
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
+            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + Self::int_to_f64(&y)?)),
+            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? + y)),
+            _ => Err(VmError::new("ADD_F requires float operands")),
+        }
+    }
+    fn vm_sub_f(a: Value, b: Value) -> VmResult<Value> {
+        match (a, b) {
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x - y)),
+            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x - Self::int_to_f64(&y)?)),
+            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? - y)),
+            _ => Err(VmError::new("SUB_F requires float operands")),
+        }
+    }
+    fn vm_mul_f(a: Value, b: Value) -> VmResult<Value> {
+        match (a, b) {
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x * y)),
+            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x * Self::int_to_f64(&y)?)),
+            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? * y)),
+            _ => Err(VmError::new("MUL_F requires float operands")),
+        }
+    }
+    fn vm_div_f(a: Value, b: Value) -> VmResult<Value> {
+        match (a, b) {
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x / y)),
+            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x / Self::int_to_f64(&y)?)),
+            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? / y)),
+            _ => Err(VmError::new("DIV_F requires float operands")),
+        }
+    }
+
+    fn vm_type_is(val: &Value, type_name: &str) -> bool {
+        match type_name {
+            "int" => matches!(val, Value::Int(_)),
+            "float" => matches!(val, Value::Float(_)),
+            "string" => matches!(val, Value::String(_)),
+            "bool" => matches!(val, Value::Bool(_)),
+            "null" => matches!(val, Value::Null),
+            "list" => matches!(val, Value::List(_)),
+            "map" => matches!(val, Value::Map(_)),
+            "function" => matches!(val, Value::FnObj(_) | Value::BuiltinFn(_)),
+            "channel" => matches!(val, Value::Channel(_)),
+            "atomic" => matches!(val, Value::Atomic(_)),
+            "task" => matches!(val, Value::TaskHandle(_)),
+            _ => false,
+        }
+    }
+
+    fn vm_typeof(val: &Value) -> String {
+        match val {
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
+            Value::String(_) => "string",
+            Value::Bool(_) => "bool",
+            Value::Null => "null",
+            Value::List(_) => "list",
+            Value::Map(_) => "map",
+            Value::BuiltinFn(_) => "builtin",
+            Value::FnObj(_) => "function",
+            Value::TaskHandle(_) => "task",
+            Value::Ok(_) => "result",
+            Value::Err(_) => "result",
+            Value::Channel(_) => "channel",
+            Value::Atomic(_) => "atomic",
+        }.to_string()
     }
 
     fn vm_cmp(a: Value, b: Value, pred: impl Fn(std::cmp::Ordering) -> bool) -> VmResult<Value> {

@@ -1212,6 +1212,25 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            // Handle `is` type test: x is Type
+            if self.current.kind == TokenKind::Is {
+                self.advance();
+                let ty = self.parse_type();
+                let type_name = match &ty {
+                    Type::Named(n) => n.name.name.clone(),
+                    Type::Primitive(p, _) => format!("{:?}", p).to_lowercase(),
+                    _ => "unknown".to_string(),
+                };
+                let span = Span::new(lhs.span_start(), ty.span().end);
+                lhs = Expr::Binary(Box::new(BinaryExpr {
+                    span,
+                    left: lhs,
+                    op: BinaryOp::Is,
+                    right: Expr::Literal(Literal::String(type_name, span)),
+                }));
+                continue;
+            }
+
             // General binary operator
             let op = crate::expr::token_to_binary_op(self.current.kind);
             if let Some(binop) = op {
@@ -1424,7 +1443,7 @@ impl<'a> Parser<'a> {
             }
             // Keywords that are valid as identifiers in expression context
             TokenKind::Ok | TokenKind::Err | TokenKind::Result
-            | TokenKind::Typeof | TokenKind::As | TokenKind::Is
+            | TokenKind::Typeof | TokenKind::As
             | TokenKind::From | TokenKind::Use
             | TokenKind::Await
             | TokenKind::Coro | TokenKind::Select => {

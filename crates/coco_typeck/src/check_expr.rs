@@ -224,6 +224,7 @@ fn check_binary(bin: &BinaryExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckErro
         | BinaryOp::Ge
         | BinaryOp::Spaceship => Ty::Bool,
         BinaryOp::And | BinaryOp::Or => Ty::Bool,
+        BinaryOp::Is => Ty::Bool,
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
             Ty::Int
         }

@@ -546,6 +546,7 @@ pub enum BinaryOp {
     BitXorAssign,
     Range,
     RangeInclusive,
+    Is,
 }
 
 #[derive(Debug, Clone)]

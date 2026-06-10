@@ -1066,6 +1066,7 @@ impl Formatter {
             BinaryOp::BitXorAssign => "^=",
             BinaryOp::Range => "..",
             BinaryOp::RangeInclusive => "..=",
+            BinaryOp::Is => "is",
         }
     }
 
