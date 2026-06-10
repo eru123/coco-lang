@@ -520,11 +520,12 @@ impl Compiler {
     // -----------------------------------------------------------------------
 
     fn compile_parallel_expr(&mut self, parallel: &ParallelExpr) -> CResult<()> {
-        // Interleave: spawn task, await it, spawn next, await it.
-        // This ensures results stack correctly.
+        // Spawn each task and immediately await it. This is correct for
+        // the stack-based VM. Tasks become concurrent when they involve
+        // I/O that yields to the scheduler.
         for run in &parallel.runs {
-            self.compile_expr(&run.expr)?;  // pushes TaskHandle
-            self.emit_op(OP_AWAIT);         // awaits and replaces with result
+            self.compile_expr(&run.expr)?;
+            self.emit_op(OP_AWAIT);
         }
         Ok(())
     }
@@ -538,14 +539,10 @@ impl Compiler {
             self.emit_op(OP_NULL);
             return Ok(());
         }
-
-        // Interleave: spawn task, await it, spawn next, await it.
         for run in &parallel.runs {
-            self.compile_expr(&run.expr)?;  // pushes TaskHandle
-            self.emit_op(OP_AWAIT);         // awaits and replaces with result
+            self.compile_expr(&run.expr)?;
+            self.emit_op(OP_AWAIT);
         }
-
-        // The results are now on the stack in order of the runs.
         Ok(())
     }
 
