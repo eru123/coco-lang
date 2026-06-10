@@ -22,6 +22,7 @@ use crate::ir::{
     OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
     OP_STORE_MEMBER, OP_SUB, OP_SUPER_METHOD, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
+    OP_SELECT_TRY_RECV,
 };
 use crate::value::Value;
 use coco_parser::Parser;
@@ -431,6 +432,8 @@ impl Compiler {
             Stmt::Try(try_stmt) => self.compile_try(try_stmt),
             Stmt::Parallel(parallel) => self.compile_parallel(parallel),
             Stmt::Coro(coro) => self.compile_coro(coro),
+            Stmt::Select(select) => self.compile_select(select),
+            Stmt::Synchronized(sync) => self.compile_synchronized(sync),
             _ => Ok(()),
         }
     }
@@ -554,18 +557,14 @@ impl Compiler {
         let idx_slot = self.add_local(&idx_name);
         let elem_slot = self.add_local(&elem_name);
 
-        // Compile iterable and store
+        // Compile iterable and store — no POP since STORE_LOCAL consumes the top
         self.compile_expr(&for_stmt.iterable)?;
         self.emit_op_u16(OP_STORE_LOCAL, iter_slot as u16);
-        self.emit_op(OP_POP);
 
         // Initialize index to 0
-        self.emit_op(OP_NULL); // fallthrough: OP_CONST 0 would need a constant
-        self.emit_op(OP_POP);
         let zero_idx = self.add_constant(Value::Int(BigInt::from(0)));
         self.emit_op_u16(OP_CONST, zero_idx);
         self.emit_op_u16(OP_STORE_LOCAL, idx_slot as u16);
-        self.emit_op(OP_POP);
 
         let start_label = self.new_label();
         let end_label = self.new_label();
@@ -591,7 +590,6 @@ impl Compiler {
         self.emit_op_u16(OP_LOAD_LOCAL, idx_slot as u16);
         self.emit_op(OP_INDEX);
         self.emit_op_u16(OP_STORE_LOCAL, elem_slot as u16);
-        self.emit_op(OP_POP);
 
         // Body
         self.begin_scope();
@@ -604,7 +602,6 @@ impl Compiler {
         self.emit_op_u16(OP_CONST, one_idx);
         self.emit_op(OP_ADD);
         self.emit_op_u16(OP_STORE_LOCAL, idx_slot as u16);
-        self.emit_op(OP_POP);
 
         self.emit_loop(start_label);
         self.place_label(end_label);
@@ -781,6 +778,73 @@ impl Compiler {
         self.emit_op_u8(OP_ASYNC_CALL, 0);
         // Discard the TaskHandle — fire and forget
         self.emit_op(OP_POP);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // select { case pattern = expr { body }; ... }
+    // -----------------------------------------------------------------------
+
+    /// Compile a select statement: evaluate each channel expression in order,
+    /// check if it has pending data, and execute the first ready case body.
+    /// Falls through (returns Null) if no channel has data.
+    fn compile_select(&mut self, select: &SelectStmt) -> CResult<()> {
+        if select.cases.is_empty() {
+            self.emit_op(OP_NULL);
+            self.emit_op(OP_POP);
+            return Ok(());
+        }
+
+        let end_label = self.new_label();
+
+        for case in &select.cases {
+            let next_case_label = self.new_label();
+
+            // Evaluate the channel expression -> stack has [channel]
+            self.compile_expr(&case.expr)?;
+
+            // OP_SELECT_TRY_RECV: pops channel from stack.
+            // If channel has data, pushes the received value and falls through.
+            // If channel has no data, pushes nothing and jumps to next_case_label.
+            self.emit_jump(OP_SELECT_TRY_RECV, next_case_label);
+
+            // Body: bind pattern var to the received value and execute body
+            self.begin_scope();
+            let name = case.pattern.name.clone();
+            if self.in_function {
+                let slot = self.add_local(&name);
+                self.emit_op_u16(OP_STORE_LOCAL, slot as u16);
+            } else {
+                let name_idx = self.name_constant(&name);
+                self.emit_op_u16(OP_DEFINE_GLOBAL, name_idx);
+            }
+            for stmt in &case.body {
+                self.compile_stmt(stmt)?;
+            }
+            self.end_scope();
+            self.emit_jump(OP_JUMP, end_label);
+
+            // Next case checkpoint
+            self.place_label(next_case_label);
+        }
+
+        // No case matched: push Null as result
+        self.emit_op(OP_NULL);
+
+        self.place_label(end_label);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // synchronized { body }
+    // -----------------------------------------------------------------------
+
+    /// Compile a synchronized block: mutual exclusion.
+    /// In the single-threaded VM this is equivalent to a scoped block.
+    fn compile_synchronized(&mut self, sync: &SynchronizedStmt) -> CResult<()> {
+        self.begin_scope();
+        self.compile_block(&sync.body)?;
+        self.end_scope();
         Ok(())
     }
 

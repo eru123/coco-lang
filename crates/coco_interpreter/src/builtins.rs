@@ -3,8 +3,6 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
-use coco_gc::{CoW, Gc};
-
 use crate::error::{RuntimeError, Signal};
 use crate::value::{AtomicInner, ChannelInner, Value};
 use num_bigint::BigInt;
@@ -371,7 +369,6 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
                 Value::Null => "null",
                 Value::List(_) => "list",
                 Value::Map(_) => "map",
-                Value::Function(_) => "function",
                 Value::BuiltinFn(_) => "builtin",
                 Value::FnObj(_) => "function",
                 Value::TaskHandle(_) => "task",
@@ -941,7 +938,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("typeIs(value, typeName) expects 2 args"))); }
             let type_name = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("typeIs expects a string type name"))) };
             let matches = match (&args[0], type_name.as_str()) {
-                (Value::Int(_), "int") | (Value::Float(_), "float") | (Value::String(_), "string") | (Value::Bool(_), "bool") | (Value::Null, "null") | (Value::List(_), "list") | (Value::Map(_), "map") | (Value::Function(_), "function") | (Value::FnObj(_), "function") | (Value::BuiltinFn(_), "builtin") | (Value::TaskHandle(_), "task") | (Value::Ok(_), "result") | (Value::Err(_), "result") | (Value::Channel(_), "channel") | (Value::Atomic(_), "atomic") => true,
+                (Value::Int(_), "int") | (Value::Float(_), "float") | (Value::String(_), "string") | (Value::Bool(_), "bool") | (Value::Null, "null") | (Value::List(_), "list") | (Value::Map(_), "map") | (Value::FnObj(_), "function") | (Value::BuiltinFn(_), "builtin") | (Value::TaskHandle(_), "task") | (Value::Ok(_), "result") | (Value::Err(_), "result") | (Value::Channel(_), "channel") | (Value::Atomic(_), "atomic") => true,
                 _ => false,
             };
             Ok(Value::Bool(matches))

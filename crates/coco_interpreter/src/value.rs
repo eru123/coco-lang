@@ -3,7 +3,6 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use coco_gc::{CoW, Gc};
-use coco_syntax::{Block, Param};
 use num_bigint::BigInt;
 
 use crate::ir::FnObj;
@@ -54,6 +53,9 @@ impl AtomicInner {
 ///
 /// List and Map are heap-allocated with copy-on-write semantics.
 /// Primitive types are stack-allocated.
+///
+/// Note: `Value::Function` has been removed. All user-defined functions now
+/// use `Value::FnObj` (compiled bytecode) executed by the VM.
 #[derive(Clone)]
 pub enum Value {
     Int(BigInt),
@@ -63,7 +65,6 @@ pub enum Value {
     Null,
     List(Gc<CoW<Vec<Value>>>),
     Map(Gc<CoW<HashMap<String, Value>>>),
-    Function(Function),
     BuiltinFn(String),
     FnObj(FnObj),
     /// Handle to an async task managed by the scheduler.
@@ -76,14 +77,6 @@ pub enum Value {
     Channel(Arc<Mutex<ChannelInner>>),
     /// Atomic — thread-safe mutable cell. Thread-safe via Arc<Mutex<...>>.
     Atomic(Arc<Mutex<AtomicInner>>),
-}
-
-/// A user-defined function captured at runtime.
-#[derive(Debug, Clone)]
-pub struct Function {
-    pub name: String,
-    pub params: Vec<String>,
-    pub body: Block,
 }
 
 impl fmt::Display for Value {
@@ -114,7 +107,6 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::Function(func) => write!(f, "<fn {}>", func.name),
             Value::BuiltinFn(name) => write!(f, "<builtin {}>", name),
             Value::FnObj(fo) => write!(f, "<fn {}>", fo.name),
             Value::TaskHandle(id) => write!(f, "<task {}>", id),
@@ -142,7 +134,6 @@ impl fmt::Debug for Value {
             Value::Null => write!(f, "Null"),
             Value::List(items) => write!(f, "List({:?})", &items.data),
             Value::Map(map) => write!(f, "Map({:?})", &map.data),
-            Value::Function(func) => write!(f, "Function({})", func.name),
             Value::BuiltinFn(name) => write!(f, "BuiltinFn({})", name),
             Value::FnObj(fo) => write!(f, "FnObj({})", fo.name),
             Value::TaskHandle(id) => write!(f, "TaskHandle({})", id),
@@ -171,7 +162,7 @@ impl Value {
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.data.is_empty(),
             Value::Map(m) => !m.data.is_empty(),
-            Value::Function(_) | Value::BuiltinFn(_) | Value::FnObj(_) | Value::TaskHandle(_) => true,
+            Value::BuiltinFn(_) | Value::FnObj(_) | Value::TaskHandle(_) => true,
             Value::Ok(_) => true,
             Value::Channel(_) => true,
             Value::Atomic(_) => true,
@@ -185,8 +176,4 @@ impl Value {
         }
     }
 
-    /// Extract param names from AST params for function storage.
-    pub fn extract_param_names(params: &[Param]) -> Vec<String> {
-        params.iter().map(|p| p.name.name.clone()).collect()
-    }
 }

@@ -115,6 +115,13 @@ pub const OP_METHOD_CALL: u8 = 95; // method call with $ binding (u16 name_idx, 
 pub const OP_SUPER_METHOD: u8 = 96; // super.method() call (u16 name_idx, u8 arg_count)
 pub const OP_NEW: u8 = 97; // new Class(args) (u8 arg_count)
 
+// Concurrency operations
+pub const OP_SELECT_TRY_RECV: u8 = 98; // try recv from channel: u16 jump-offset if empty
+pub const OP_CHANNEL_SEND: u8 = 99; // send value to channel
+pub const OP_CHANNEL_RECV: u8 = 100; // blocking recv from channel
+pub const OP_ATOMIC_LOAD: u8 = 101; // load atomic value
+pub const OP_ATOMIC_STORE: u8 = 102; // store atomic value
+
 /// Compound-assignment op sub-kinds carried by OP_ASSIGN_OP after the
 /// right-hand side is already on the stack (left is below it).
 pub const ASSIGN_OP_ADD: u8 = 0;
@@ -184,6 +191,11 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_METHOD_CALL => "METHOD_CALL",
         OP_SUPER_METHOD => "SUPER_METHOD",
         OP_NEW => "NEW",
+        OP_SELECT_TRY_RECV => "SELECT_TRY_RECV",
+        OP_CHANNEL_SEND => "CHANNEL_SEND",
+        OP_CHANNEL_RECV => "CHANNEL_RECV",
+        OP_ATOMIC_LOAD => "ATOMIC_LOAD",
+        OP_ATOMIC_STORE => "ATOMIC_STORE",
         _ => "???",
     }
 }
@@ -216,7 +228,9 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
 
         OP_NEW => Some(1),
 
-        OP_THIS | OP_AWAIT | OP_TRY => Some(0),
+        OP_SELECT_TRY_RECV => Some(2), // u16 jump offset
+
+        OP_THIS | OP_AWAIT | OP_TRY | OP_CHANNEL_SEND | OP_CHANNEL_RECV | OP_ATOMIC_LOAD | OP_ATOMIC_STORE => Some(0),
 
         OP_NULL
         | OP_TRUE

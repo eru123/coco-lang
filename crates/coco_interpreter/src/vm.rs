@@ -778,6 +778,97 @@ impl Vm {
                 return Ok(());
             }
 
+            // ---- Concurrency ----
+
+            OP_SELECT_TRY_RECV => {
+                let offset = self.read_i16_operand();
+                let channel_val = self.pop();
+                match &channel_val {
+                    Value::Channel(arc) => {
+                        let mut inner = arc.lock().map_err(|_| {
+                            VmError::new("channel lock poisoned")
+                        })?;
+                        if !inner.queue.is_empty() && !inner.closed {
+                            let val = inner.queue.pop_front().unwrap_or(Value::Null);
+                            self.push(val);
+                            // Has data — fall through to body
+                        } else {
+                            // No data — jump to next case
+                            self.do_jump(offset);
+                            return Ok(());
+                        }
+                    }
+                    _ => {
+                        return Err(VmError::new(
+                            "select case expression must evaluate to a channel",
+                        ));
+                    }
+                }
+            }
+            OP_CHANNEL_SEND => {
+                let value = self.pop();
+                let channel_val = self.pop();
+                match &channel_val {
+                    Value::Channel(arc) => {
+                        let mut inner = arc.lock().map_err(|_| {
+                            VmError::new("channel lock poisoned")
+                        })?;
+                        if inner.closed {
+                            return Err(VmError::new("send on closed channel"));
+                        }
+                        if inner.queue.len() < inner.capacity {
+                            inner.queue.push_back(value);
+                            self.push(Value::Null); // send returns null
+                        } else {
+                            return Err(VmError::new("channel full (select/try only; use async for blocking)"));
+                        }
+                    }
+                    _ => return Err(VmError::new("send requires a channel")),
+                }
+            }
+            OP_CHANNEL_RECV => {
+                let channel_val = self.pop();
+                match &channel_val {
+                    Value::Channel(arc) => {
+                        let mut inner = arc.lock().map_err(|_| {
+                            VmError::new("channel lock poisoned")
+                        })?;
+                        if let Some(val) = inner.queue.pop_front() {
+                            self.push(val);
+                        } else {
+                            return Err(VmError::new("recv on empty channel (use select/try or async)"));
+                        }
+                    }
+                    _ => return Err(VmError::new("recv requires a channel")),
+                }
+            }
+            OP_ATOMIC_LOAD => {
+                let atomic_val = self.pop();
+                match &atomic_val {
+                    Value::Atomic(inner) => {
+                        let guard = inner.lock().map_err(|_| {
+                            VmError::new("atomic lock poisoned")
+                        })?;
+                        self.push(guard.value.clone());
+                    }
+                    _ => return Err(VmError::new("load requires an atomic value")),
+                }
+            }
+            OP_ATOMIC_STORE => {
+                let new_value = self.pop();
+                let atomic_val = self.pop();
+                match &atomic_val {
+                    Value::Atomic(inner) => {
+                        let mut guard = inner.lock().map_err(|_| {
+                            VmError::new("atomic lock poisoned")
+                        })?;
+                        guard.value = new_value;
+                        self.push(Value::Null);
+                    }
+                    _ => return Err(VmError::new("store requires an atomic value")),
+                }
+            }
+
             _ => {
                 return Err(VmError::new(format!(
                     "unknown opcode: {} ({})",
@@ -900,13 +991,6 @@ impl Vm {
                     .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
                 self.push(result);
             }
-            Value::Function(func) => {
-                // Tree-walking function (interop): not supported in pure VM mode.
-                return Err(VmError::new(format!(
-                    "cannot call tree-walking function '{}' in VM mode",
-                    func.name
-                )));
-            }
             _ => {
                 return Err(VmError::new(format!(
                     "{} is not callable",
@@ -969,12 +1053,6 @@ impl Vm {
                 let result = call_builtin(&name, &args, &mut self.heap)
                     .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
                 self.push(result);
-            }
-            Value::Function(func) => {
-                return Err(VmError::new(format!(
-                    "cannot call tree-walking function '{}' in VM mode",
-                    func.name
-                )));
             }
             _ => {
                 return Err(VmError::new(format!(

@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+tree-walker = []
+
 [dependencies]
 coco_syntax = { path = "../coco_syntax" }
 coco_span = { path = "../coco_span" }

@@ -1,8 +1,8 @@
 //! Coco compiler CLI — lex, parse, fmt, check commands.
 
 use clap::{Parser as ClapParser, Subcommand};
+use coco_diagnostics::{Diagnostic, DiagnosticLevel};
 use coco_formatter::Formatter;
-use coco_interpreter::Interpreter;
 use coco_lexer::{Lexer, TokenKind};
 use coco_parser::Parser;
 use coco_safety as safety;
@@ -69,7 +69,7 @@ enum Commands {
         /// Enable debug mode (GC stats)
         #[arg(long = "debug")]
         debug: bool,
-        /// Use the bytecode VM instead of the tree-walking interpreter
+        /// (no-op: VM is now the default runtime) Use the bytecode VM instead of the tree-walking interpreter
         #[arg(long = "vm")]
         use_vm: bool,
     },
@@ -326,7 +326,7 @@ fn cmd_fmt(file: &Path, write: bool) {
     }
 }
 
-fn cmd_run(file: &Path, no_check: bool, debug: bool, use_vm: bool) {
+fn cmd_run(file: &Path, no_check: bool, debug: bool, _use_vm: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -376,25 +376,8 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool, use_vm: bool) {
         }
     }
 
-    if use_vm {
-        run_with_vm(&source, debug);
-        return;
-    }
-
-    let mut interp = Interpreter::new();
-    interp.set_debug(debug);
-    interp.set_source_file(resolved.clone());
-    match interp.run_main(&source) {
-        Ok(val) => {
-            if let coco_interpreter::Value::Int(code) = val {
-                std::process::exit(code.to_i32().unwrap_or(1));
-            }
-        }
-        Err(e) => {
-            eprintln!("{}", e.format(debug));
-            std::process::exit(1);
-        }
-    }
+    // VM is the sole dev runtime. The `--vm` flag is a no-op.
+    run_with_vm(&source, debug);
 }
 
 fn run_with_vm(source: &str, debug: bool) {
