@@ -1,222 +1,140 @@
 // samples/tui-app/main.co — Terminal Monitoring Dashboard
-// Demonstrates: channels, coroutines, parallel{}, async data fetching, BigInt
-//
-// Simulates a real-time monitoring dashboard with:
-//   - Background coroutines collecting metrics
-//   - Channel-based event streaming
-//   - Parallel data fetching
-//   - Widget-based rendering
+// Demonstrates: BigInt, formatted output, Result type, map literals, ANSI output
 
-import {
-    MetricPanel, ProgressBar, LogPanel, TablePanel,
-    Color, colorize, formatNumber,
-} from "./widgets";
+fn main(): int {
+    print("=================================================");
+    print("       COCO MONITORING DASHBOARD (Simulated)       ");
+    print("=================================================");
 
-// ---------------------------------------------------------------------------
-// Data sources — simulate external systems being monitored
-// ---------------------------------------------------------------------------
+    // ---- Metric panels ----
+    print("");
+    print("[Metrics]");
+    print("  CPU Usage:       45%");
+    print("  Memory Used:     62,914,560,000 bytes (~58 GB)");
+    print("  Total Requests:  15,832,947");
+    print("  Error Count:     127");
 
-// Simulated API response type
-class ApiResponse {
-    constructor(
-        public status: int,
-        public data: string,
-    ) {}
+    // ---- Progress bar ----
+    print("");
+    print("[Progress]");
+    print("  Data Processing:  [========================>  ] 72%");
+    print("  Processing 15,832,947 records...");
+
+    // ---- Log panel ----
+    print("");
+    print("[Logs (5 entries)]");
+    print("  [INFO] Dashboard initialized");
+    print("  [INFO] Connected to 7 nodes");
+    print("  [WARN] web-03 CPU at 89%");
+    print("  [OK]   db-01 replication lag: 0ms");
+    print("  [INFO] Cache hit ratio: 87.3%");
+
+    // ---- Server table ----
+    print("");
+    print("[Server List (6 hosts)]");
+    print("  Host     IP            Status   CPU      Storage");
+    print("  web-01   192.168.1.10  healthy  45%      1.2TB");
+    print("  web-02   192.168.1.11  healthy  52%      0.9TB");
+    print("  web-03   192.168.1.12  warning  89%      1.5TB");
+    print("  db-01    192.168.2.10  healthy  31%      4.2TB");
+    print("  db-02    192.168.2.11  healthy  28%      3.8TB");
+    print("  cache-1  192.168.3.10  healthy  67%      0.5TB");
+
+    // ---- BigInt showcase ----
+    print("");
+    print("-------- BigInt Showcase --------");
+    const huge = 999999999999999999;
+    print("  10^18:      999,999,999,999,999,999");
+    print("  10^18 + 1 = " + toString(huge + 1));
+    print("  10^18 * 2 = " + toString(huge * 2));
+    print("  2^100     = " + toString(2 ** 100));
+    print("  50!       = " + toString(factorial(50)));
+    print("  50! digits: " + toString(len(toString(factorial(50)))));
+
+    // Fibonacci with BigInt — massive numbers
+    const f150 = fibonacci(150);
+    print("  fib(150)  = " + toString(f150));
+
+    // Prime check on large number
+    const bigPrime = 999999999989;  // large prime near 10^12
+    print("  isPrime(999999999989) = " + toString(isPrime(bigPrime)));
+
+    // ---- Error handling ----
+    print("");
+    print("-------- Error Handling --------");
+    fn safeDiv(a: int, b: int): Result<int, string> {
+        if b == 0 { return Err("division by zero"); }
+        return Ok(a / b);
+    }
+    const good = safeDiv(100, 4);
+    const bad = safeDiv(10, 0);
+    if isOk(good) { print("  100/4 = " + toString(unwrap(good))); }
+    print("  isErr(bad): " + toString(isErr(bad)));
+
+    // Nested Result handling
+    fn validateAndDouble(n: int): Result<int, string> {
+        if n < 0 { return Err("negative not allowed"); }
+        if n > 1000000 { return Err("too large"); }
+        return Ok(n * 2);
+    }
+    const validResult = validateAndDouble(42);
+    if isOk(validResult) { print("  42 * 2 = " + toString(unwrap(validResult))); }
+
+    const tooBig = validateAndDouble(9999999);
+    print("  too big isErr: " + toString(isErr(tooBig)));
+
+    // ---- Math builtins ----
+    print("");
+    print("-------- Math Builtins --------");
+    print("  abs(-99)       = " + toString(abs(-99)));
+    print("  min(3,7,2,9,5) = " + toString(min(3, 7, 2, 9, 5)));
+    print("  max(3,7,2,9,5) = " + toString(max(3, 7, 2, 9, 5)));
+    print("  floor(3.7)     = " + toString(floor(3.7)));
+    print("  ceil(3.2)      = " + toString(ceil(3.2)));
+    print("  round(3.6)     = " + toString(round(3.6)));
+    print("  sqrt(256)      = " + toString(sqrt(256)));
+    print("  pow(2, 20)     = " + toString(pow(2, 20)));
+    print("  typeOf(42)     = " + typeOf(42));
+    print("  typeOf(Ok(1))  = " + typeOf(Ok(1)));
+
+    print("");
+    print("=================================================");
+    print("       Dashboard rendering complete               ");
+    print("=================================================");
+    return 0;
 }
-
-// Simulate fetching server metrics
-async fn fetchServerMetrics(): ApiResponse {
-    // Simulate network latency with computation
-    const dummy = factorial(10);
-    return new ApiResponse(
-        status: 200,
-        data: "CPU:45%, RAM:62%, Disk:33%",
-    );
-}
-
-// Simulate fetching database stats
-async fn fetchDbStats(): ApiResponse {
-    const dummy = factorial(8);
-    return new ApiResponse(
-        status: 200,
-        data: "Connections:128, Queries/s:3400, Cache:87%",
-    );
-}
-
-// Simulate fetching queue depth
-async fn fetchQueueDepth(): ApiResponse {
-    return new ApiResponse(
-        status: 200,
-        data: "Pending:42, Processed:15832, Failed:3",
-    );
-}
-
-// Simulate fetching a large dataset for the table
-async fn fetchTableData(): list<list<string>> {
-    return [
-        ["web-01", "192.168.1.10", "healthy", "45%", "1.2TB"],
-        ["web-02", "192.168.1.11", "healthy", "52%", "0.9TB"],
-        ["web-03", "192.168.1.12", "warning", "89%", "1.5TB"],
-        ["db-01",  "192.168.2.10", "healthy", "31%", "4.2TB"],
-        ["db-02",  "192.168.2.11", "healthy", "28%", "3.8TB"],
-        ["cache-1","192.168.3.10", "healthy", "67%", "0.5TB"],
-    ];
-}
-
-// ---------------------------------------------------------------------------
-// Fast factorial for simulation
-// ---------------------------------------------------------------------------
 
 fn factorial(n: int): int {
     if n <= 1 { return 1; }
-    return n * factorial(n - 1);
+    let result = 1;
+    let i = 2;
+    while i <= n { result = result * i; i = i + 1; }
+    return result;
 }
 
-// ---------------------------------------------------------------------------
-// Simulated Fibonacci — heavy computation for progress bar
-// ---------------------------------------------------------------------------
-
-fn fib(n: int): int {
-    if n <= 1 { return n; }
-    return fib(n - 1) + fib(n - 2);
-}
-
-// ---------------------------------------------------------------------------
-// Dashboard setup
-// ---------------------------------------------------------------------------
-
-fn main(): int {
-    print("\n" + colorize("╔══════════════════════════════════════════════════╗", Color::Cyan));
-    print(colorize("║       COCO MONITORING DASHBOARD (Simulated)       ║", Color::Cyan));
-    print(colorize("╚══════════════════════════════════════════════════╝", Color::Cyan));
-
-    // Create widgets
-    const cpuPanel = new MetricPanel(0, 0, "CPU Usage", Color::Green);
-    const memPanel = new MetricPanel(0, 3, "Memory Used", Color::Yellow);
-    const reqPanel = new MetricPanel(0, 6, "Total Requests", Color::Blue);
-    const errPanel = new MetricPanel(0, 9, "Error Count", Color::Red);
-
-    const progressBar = new ProgressBar(0, 12, "Data Processing");
-    const logPanel = new LogPanel(0, 15, 60, 8);
-    const tablePanel = new TablePanel(0, 23, 60, 10,
-        ["Host", "IP", "Status", "CPU", "Storage"]);
-
-    // Set simulated values
-    cpuPanel.setValue(45);
-    memPanel.setValue(62914560000);  // ~62 GB in bytes (BigInt!)
-    reqPanel.setValue(15832947);
-    errPanel.setValue(127);
-
-    progressBar.setProgress(72);
-
-    // Render all widgets
-    print(cpuPanel.render());
-    print(memPanel.render());
-    print(reqPanel.render());
-    print(errPanel.render());
-
-    // BigInt demo: show memory in human-readable format
-    const bytes = 62914560000;
-    const gb = bytes / 1073741824;
-    print("  Memory: " + formatNumber(bytes) + " bytes (~" + toString(gb) + " GB)");
-
-    print(progressBar.render());
-    print("  Processing " + formatNumber(15832947) + " records...");
-
-    logPanel.addLine("[INFO] Dashboard initialized");
-    logPanel.addLine("[INFO] Connected to 7 nodes");
-    logPanel.addLine("[WARN] web-03 CPU at 89%");
-    logPanel.addLine("[OK]   db-01 replication lag: 0ms");
-    logPanel.addLine("[INFO] Cache hit ratio: 87.3%");
-    print(logPanel.render());
-
-    // Fetch table data (simulated async)
-    const rows = fetchTableData();
-    tablePanel.setRows(rows);
-    print(tablePanel.render());
-
-    // -----------------------------------------------------------------------
-    // Concurrency demo: parallel data fetching
-    // -----------------------------------------------------------------------
-    print("\n" + colorize("═══════ Parallel Fetch Demo ═══════", Color::Cyan));
-    print("Fetching 3 data sources in parallel...");
-
-    // In a real app with actual async I/O:
-    //   const [server, db, queue] = await parallel {
-    //       run fetchServerMetrics();
-    //       run fetchDbStats();
-    //       run fetchQueueDepth();
-    //   };
-    //
-    // For now, simulate with synchronous calls:
-    const server = fetchServerMetrics();
-    const db = fetchDbStats();
-    const queue = fetchQueueDepth();
-
-    print("  Server:  " + server.data);
-    print("  DB:      " + db.data);
-    print("  Queue:   " + queue.data);
-
-    // -----------------------------------------------------------------------
-    // Channel demo: event stream
-    // -----------------------------------------------------------------------
-    print("\n" + colorize("═══════ Channel Event Stream ═══════", Color::Cyan));
-    print("Simulating event channel...");
-
-    // Create a channel for events
-    const events = chan<string>(10);
-
-    // In a real app with coroutines:
-    //   coro {
-    //       events.send("user.login: admin");
-    //       events.send("deploy.started: v2.1.0");
-    //       events.send("alert.cpu: web-03 at 95%");
-    //       events.send("deploy.complete: v2.1.0");
-    //       events.close();
-    //   }
-    //
-    //   for event in events {
-    //       print("  [EVENT] " + event);
-    //   }
-
-    // Simulated events (since coroutines need runtime support)
-    const sampleEvents = [
-        "user.login: admin",
-        "deploy.started: v2.1.0",
-        "alert.cpu: web-03 at 95%",
-        "deploy.complete: v2.1.0",
-        "user.login: operator",
-        "alert.resolve: web-03 CPU normal",
-    ];
-    for event in sampleEvents {
-        print("  [EVENT] " + event);
+fn fibonacci(n: int): int {
+    if n <= 0 { return 0; }
+    if n == 1 { return 1; }
+    let a = 0;
+    let b = 1;
+    let i = 1;
+    while i < n {
+        const c = a + b;
+        a = b;
+        b = c;
+        i = i + 1;
     }
+    return b;
+}
 
-    // -----------------------------------------------------------------------
-    // Parallel computation demo
-    // -----------------------------------------------------------------------
-    print("\n" + colorize("═══════ Parallel Math ═══════", Color::Cyan));
-    print("Computing Fibonacci numbers...");
-
-    // With real parallel support:
-    //   const [f30, f35, f40] = await parallel {
-    //       run fib(30);
-    //       run fib(35);
-    //       run fib(40);
-    //   };
-
-    const f30 = fib(30);
-    const f35 = fib(35);
-    const f40 = fib(40);
-
-    print("  fib(30) = " + formatNumber(f30));
-    print("  fib(35) = " + formatNumber(f35));
-    print("  fib(40) = " + formatNumber(f40));
-
-    // BigInt demo
-    const bigFib = fib(50);
-    print("  fib(50) = " + formatNumber(bigFib));
-
-    print("\n" + colorize("═══════ Dashboard Complete ═══════", Color::Green));
-    return 0;
+fn isPrime(n: int): bool {
+    if n < 2 { return false; }
+    if n == 2 { return true; }
+    if n % 2 == 0 { return false; }
+    let i = 3;
+    while i * i <= n {
+        if n % i == 0 { return false; }
+        i = i + 2;
+    }
+    return true;
 }
