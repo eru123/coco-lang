@@ -1,5 +1,6 @@
 //! Recursive descent parser for Coco declarations and statements.
 
+use coco_diagnostics::Diagnostic;
 use coco_lexer::{Lexer, Token, TokenKind};
 use coco_span::Span;
 use coco_syntax::*;
@@ -7,7 +8,7 @@ use coco_syntax::*;
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
-    diagnostics: Vec<String>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> Parser<'a> {
@@ -21,7 +22,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn diagnostics(&self) -> &[String] {
+    pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
@@ -41,7 +42,14 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&mut self, msg: &str) {
-        self.diagnostics.push(msg.to_string());
+        let span = self.current.span;
+        self.diagnostics.push(
+            Diagnostic::error(
+                coco_span::FileId(0),
+                msg.to_string(),
+            )
+            .with_label(span, "here", true),
+        );
         self.synchronize();
     }
 

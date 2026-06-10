@@ -615,14 +615,17 @@ fn report_type_errors(source: &str, file: &Path, result: &coco_typeck::TypeckRes
 }
 
 /// Emit parser diagnostics with ariadne-rendered labels.
-fn report_parser_diagnostics(source: &str, file: &Path, diagnostics: &[String]) {
+/// Parser diagnostics now carry their own span labels.
+fn report_parser_diagnostics(source: &str, file: &Path, diagnostics: &[coco_diagnostics::Diagnostic]) {
     if diagnostics.is_empty() {
         return;
     }
     let (source_map, file_id) = build_source_map(source, file);
-    for diag_msg in diagnostics {
-        let diag = Diagnostic::error(file_id, diag_msg.clone());
-        diag.emit(&source_map);
+    for diag in diagnostics {
+        // Clone the diagnostic and reassign file_id to the one from our SourceMap
+        let mut d = diag.clone();
+        d.file = file_id;
+        d.emit(&source_map);
     }
 }
 
