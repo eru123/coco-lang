@@ -821,6 +821,154 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             match regex::Regex::new(&pat) { Ok(re) => Ok(Value::String(re.replace_all(&s, &repl[..]).to_string())), Err(e) => Err(Signal::Error(RuntimeError::new(format!("regex: {}", e)))) }
         }
 
+        // ---- List mutation ----
+        "list_push" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("list_push(list, value) expects 2 args"))); }
+            let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_push expects a list"))) };
+            let mut items: Vec<Value> = list.data.iter().cloned().collect();
+            items.push(args[1].clone());
+            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "list_pop" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("list_pop(list) expects 1 arg"))); }
+            let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_pop expects a list"))) };
+            if list.data.is_empty() { return Ok(Value::Null); }
+            let mut items: Vec<Value> = list.data.iter().cloned().collect();
+            let popped = items.pop().unwrap_or(Value::Null);
+            // Return a tuple-like map with the popped value and the new list
+            let mut map = HashMap::new();
+            map.insert("value".to_string(), popped);
+            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); map.insert("list".to_string(), Value::List(coco_gc::Gc::new(heap, id, ptr)));
+            let cow2 = coco_gc::CoW::new(map); let (id2, ptr2) = heap.allocate(cow2); Ok(Value::Map(coco_gc::Gc::new(heap, id2, ptr2)))
+        }
+        "list_insert" => {
+            if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("list_insert(list, index, value) expects 3 args"))); }
+            let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_insert expects a list"))) };
+            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("list_insert expects an int index"))) };
+            let mut items: Vec<Value> = list.data.iter().cloned().collect();
+            let idx = idx.min(items.len());
+            items.insert(idx, args[2].clone());
+            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "list_remove" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("list_remove(list, index) expects 2 args"))); }
+            let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_remove expects a list"))) };
+            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("list_remove expects an int index"))) };
+            if idx >= list.data.len() { return Ok(args[0].clone()); }
+            let mut items: Vec<Value> = list.data.iter().cloned().collect();
+            items.remove(idx);
+            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "list_join" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("list_join(list, sep) expects 2 args"))); }
+            let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_join expects a list"))) };
+            let sep = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("list_join expects a string separator"))) };
+            let parts: Vec<String> = list.data.iter().map(|v| format!("{}", v)).collect();
+            Ok(Value::String(parts.join(&sep)))
+        }
+
+        // ---- Map mutation ----
+        "map_set" => {
+            if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("map_set(map, key, value) expects 3 args"))); }
+            let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_set expects a map"))) };
+            let key = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
+            let mut data: HashMap<String, Value> = map.data.iter().map(|(k,v)| (k.clone(), v.clone())).collect();
+            data.insert(key, args[2].clone());
+            let cow = coco_gc::CoW::new(data); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "map_get" => {
+            if args.len() < 2 || args.len() > 3 { return Err(Signal::Error(RuntimeError::new("map_get(map, key, default?) expects 2-3 args"))); }
+            let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_get expects a map"))) };
+            let key = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
+            match map.data.get(&key) { Some(v) => Ok(v.clone()), None => Ok(args.get(2).cloned().unwrap_or(Value::Null)) }
+        }
+        "map_has" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("map_has(map, key) expects 2 args"))); }
+            let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_has expects a map"))) };
+            let key = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
+            Ok(Value::Bool(map.data.contains_key(&key)))
+        }
+        "map_delete" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("map_delete(map, key) expects 2 args"))); }
+            let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_delete expects a map"))) };
+            let key = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
+            let mut data: HashMap<String, Value> = map.data.iter().map(|(k,v)| (k.clone(), v.clone())).collect();
+            data.remove(&key);
+            let cow = coco_gc::CoW::new(data); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "map_keys" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("map_keys(map) expects 1 arg"))); }
+            let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_keys expects a map"))) };
+            let keys: Vec<Value> = map.data.keys().map(|k| Value::String(k.clone())).collect();
+            let cow = coco_gc::CoW::new(keys); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+        "map_values" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("map_values(map) expects 1 arg"))); }
+            let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_values expects a map"))) };
+            let vals: Vec<Value> = map.data.values().cloned().collect();
+            let cow = coco_gc::CoW::new(vals); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+
+        // ---- More utilities ----
+        "str_contains" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_contains(str, search) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_contains expects a string"))) };
+            let search = match &args[1] { Value::String(f) => f.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_contains: arg 2 must be string"))) };
+            Ok(Value::Bool(s.contains(&search)))
+        }
+        "str_charAt" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_charAt(str, index) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_charAt expects a string"))) };
+            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("str_charAt expects an int index"))) };
+            let chars: Vec<char> = s.chars().collect();
+            Ok(if idx < chars.len() { Value::String(chars[idx].to_string()) } else { Value::Null })
+        }
+        "str_repeat" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_repeat(str, count) expects 2 args"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_repeat expects a string"))) };
+            let n = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1), _ => return Err(Signal::Error(RuntimeError::new("str_repeat expects an int count"))) };
+            Ok(Value::String(s.repeat(n)))
+        }
+        "assert" => {
+            if args.len() < 1 || args.len() > 2 { return Err(Signal::Error(RuntimeError::new("assert(condition, message?) expects 1-2 args"))); }
+            if !args[0].is_truthy() {
+                let msg = args.get(1).map(|v| format!("{}", v)).unwrap_or_else(|| "assertion failed".to_string());
+                return Err(Signal::Error(RuntimeError::new(msg)));
+            }
+            Ok(Value::Null)
+        }
+        "typeIs" => {
+            if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("typeIs(value, typeName) expects 2 args"))); }
+            let type_name = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("typeIs expects a string type name"))) };
+            let matches = match (&args[0], type_name.as_str()) {
+                (Value::Int(_), "int") | (Value::Float(_), "float") | (Value::String(_), "string") | (Value::Bool(_), "bool") | (Value::Null, "null") | (Value::List(_), "list") | (Value::Map(_), "map") | (Value::Function(_), "function") | (Value::FnObj(_), "function") | (Value::BuiltinFn(_), "builtin") | (Value::TaskHandle(_), "task") | (Value::Ok(_), "result") | (Value::Err(_), "result") | (Value::Channel(_), "channel") | (Value::Atomic(_), "atomic") => true,
+                _ => false,
+            };
+            Ok(Value::Bool(matches))
+        }
+        "range" => {
+            if args.len() < 1 || args.len() > 3 { return Err(Signal::Error(RuntimeError::new("range(start, end, step?) expects 1-3 args"))); }
+            let start = match &args[0] { Value::Int(n) => n.to_i64().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("range expects int arguments"))) };
+            let end = if args.len() >= 2 { match &args[1] { Value::Int(n) => n.to_i64().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("range expects int arguments"))) } } else { let e = start; 0 };
+            let start = if args.len() == 1 { 0 } else { start };
+            let step = if args.len() >= 3 { match &args[2] { Value::Int(n) => n.to_i64().unwrap_or(1), _ => return Err(Signal::Error(RuntimeError::new("range step must be int"))) } } else { 1 };
+            let mut items: Vec<Value> = Vec::new();
+            let mut i = start;
+            if step > 0 { while i < end { items.push(Value::Int(BigInt::from(i))); i += step; } }
+            else { while i > end { items.push(Value::Int(BigInt::from(i))); i += step; } }
+            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+        }
+
+        // ---- SHA256 hashing ----
+        "sha256" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("sha256(str) expects 1 arg"))); }
+            let s = match &args[0] { Value::String(s) => s.clone(), _ => format!("{}", args[0]) };
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(s.as_bytes());
+            Ok(Value::String(format!("{:x}", hasher.finalize())))
+        }
+
         // ---- Concurrency primitives ----
         "chan" => {
             let cap = if args.is_empty() {

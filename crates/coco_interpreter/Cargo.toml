@@ -13,3 +13,4 @@ coco_gc = { path = "../coco_gc" }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 regex = { workspace = true }
+sha2 = { workspace = true }
