@@ -1,0 +1,13 @@
+[package]
+name = "coco_codegen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+coco_syntax = { path = "../coco_syntax" }
+coco_parser = { path = "../coco_parser" }
+coco_span = { path = "../coco_span" }
+coco_gc = { path = "../coco_gc" }
+inkwell = { workspace = true }

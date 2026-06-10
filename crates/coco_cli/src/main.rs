@@ -77,6 +77,9 @@ enum Commands {
     Build {
         /// Path to the .co file (defaults to src/main.co)
         file: Option<PathBuf>,
+        /// Compile to native binary via LLVM instead of bytecode disassembly
+        #[arg(long = "native")]
+        native: bool,
     },
     /// Initialize a new Coco project
     Init {
@@ -104,9 +107,9 @@ fn main() {
             let f = resolve_entry(file.as_deref());
             cmd_run(&f, no_check, debug, use_vm)
         }
-        Commands::Build { file } => {
+        Commands::Build { file, native } => {
             let f = resolve_entry(file.as_deref());
-            cmd_build(&f)
+            cmd_build(&f, native)
         }
         Commands::Init { name } => cmd_init(&name),
     }
@@ -422,7 +425,7 @@ fn run_with_vm(source: &str, debug: bool) {
     }
 }
 
-fn cmd_build(file: &Path) {
+fn cmd_build(file: &Path, native: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -434,6 +437,48 @@ fn cmd_build(file: &Path) {
     let mut parser = Parser::new(&source);
     let program = parser.parse_program();
 
+    if native {
+        #[cfg(feature = "native")]
+        {
+        // AOT native compilation via LLVM
+        let context = inkwell::context::Context::create();
+        let mut codegen = coco_codegen::Codegen::new(&context, &resolved.file_stem()
+            .unwrap_or_default()
+            .to_string_lossy());
+        match codegen.generate(&program) {
+            Ok(()) => {
+                let obj_path = resolved.with_extension("o");
+                match codegen.compile_to_object(&obj_path.to_string_lossy()) {
+                    Ok(()) => {
+                        // Link: cc obj.o -o binary
+                        let bin_path = resolved.with_extension("");
+                        let status = std::process::Command::new("cc")
+                            .arg(&obj_path)
+                            .arg("-o").arg(&bin_path)
+                            .status();
+                        match status {
+                            Ok(s) if s.success() => {
+                                println!("Compiled {} -> {}", resolved.display(), bin_path.display());
+                                let _ = std::fs::remove_file(&obj_path);
+                            }
+                            _ => eprintln!("Linking failed"),
+                        }
+                    }
+                    Err(e) => eprintln!("LLVM codegen error: {}", e),
+                }
+            }
+            Err(e) => eprintln!("Codegen error: {}", e),
+        }
+        } // end #[cfg(feature = "native")]
+        #[cfg(not(feature = "native"))]
+        {
+            eprintln!("Native compilation requires LLVM — rebuild with: cargo build --features native");
+            eprintln!("Set LLVM_SYS_180_PREFIX=/usr/lib/llvm-18 and ensure Polly is available.");
+        }
+        return;
+    }
+
+    // Bytecode disassembly mode
     let mut compiler = coco_interpreter::compiler::Compiler::new();
     let chunk = match compiler.compile_script(&program) {
         Ok(c) => c,
@@ -443,16 +488,12 @@ fn cmd_build(file: &Path) {
         }
     };
 
-    // Print disassembly of the script chunk and all functions
     println!("== {} (script) ==", resolved.display());
     println!("{}", coco_interpreter::ir::disassemble(&chunk, "script"));
 
     for val in &chunk.constants {
         if let coco_interpreter::Value::FnObj(fo) = val {
-            println!(
-                "{}",
-                coco_interpreter::ir::disassemble(&fo.chunk, &fo.name)
-            );
+            println!("{}", coco_interpreter::ir::disassemble(&fo.chunk, &fo.name));
         }
     }
 }

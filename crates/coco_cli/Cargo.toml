@@ -19,6 +19,12 @@ coco_formatter = { workspace = true }
 coco_interpreter = { workspace = true }
 coco_typeck = { workspace = true }
 coco_safety = { workspace = true }
+coco_codegen = { path = "../coco_codegen", optional = true }
+inkwell = { workspace = true, optional = true }
 clap = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
+
+[features]
+default = []
+native = ["coco_codegen", "inkwell"]
