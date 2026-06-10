@@ -19,6 +19,8 @@ pub fn check_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>)
         Expr::Index(index) => check_index(index, env, errors),
         Expr::New(new_expr) => check_new(new_expr, env, errors),
         Expr::Group(inner) => check_expr(inner, env, errors),
+        Expr::Match(m) => check_match(m, env, errors),
+        Expr::Postfix(pf) => check_postfix(pf, env, errors),
         Expr::NullCoalesce(nc) => {
             check_expr(&nc.left, env, errors);
             check_expr(&nc.right, env, errors);
@@ -35,6 +37,56 @@ pub fn check_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>)
             infer_expr(expr, env)
         }
         _ => infer_expr(expr, env),
+    }
+}
+
+/// Type-check a match expression: check scrutinee, unify arm return types.
+fn check_match(m: &MatchExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    check_expr(&m.scrutinee, env, errors);
+    let mut arm_types: Vec<Ty> = Vec::new();
+    for arm in &m.arms {
+        check_expr(&arm.body, env, errors);
+        let arm_ty = infer_expr(&arm.body, env);
+        arm_types.push(arm_ty);
+    }
+    // Unify arm types: if all same, return that; otherwise union
+    if arm_types.is_empty() {
+        Ty::Never
+    } else if arm_types.len() == 1 {
+        arm_types[0].clone()
+    } else {
+        let mut common = arm_types[0].clone();
+        for ty in &arm_types[1..] {
+            if !is_assignable(&common, ty) && !is_assignable(ty, &common) {
+                common = Ty::Unknown;
+                break;
+            }
+        }
+        common
+    }
+}
+
+/// Type-check postfix expressions. Handles `expr?` (Result unwrap).
+fn check_postfix(pf: &PostfixExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>) -> Ty {
+    let obj_ty = check_expr(&pf.object, env, errors);
+    match &pf.op {
+        PostfixOp::Question => {
+            // expr? — unwrap Result<T, E> to T
+            match &obj_ty {
+                Ty::Result(ok, _err) => *ok.clone(),
+                Ty::Unknown | Ty::Mixed => Ty::Unknown,
+                _ => {
+                    errors.push(TypeckError::type_mismatch(
+                        "Result<_, _>",
+                        &obj_ty.to_string(),
+                        pf.span,
+                    ));
+                    Ty::Unknown
+                }
+            }
+        }
+        PostfixOp::Bang => obj_ty, // unwrap null — just passthrough
+        _ => Ty::Unknown,
     }
 }
 

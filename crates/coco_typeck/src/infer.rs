@@ -25,7 +25,20 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Elvis(_) => Ty::Unknown,
         Expr::Pipe(_) => Ty::Unknown,
         Expr::Assignment(_) => Ty::Void,
-        Expr::Postfix(_) => Ty::Unknown,
+        Expr::Postfix(pf) => {
+            match &pf.op {
+                PostfixOp::Question => {
+                    // expr? unwraps Result<T,E> → T
+                    let inner = infer_expr(&pf.object, env);
+                    match inner {
+                        Ty::Result(ok, _) => *ok,
+                        _ => Ty::Unknown,
+                    }
+                }
+                PostfixOp::Bang => infer_expr(&pf.object, env).strip_null(),
+                _ => Ty::Unknown,
+            }
+        }
         Expr::Lambda(lambda) => {
             let params: Vec<Ty> = lambda.params.iter().map(|p| {
                 p.type_ann.as_ref().map(crate::convert::ast_type_to_ty).unwrap_or(Ty::Unknown)
