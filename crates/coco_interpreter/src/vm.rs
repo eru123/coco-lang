@@ -871,6 +871,69 @@ impl Vm {
             "parseFloat".to_string(),
             Value::BuiltinFn("parseFloat".to_string()),
         );
+        // Result constructors
+        self.globals.insert(
+            "Ok".to_string(),
+            Value::BuiltinFn("Ok".to_string()),
+        );
+        self.globals.insert(
+            "Err".to_string(),
+            Value::BuiltinFn("Err".to_string()),
+        );
+        // Math
+        self.globals.insert(
+            "abs".to_string(),
+            Value::BuiltinFn("abs".to_string()),
+        );
+        self.globals.insert(
+            "min".to_string(),
+            Value::BuiltinFn("min".to_string()),
+        );
+        self.globals.insert(
+            "max".to_string(),
+            Value::BuiltinFn("max".to_string()),
+        );
+        self.globals.insert(
+            "floor".to_string(),
+            Value::BuiltinFn("floor".to_string()),
+        );
+        self.globals.insert(
+            "ceil".to_string(),
+            Value::BuiltinFn("ceil".to_string()),
+        );
+        self.globals.insert(
+            "round".to_string(),
+            Value::BuiltinFn("round".to_string()),
+        );
+        self.globals.insert(
+            "sqrt".to_string(),
+            Value::BuiltinFn("sqrt".to_string()),
+        );
+        self.globals.insert(
+            "pow".to_string(),
+            Value::BuiltinFn("pow".to_string()),
+        );
+        self.globals.insert(
+            "random".to_string(),
+            Value::BuiltinFn("random".to_string()),
+        );
+        // Type checking
+        self.globals.insert(
+            "typeOf".to_string(),
+            Value::BuiltinFn("typeOf".to_string()),
+        );
+        self.globals.insert(
+            "isOk".to_string(),
+            Value::BuiltinFn("isOk".to_string()),
+        );
+        self.globals.insert(
+            "isErr".to_string(),
+            Value::BuiltinFn("isErr".to_string()),
+        );
+        self.globals.insert(
+            "unwrap".to_string(),
+            Value::BuiltinFn("unwrap".to_string()),
+        );
     }
 
     // ========================================================================
