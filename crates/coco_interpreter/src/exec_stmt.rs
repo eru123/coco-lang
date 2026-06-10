@@ -85,14 +85,6 @@ impl Interpreter {
 
     fn exec_for(&mut self, for_stmt: &ForStmt) -> IResult {
         let iterable = self.eval_expr(&for_stmt.iterable)?;
-        let list_len = match &iterable {
-            Value::List(items) => items.data.len(),
-            _ => {
-                return Err(Signal::Error(RuntimeError::new(
-                    "for-in requires a list to iterate",
-                )))
-            }
-        };
 
         self.env.push_scope();
         // Define the loop variable
@@ -100,24 +92,53 @@ impl Interpreter {
             .define(for_stmt.pattern.name.clone(), Value::Null, true);
 
         let mut last = Value::Null;
-        for i in 0..list_len {
-            // Get item by index from the list
-            let item = match &iterable {
-                Value::List(items) => items.data[i].clone(),
-                _ => unreachable!(),
-            };
-            self.env
-                .set(&for_stmt.pattern.name, item.clone())
-                .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
 
-            match self.exec_block(&for_stmt.body) {
-                Ok(val) => last = val,
-                Err(Signal::Flow(ControlFlow::Break)) => break,
-                Err(Signal::Flow(ControlFlow::Continue)) => continue,
-                Err(e) => {
-                    self.env.pop_scope();
-                    return Err(e);
+        match &iterable {
+            Value::List(items) => {
+                let list_len = items.data.len();
+                for i in 0..list_len {
+                    let item = items.data[i].clone();
+                    self.env
+                        .set(&for_stmt.pattern.name, item.clone())
+                        .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
+
+                    match self.exec_block(&for_stmt.body) {
+                        Ok(val) => last = val,
+                        Err(Signal::Flow(ControlFlow::Break)) => break,
+                        Err(Signal::Flow(ControlFlow::Continue)) => continue,
+                        Err(e) => {
+                            self.env.pop_scope();
+                            return Err(e);
+                        }
+                    }
                 }
+            }
+            Value::Map(map) => {
+                // Iterate over keys and bind each key as a string value.
+                // Collect keys first to avoid borrow issues during iteration.
+                let keys: Vec<String> = map.data.keys().cloned().collect();
+                for key in keys {
+                    let item = Value::String(key);
+                    self.env
+                        .set(&for_stmt.pattern.name, item.clone())
+                        .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
+
+                    match self.exec_block(&for_stmt.body) {
+                        Ok(val) => last = val,
+                        Err(Signal::Flow(ControlFlow::Break)) => break,
+                        Err(Signal::Flow(ControlFlow::Continue)) => continue,
+                        Err(e) => {
+                            self.env.pop_scope();
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            _ => {
+                self.env.pop_scope();
+                return Err(Signal::Error(RuntimeError::new(
+                    "for-in requires a list or map to iterate",
+                )));
             }
         }
 
