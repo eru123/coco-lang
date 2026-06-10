@@ -28,6 +28,10 @@ impl Interpreter {
             Expr::Lambda(lambda) => self.eval_lambda(lambda),
             Expr::Postfix(postfix) => self.eval_postfix(postfix),
             Expr::Parallel(parallel) => self.eval_parallel(parallel),
+            Expr::Dollar(_) => self.eval_dollar(),
+            Expr::DollarDollar(_) => self.eval_dollar_dollar(),
+            Expr::This(_) => self.eval_dollar(), // this == $
+            Expr::Super(_) => self.eval_super(),
             Expr::New(new_expr) => self.eval_new(new_expr),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported expression: {:?}",
@@ -141,17 +145,7 @@ impl Interpreter {
 
     fn eval_assign(&mut self, target: &Expr, value_expr: &Expr) -> IResult {
         let value = self.eval_expr(value_expr)?;
-        match target {
-            Expr::Ident(ident) => {
-                self.env
-                    .set(&ident.name, value.clone())
-                    .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
-                Ok(value)
-            }
-            _ => Err(Signal::Error(RuntimeError::new(
-                "invalid assignment target",
-            ))),
-        }
+        self.set_target(target, value)
     }
 
     fn eval_compound_assign(&mut self, target: &Expr, value_expr: &Expr, op: BinaryOp) -> IResult {
@@ -170,17 +164,68 @@ impl Interpreter {
                 )))
             }
         };
+        self.set_target(target, result)
+    }
+
+    /// Set a value to an assignment target: variable, member, or index.
+    fn set_target(&mut self, target: &Expr, value: Value) -> IResult {
         match target {
             Expr::Ident(ident) => {
                 self.env
-                    .set(&ident.name, result.clone())
+                    .set(&ident.name, value.clone())
                     .map_err(|e| Signal::Error(RuntimeError::new(e)))?;
-                Ok(result)
+                Ok(value)
+            }
+            Expr::Member(member) => {
+                let obj = self.eval_expr(&member.object)?;
+                self.set_member_property(obj, &member.property.name, value)
+            }
+            Expr::Index(index_expr) => {
+                let obj = self.eval_expr(&index_expr.object)?;
+                let idx = self.eval_expr(&index_expr.index)?;
+                self.set_index_value(obj, idx, value)
             }
             _ => Err(Signal::Error(RuntimeError::new(
                 "invalid assignment target",
             ))),
         }
+    }
+
+    /// Set a property on an object (map/instance).
+    /// Walks up the scope chain to find and replace the `$` binding
+    /// so the mutation survives function scope pop.
+    fn set_member_property(&mut self, _obj: Value, prop: &str, value: Value) -> IResult {
+        // Get current `$` instance
+        let current = self.env.get("$").cloned().unwrap_or(Value::Null);
+        let mut new_map = std::collections::HashMap::new();
+        if let Value::Map(ref existing) = current {
+            for (k, v) in &existing.data {
+                new_map.insert(k.clone(), v.clone());
+            }
+        }
+        new_map.insert(prop.to_string(), value.clone());
+        let new_val = self.alloc_map(new_map);
+        let _ = self.env.set("$", new_val);
+        Ok(value)
+    }
+
+    /// Set an index on a collection.
+    fn set_index_value(&mut self, _obj: Value, idx: Value, value: Value) -> IResult {
+        let current = self.env.get("$").cloned().unwrap_or(Value::Null);
+        let key = match &idx {
+            Value::String(s) => s.clone(),
+            other => format!("{}", other),
+        };
+        let mut new_map = std::collections::HashMap::new();
+        if let Value::Map(ref existing) = current {
+            for (k, v) in &existing.data {
+                new_map.insert(k.clone(), v.clone());
+            }
+        }
+        new_map.insert(key, value.clone());
+        let new_val = self.alloc_map(new_map);
+        let _ = self.env.set("$", new_val);
+        Ok(value)
     }
 
     fn eval_assignment(&mut self, assign: &AssignmentExpr) -> IResult {
@@ -249,6 +294,108 @@ impl Interpreter {
         }
         // Return the last result (or null if empty)
         Ok(results.pop().unwrap_or(Value::Null))
+    }
+
+    /// Evaluate `$` — the current instance reference.
+    fn eval_dollar(&self) -> IResult {
+        self.env.get("$").cloned().ok_or_else(|| {
+            Signal::Error(RuntimeError::new(
+                "`$` (this) used outside of a class method or constructor",
+            ))
+        })
+    }
+
+    /// Evaluate `$$` — the outer class context.
+    fn eval_dollar_dollar(&self) -> IResult {
+        self.env.get("$$").cloned().ok_or_else(|| {
+            Signal::Error(RuntimeError::new(
+                "`$$` used outside of class context",
+            ))
+        })
+    }
+
+    /// Evaluate a method via super dispatch — look up the method
+    /// starting from the parent class, skipping the current class.
+    fn eval_super_method(&self, method_name: &str) -> IResult {
+        let current = self.env.get("$").cloned().unwrap_or(Value::Null);
+        let class_name = match &current {
+            Value::Map(ref m) => m.data.get("__class__")
+                .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None }),
+            _ => None,
+        };
+        match class_name {
+            Some(name) => {
+                let class_val = self.env.get(&name).cloned().unwrap_or(Value::Null);
+                match &class_val {
+                    Value::Map(ref class_map) => {
+                        // Start from parent, not current class
+                        if let Some(parent_val) = class_map.data.get("__parent__") {
+                            let mut current = Some(parent_val.clone());
+                            while let Some(Value::Map(ref cmap)) = current {
+                                if let Some(method) = cmap.data.get(method_name) {
+                                    return Ok(method.clone());
+                                }
+                                current = cmap.data.get("__parent__").cloned();
+                            }
+                        }
+                        Err(Signal::Error(RuntimeError::new(format!(
+                            "no method '{}' found in super chain",
+                            method_name
+                        ))))
+                    }
+                    _ => Err(Signal::Error(RuntimeError::new(format!(
+                        "class '{}' not found", name
+                    )))),
+                }
+            }
+            None => Err(Signal::Error(RuntimeError::new(
+                "super used outside of class context",
+            ))),
+        }
+    }
+
+    /// Evaluate `super` — dispatch to the parent class.
+    /// Returns the parent class prototype map.
+    fn eval_super(&self) -> IResult {
+        // Look up the parent class via the current instance's `__class__`
+        let current = self.env.get("$").cloned().unwrap_or(Value::Null);
+        let class_name = match &current {
+            Value::Map(ref m) => m
+                .data
+                .get("__class__")
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                }),
+            _ => None,
+        };
+
+        match class_name {
+            Some(name) => {
+                // Look up the class definition
+                let class_val = self.env.get(&name).cloned().unwrap_or(Value::Null);
+                // Look for `__parent__` on the class
+                match &class_val {
+                    Value::Map(ref m) => m
+                        .data
+                        .get("__parent__")
+                        .cloned()
+                        .ok_or_else(|| {
+                            Signal::Error(RuntimeError::new(format!(
+                                "class '{}' has no parent (super called on root class)",
+                                name
+                            )))
+                        }),
+                    _ => Err(Signal::Error(RuntimeError::new(format!(
+                        "class '{}' not found",
+                        name
+                    )))),
+                }
+            }
+            None => Err(Signal::Error(RuntimeError::new(
+                "super used outside of class context",
+            ))),
+        }
     }
 
     fn eval_postfix(&mut self, postfix: &PostfixExpr) -> IResult {
@@ -355,16 +502,54 @@ impl Interpreter {
     }
 
     fn eval_call(&mut self, call: &CallExpr) -> IResult {
-        let callee = self.eval_expr(&call.callee)?;
+        // If callee is a member expression (obj.method() or super.method()),
+        // bind `$` to the object.
+        let (method_func, instance) = if let Expr::Member(member) = &call.callee {
+            // Check for super.method() — dispatch from parent class
+            if matches!(&member.object, Expr::Super(_)) {
+                let obj = self.eval_dollar()?; // `$` is the current instance
+                let method_val = self.eval_super_method(&member.property.name)?;
+                match method_val {
+                    Value::Function(func) => (func, Some(obj)),
+                    _ => return Err(Signal::Error(RuntimeError::new("not a callable value"))),
+                }
+            } else {
+                let obj = self.eval_expr(&member.object)?;
+                let method_val = self.eval_expr(&call.callee)?;
+                match method_val {
+                    Value::Function(func) => (func, Some(obj)),
+                    _ => return Err(Signal::Error(RuntimeError::new("not a callable value"))),
+                }
+            }
+        } else {
+            let callee = self.eval_expr(&call.callee)?;
+            match callee {
+                Value::Function(func) => (func, None),
+                Value::BuiltinFn(name) => {
+                    let mut args = Vec::new();
+                    for arg in &call.args {
+                        args.push(self.eval_expr(&arg.value)?);
+                    }
+                    return call_builtin(&name, &args);
+                }
+                _ => return Err(Signal::Error(RuntimeError::new("not a callable value"))),
+            }
+        };
+
         let mut args = Vec::new();
         for arg in &call.args {
             args.push(self.eval_expr(&arg.value)?);
         }
 
-        match callee {
-            Value::BuiltinFn(name) => call_builtin(&name, &args),
-            Value::Function(func) => self.call_function(&func, args),
-            _ => Err(Signal::Error(RuntimeError::new("not a callable value"))),
+        // If this is an instance method, bind `$` to the instance
+        if let Some(inst) = instance {
+            self.env.push_scope();
+            self.env.define("$".to_string(), inst, true);
+            let result = self.call_function(&method_func, args);
+            self.env.pop_scope();
+            result
+        } else {
+            self.call_function(&method_func, args)
         }
     }
 
@@ -432,7 +617,27 @@ impl Interpreter {
         match &object {
             Value::List(list) if prop == "length" => Ok(Value::Int(BigInt::from(list.data.len()))),
             Value::String(s) if prop == "length" => Ok(Value::Int(BigInt::from(s.len()))),
-            Value::Map(map) => Ok(map.data.get(prop).cloned().unwrap_or(Value::Null)),
+            Value::Map(map) => {
+                // Direct property access
+                if let Some(val) = map.data.get(prop) {
+                    return Ok(val.clone());
+                }
+                // Method lookup via class prototype chain (includes inheritance)
+                if let Some(Value::String(class_name)) = map.data.get("__class__") {
+                    let mut current_class = self.env.get(class_name).cloned();
+                    while let Some(Value::Map(ref class_map)) = current_class {
+                        if let Some(method) = class_map.data.get(prop) {
+                            return Ok(method.clone());
+                        }
+                        // Walk up to parent class
+                        current_class = class_map
+                            .data
+                            .get("__parent__")
+                            .cloned();
+                    }
+                }
+                Ok(Value::Null)
+            }
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "cannot access property '{}' on {:?}",
                 prop, object

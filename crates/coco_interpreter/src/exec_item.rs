@@ -62,6 +62,25 @@ impl Interpreter {
             Value::String(class_decl.name.name.clone()),
         );
 
+        // Inheritance: store parent class reference
+        if let Some(parent) = &class_decl.extends {
+            // Extract the class name from the type annotation
+            let parent_name = match parent {
+                Type::Named(named) => &named.name.name,
+                _ => {
+                    return Err(Signal::Error(RuntimeError::new(
+                        "extends clause must be a named class",
+                    )));
+                }
+            };
+            if let Some(parent_val) = self.env.get(parent_name) {
+                class_map.insert(
+                    "__parent__".to_string(),
+                    parent_val.clone(),
+                );
+            }
+        }
+
         // Process members: Constructor, Method, Property
         for member in &class_decl.members {
             match member {

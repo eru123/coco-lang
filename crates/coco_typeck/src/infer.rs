@@ -30,6 +30,7 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Match(_) => Ty::Unknown,
         Expr::This(_) | Expr::Dollar(_) => env.current_self().cloned().unwrap_or(Ty::Unknown),
         Expr::DollarDollar(_) => Ty::Unknown,
+        Expr::Super(_) => Ty::Unknown,
         Expr::New(new_expr) => Ty::Named(new_expr.type_name.name.clone()),
         Expr::Parallel(_) => Ty::Unknown,
     }

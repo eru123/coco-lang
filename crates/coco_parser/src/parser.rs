@@ -1316,6 +1316,11 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Expr::DollarDollar(span)
             }
+            TokenKind::Super => {
+                let span = self.current.span;
+                self.advance();
+                Expr::Super(span)
+            }
             TokenKind::LParen => {
                 if self.starts_parenthesized_lambda() {
                     return self.parse_lambda_expr();
