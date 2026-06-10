@@ -528,6 +528,14 @@ impl Interpreter {
                 let method_val = self.eval_expr(&call.callee)?;
                 match method_val {
                     Value::Function(func) => (func, Some(obj)),
+                    Value::BuiltinFn(name) => {
+                        // Channel/Atomic method dispatch: prepend receiver to args.
+                        let mut args = vec![obj];
+                        for arg in &call.args {
+                            args.push(self.eval_expr(&arg.value)?);
+                        }
+                        return call_builtin(&name, &args);
+                    }
                     _ => return Err(Signal::Error(RuntimeError::new("not a callable value"))),
                 }
             }
@@ -647,6 +655,30 @@ impl Interpreter {
                     }
                 }
                 Ok(Value::Null)
+            }
+            Value::Channel(_) => {
+                match prop.as_str() {
+                    "send" => Ok(Value::BuiltinFn("chan_send".to_string())),
+                    "recv" => Ok(Value::BuiltinFn("chan_recv".to_string())),
+                    "close" => Ok(Value::BuiltinFn("chan_close".to_string())),
+                    _ => Err(Signal::Error(RuntimeError::new(format!(
+                        "channel has no property '{}'",
+                        prop
+                    )))),
+                }
+            }
+            Value::Atomic(_) => {
+                match prop.as_str() {
+                    "load" => Ok(Value::BuiltinFn("atomic_load".to_string())),
+                    "store" => Ok(Value::BuiltinFn("atomic_store".to_string())),
+                    "add" => Ok(Value::BuiltinFn("atomic_add".to_string())),
+                    "sub" => Ok(Value::BuiltinFn("atomic_sub".to_string())),
+                    "compareAndSwap" => Ok(Value::BuiltinFn("atomic_cas".to_string())),
+                    _ => Err(Signal::Error(RuntimeError::new(format!(
+                        "atomic has no property '{}'",
+                        prop
+                    )))),
+                }
             }
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "cannot access property '{}' on {:?}",
