@@ -339,8 +339,21 @@ impl Compiler {
                 }
             }
         } else {
-            // File-based imports deferred for VM mode.
-            return Ok(());
+            // Resolve file-based import relative to the current source file
+            let mut path = std::path::PathBuf::from(&import.source);
+            if !path.exists() && path.extension().is_none() {
+                path.set_extension("co");
+            }
+            match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(CompileError::new(format!(
+                        "cannot read module '{}': {}",
+                        path.display(),
+                        e
+                    )));
+                }
+            }
         };
 
         // Parse the module

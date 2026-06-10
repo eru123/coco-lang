@@ -59,10 +59,10 @@ enum Commands {
         /// Path to the .co file
         file: PathBuf,
     },
-    /// Run a .co file
+    /// Run a .co file (or project if no file given)
     Run {
-        /// Path to the .co file
-        file: PathBuf,
+        /// Path to the .co file (defaults to src/main.co)
+        file: Option<PathBuf>,
         /// Skip type checking before execution
         #[arg(long = "no-check")]
         no_check: bool,
@@ -75,8 +75,13 @@ enum Commands {
     },
     /// Compile a .co file to bytecode and print disassembly
     Build {
-        /// Path to the .co file
-        file: PathBuf,
+        /// Path to the .co file (defaults to src/main.co)
+        file: Option<PathBuf>,
+    },
+    /// Initialize a new Coco project
+    Init {
+        /// Project name
+        name: String,
     },
 }
 
@@ -95,8 +100,15 @@ fn main() {
             no_check,
             debug,
             use_vm,
-        } => cmd_run(&file, no_check, debug, use_vm),
-        Commands::Build { file } => cmd_build(&file),
+        } => {
+            let f = resolve_entry(file.as_deref());
+            cmd_run(&f, no_check, debug, use_vm)
+        }
+        Commands::Build { file } => {
+            let f = resolve_entry(file.as_deref());
+            cmd_build(&f)
+        }
+        Commands::Init { name } => cmd_init(&name),
     }
 }
 
@@ -127,6 +139,70 @@ fn resolve_file_in(base: &Path, file: &Path) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Resolve the entry point file. If none given, look for src/main.co, main.co.
+fn resolve_entry(file: Option<&Path>) -> PathBuf {
+    if let Some(f) = file { return f.to_path_buf(); }
+    for candidate in &["src/main.co", "main.co", "src/index.co", "index.co"] {
+        let p = Path::new(candidate);
+        if p.exists() { return p.to_path_buf(); }
+    }
+    PathBuf::from("main.co")
+}
+
+/// Initialize a new Coco project.
+fn cmd_init(name: &str) {
+    let dir = Path::new(name);
+    if dir.exists() {
+        eprintln!("error: directory '{}' already exists", name);
+        std::process::exit(1);
+    }
+    fs::create_dir_all(dir.join("src")).unwrap_or_else(|e| {
+        eprintln!("error creating project: {}", e);
+        std::process::exit(1);
+    });
+
+    // Write coco.toml
+    let toml = format!(
+        r#"[package]
+name = "{}"
+version = "0.1.0"
+description = "A Coco project"
+authors = []
+license = "MIT"
+edition = "1.0"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build]
+target = "native"
+optimize = false
+
+[safety]
+mode = "application"
+"#,
+        name
+    );
+    fs::write(dir.join("coco.toml"), &toml).unwrap();
+
+    // Write src/main.co
+    let main_co = r#"import { print } from "std/io";
+
+fn main(): int {
+    print("Hello from Coco!");
+    return 0;
+}
+
+main();
+"#;
+    fs::write(dir.join("src").join("main.co"), main_co).unwrap();
+
+    println!("Created Coco project '{}'", name);
+    println!("  cd {}", name);
+    println!("  coco run");
 }
 
 fn read_source(file: &Path) -> Result<(String, PathBuf), String> {

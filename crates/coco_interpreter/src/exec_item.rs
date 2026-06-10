@@ -308,13 +308,18 @@ impl Interpreter {
             }
         } else {
             // Build the module file path
-            let module_path = match &self.source_file {
+            let mut module_path = match &self.source_file {
                 Some(base) => {
                     let parent = base.parent().unwrap_or(Path::new("."));
                     parent.join(&import.source)
                 }
                 None => Path::new(&import.source).to_path_buf(),
             };
+
+            // Auto-resolve .co extension
+            if !module_path.exists() && module_path.extension().is_none() {
+                module_path.set_extension("co");
+            }
 
             // Read the module file
             match std::fs::read_to_string(&module_path) {
