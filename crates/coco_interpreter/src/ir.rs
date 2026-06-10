@@ -101,6 +101,11 @@ pub const OP_TRY_BEGIN: u8 = 81;
 pub const OP_TRY_END: u8 = 82;
 pub const OP_CATCH: u8 = 83;
 
+// Async operations
+pub const OP_ASYNC_CALL: u8 = 90;
+pub const OP_AWAIT: u8 = 91;
+pub const OP_LAZY_CALL: u8 = 92;
+
 /// Compound-assignment op sub-kinds carried by OP_ASSIGN_OP after the
 /// right-hand side is already on the stack (left is below it).
 pub const ASSIGN_OP_ADD: u8 = 0;
@@ -162,6 +167,9 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_TRY_BEGIN => "TRY_BEGIN",
         OP_TRY_END => "TRY_END",
         OP_CATCH => "CATCH",
+        OP_ASYNC_CALL => "ASYNC_CALL",
+        OP_AWAIT => "AWAIT",
+        OP_LAZY_CALL => "LAZY_CALL",
         _ => "???",
     }
 }
@@ -188,7 +196,9 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
         | OP_STORE_MEMBER
         | OP_TRY_BEGIN => Some(2),
 
-        OP_CALL => Some(1),
+        OP_CALL | OP_ASYNC_CALL | OP_LAZY_CALL => Some(1),
+
+        OP_AWAIT => Some(0),
 
         OP_NULL
         | OP_TRUE

@@ -22,6 +22,8 @@ pub enum Value {
     Function(Function),
     BuiltinFn(String),
     FnObj(FnObj),
+    /// Handle to an async task managed by the scheduler.
+    TaskHandle(usize),
 }
 
 /// A user-defined function captured at runtime.
@@ -63,6 +65,7 @@ impl fmt::Display for Value {
             Value::Function(func) => write!(f, "<fn {}>", func.name),
             Value::BuiltinFn(name) => write!(f, "<builtin {}>", name),
             Value::FnObj(fo) => write!(f, "<fn {}>", fo.name),
+            Value::TaskHandle(id) => write!(f, "<task {}>", id),
         }
     }
 }
@@ -80,6 +83,7 @@ impl fmt::Debug for Value {
             Value::Function(func) => write!(f, "Function({})", func.name),
             Value::BuiltinFn(name) => write!(f, "BuiltinFn({})", name),
             Value::FnObj(fo) => write!(f, "FnObj({})", fo.name),
+            Value::TaskHandle(id) => write!(f, "TaskHandle({})", id),
         }
     }
 }
@@ -95,7 +99,7 @@ impl Value {
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.data.is_empty(),
             Value::Map(m) => !m.data.is_empty(),
-            Value::Function(_) | Value::BuiltinFn(_) | Value::FnObj(_) => true,
+            Value::Function(_) | Value::BuiltinFn(_) | Value::FnObj(_) | Value::TaskHandle(_) => true,
         }
     }
 

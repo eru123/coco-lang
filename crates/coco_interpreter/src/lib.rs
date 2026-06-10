@@ -11,6 +11,7 @@ pub mod eval_expr;
 pub mod exec_item;
 pub mod exec_stmt;
 pub mod ir;
+pub mod task;
 pub mod value;
 pub mod vm;
 

@@ -17,6 +17,7 @@ use coco_gc::{CoW, Gc, Heap};
 
 use crate::builtins::call_builtin;
 use crate::ir::{read_i16, read_u16, Chunk, FnObj, *};
+use crate::task::{TaskId, TaskScheduler};
 use crate::value::Value;
 
 // ============================================================================
@@ -74,10 +75,16 @@ pub struct Vm {
     globals: HashMap<String, Value>,
     /// GC heap.
     heap: Heap,
+    /// Async task scheduler for cooperative multitasking.
+    scheduler: TaskScheduler,
     /// Exception handler stack: (handler_ip, stack_depth).
     handlers: Vec<(usize, usize)>,
     /// Debug mode.
     pub debug: bool,
+    /// Set by async opcodes to signal task should yield to scheduler.
+    yield_flag: bool,
+    /// The currently executing task id (set by run_task).
+    current_task: TaskId,
 }
 
 impl Vm {
@@ -88,8 +95,11 @@ impl Vm {
             frames: Vec::new(),
             globals: HashMap::new(),
             heap: Heap::new(),
+            scheduler: TaskScheduler::new(),
             handlers: Vec::new(),
             debug: false,
+            yield_flag: false,
+            current_task: 0,
         }
     }
 
@@ -111,24 +121,47 @@ impl Vm {
     // ========================================================================
 
     /// Execute a compiled Chunk as a top-level script and return the result.
-    /// This registers all globals (functions, variables) and then calls main().
+    ///
+    /// First runs the script chunk synchronously to register all globals
+    /// (functions, variables). Then looks up `main()` and runs it through
+    /// the async task scheduler. Async calls and awaits in main() are
+    /// cooperatively scheduled.
     pub fn run(&mut self, chunk: &Chunk) -> Result<Value, VmError> {
         self.register_builtins();
-        let _ = self.execute_chunk(chunk)?;
 
-        // Look up main and call it.
+        // Phase 1: run the script chunk synchronously to register globals.
+        let _ = self._execute_chunk_sync(chunk)?;
+
+        // Phase 2: look up main and run it through the scheduler.
         let main_fn = self.globals.get("main").cloned();
         match main_fn {
             Some(Value::FnObj(fn_obj)) => {
-                self.push(Value::FnObj(fn_obj));
-                // Locals start after the FnObj on the stack.
-                let stack_offset = self.stack.len();
-                self.frames.push(CallFrame {
-                    closure: self.stack.last().cloned().unwrap_or(Value::Null),
-                    ip: 0,
-                    stack_offset,
-                });
-                self.run_loop()
+                // Spawn main as root task.
+                let stack = vec![Value::FnObj(fn_obj.clone())];
+                let root_id = self.scheduler.spawn(
+                    Value::FnObj(fn_obj),
+                    0,
+                    1, // locals start after the closure
+                    stack,
+                );
+                self.scheduler.set_root(root_id);
+
+                // Scheduler loop.
+                loop {
+                    if let Some(result) = self.scheduler.root_result() {
+                        return result;
+                    }
+                    if let Some(err) = self.scheduler.root_failed() {
+                        return Err(VmError::new(err));
+                    }
+                    let task_id = match self.scheduler.dequeue() {
+                        Some(id) => id,
+                        None => {
+                            return Err(VmError::new("scheduler deadlock: no ready tasks"));
+                        }
+                    };
+                    self.run_task(task_id)?;
+                }
             }
             Some(_) => Err(VmError::new("'main' is not a function")),
             None => {
@@ -138,8 +171,51 @@ impl Vm {
         }
     }
 
-    /// Execute a chunk directly (for script-level bytecode).
-    fn execute_chunk(&mut self, chunk: &Chunk) -> Result<Value, VmError> {
+    /// Run a single task until it yields or completes.
+    fn run_task(&mut self, task_id: TaskId) -> Result<(), VmError> {
+        // Restore task state.
+        {
+            let task = self
+                .scheduler
+                .get(task_id)
+                .ok_or_else(|| VmError::new(format!("task {} not found", task_id)))?;
+            self.frames.clear();
+            self.frames.push(CallFrame {
+                closure: task.frame.closure.clone(),
+                ip: task.frame.ip,
+                stack_offset: task.frame.stack_offset,
+            });
+            self.stack = task.stack.clone();
+            self.yield_flag = false;
+            self.current_task = task_id;
+        }
+
+        // Run until frames exhausted or yield flag set.
+        let result = self.run_loop();
+
+        if self.yield_flag {
+            // Task suspended — save state.
+            let frame = self.frames.last().expect("frame on yield");
+            self.scheduler.save_suspended_state(
+                task_id,
+                frame.closure.clone(),
+                frame.ip,
+                frame.stack_offset,
+                self.stack.clone(),
+            );
+            return Ok(());
+        }
+
+        // Task completed — mark as complete.
+        match result {
+            Ok(val) => self.scheduler.complete(task_id, val),
+            Err(e) => self.scheduler.fail(task_id, e.message.clone()),
+        }
+        Ok(())
+    }
+
+    /// Execute a chunk directly (for internal / legacy use).
+    fn _execute_chunk_sync(&mut self, chunk: &Chunk) -> Result<Value, VmError> {
         let script_fn = Value::FnObj(FnObj {
             name: "<script>".to_string(),
             arity: 0,
@@ -194,6 +270,10 @@ impl Vm {
 
             // Dispatch (each arm is responsible for advancing IP).
             self.dispatch(op)?;
+            // Yield check: async ops set yield_flag to suspend the task.
+            if self.yield_flag {
+                return Ok(Value::Null);
+            }
         }
     }
 
@@ -213,6 +293,51 @@ impl Vm {
             OP_NULL => self.push(Value::Null),
             OP_TRUE => self.push(Value::Bool(true)),
             OP_FALSE => self.push(Value::Bool(false)),
+
+            // ---- Async operations ----
+            OP_ASYNC_CALL => {
+                let arg_count = self.read_u8_operand() as usize;
+                self.step_ip(step);
+                let task_id = self.async_call(arg_count)?;
+                self.push(Value::TaskHandle(task_id));
+                return Ok(());
+            }
+            OP_AWAIT => {
+                let handle = self.pop();
+                if let Value::TaskHandle(target_id) = handle {
+                    let done = self.scheduler.get(target_id).map_or(false, |t| {
+                        matches!(
+                            t.state,
+                            crate::task::TaskState::Completed(_)
+                                | crate::task::TaskState::Failed(_)
+                        )
+                    });
+                    if done {
+                        let val = self.scheduler.get(target_id).and_then(|t| match &t.state {
+                            crate::task::TaskState::Completed(v) => Some(v.clone()),
+                            crate::task::TaskState::Failed(err) => {
+                                return Some(Value::String(err.clone()));
+                            }
+                            _ => None,
+                        }).unwrap_or(Value::Null);
+                        self.push(val);
+                        self.step_ip(step);
+                        return Ok(());
+                    }
+                    self.scheduler.suspend_awaiting(self.current_task, target_id);
+                    self.step_ip(step);
+                    self.yield_flag = true;
+                    return Ok(());
+                }
+                return Err(VmError::new("await requires a task handle"));
+            }
+            OP_LAZY_CALL => {
+                let arg_count = self.read_u8_operand() as usize;
+                self.step_ip(step);
+                let task_id = self.async_call(arg_count)?;
+                self.push(Value::TaskHandle(task_id));
+                return Ok(());
+            }
 
             // ---- Variables ----
             OP_LOAD_LOCAL => {
@@ -450,6 +575,53 @@ impl Vm {
         // Normal instructions advance IP.
         self.step_ip(step);
         Ok(())
+    }
+
+    // ========================================================================
+    // Async call
+    // ========================================================================
+
+    /// Perform an async call: pop args + callee, spawn a new task, return task id.
+    fn async_call(&mut self, arg_count: usize) -> Result<TaskId, VmError> {
+        let mut args = Vec::with_capacity(arg_count);
+        for _ in 0..arg_count {
+            args.push(self.pop());
+        }
+        args.reverse();
+        let callee = self.pop();
+
+        match callee {
+            Value::FnObj(fn_obj) => {
+                let _chunk = fn_obj.chunk.clone();
+                let arity = fn_obj.arity;
+                if arg_count != arity {
+                    return Err(VmError::new(format!(
+                        "expected {} arguments but got {}",
+                        arity, arg_count
+                    )));
+                }
+                let mut new_stack: Vec<Value> = Vec::new();
+                new_stack.push(Value::FnObj(fn_obj.clone()));
+                for arg in args {
+                    new_stack.push(arg);
+                }
+                let task_id = self.scheduler.spawn(
+                    Value::FnObj(fn_obj),
+                    0,
+                    1, // locals start after closure
+                    new_stack,
+                );
+                Ok(task_id)
+            }
+            Value::BuiltinFn(name) => {
+                let result = call_builtin(&name, &args)
+                    .map_err(|e| VmError::new(format!("builtin error: {:?}", e)))?;
+                let task_id = self.scheduler.spawn(Value::Null, 0, 0, vec![result.clone()]);
+                self.scheduler.complete(task_id, result);
+                Ok(task_id)
+            }
+            _ => Err(VmError::new("can only call functions and builtins")),
+        }
     }
 
     // ========================================================================
@@ -747,6 +919,7 @@ impl Vm {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Null, Value::Null) => true,
+            (Value::TaskHandle(a), Value::TaskHandle(b)) => a == b,
             _ => false,
         }
     }
