@@ -28,6 +28,8 @@ pub enum Ty {
     Result(Box<Ty>, Box<Ty>),
     /// An async task that yields a value of the inner type.
     Task(Box<Ty>),
+    /// A nominal enum type with its variant names.
+    Enum(String, Vec<String>),
     /// Used when a type cannot be determined (e.g., unannotated parameter).
     Unknown,
 }
@@ -131,6 +133,7 @@ impl Ty {
                 Box::new(err.subst_impl(pairs)),
             ),
             Ty::Task(inner) => Ty::Task(Box::new(inner.subst_impl(pairs))),
+            Ty::Enum(name, variants) => Ty::Enum(name.clone(), variants.clone()),
             other => other.clone(),
         }
     }
@@ -184,6 +187,7 @@ impl fmt::Display for Ty {
             Ty::Named(name) => write!(f, "{}", name),
             Ty::Result(ok, err) => write!(f, "Result<{}, {}>", ok, err),
             Ty::Task(inner) => write!(f, "Task<{}>", inner),
+            Ty::Enum(name, _) => write!(f, "{}", name),
             Ty::Unknown => write!(f, "unknown"),
         }
     }

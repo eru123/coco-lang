@@ -243,6 +243,15 @@ fn infer_member(member: &MemberExpr, env: &TypeEnv) -> Ty {
             .lookup_shape(&name)
             .and_then(|shape| shape.member_type(&member.property.name))
             .unwrap_or(Ty::Unknown),
+        // Enum variant access: Direction.North → Direction
+        Ty::Enum(enum_name, variants) => {
+            let variant = &member.property.name;
+            if variants.iter().any(|v| v == variant) {
+                Ty::Enum(enum_name.clone(), variants.clone())
+            } else {
+                Ty::Unknown
+            }
+        }
         Ty::Union(types) => {
             let member_types = types
                 .iter()
@@ -251,6 +260,14 @@ fn infer_member(member: &MemberExpr, env: &TypeEnv) -> Ty {
                         .lookup_shape(&name)
                         .and_then(|shape| shape.member_type(&member.property.name))
                         .unwrap_or(Ty::Unknown),
+                    Ty::Enum(enum_name, variants) => {
+                        let variant = &member.property.name;
+                        if variants.iter().any(|v| v == variant) {
+                            Ty::Enum(enum_name.clone(), variants.clone())
+                        } else {
+                            Ty::Unknown
+                        }
+                    }
                     _ => Ty::Unknown,
                 })
                 .collect();

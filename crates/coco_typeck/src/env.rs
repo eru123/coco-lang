@@ -197,6 +197,17 @@ impl TypeEnv {
         self.shapes.get(name)
     }
 
+    /// Register an enum type.
+    pub fn register_enum(&mut self, name: String, variants: Vec<String>) {
+        let ty = crate::types::Ty::Enum(name.clone(), variants);
+        self.define(name, ty);
+    }
+
+    /// Look up an enum type by name.
+    pub fn lookup_enum(&self, name: &str) -> Option<crate::types::Ty> {
+        self.lookup(name).cloned()
+    }
+
     /// Push a current `this`/`$` type.
     pub fn push_self(&mut self, ty: Ty) {
         self.self_stack.push(ty);

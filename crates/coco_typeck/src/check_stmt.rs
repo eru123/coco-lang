@@ -166,6 +166,21 @@ fn null_narrowings(condition: &Expr, env: &TypeEnv) -> (Narrowings, Narrowings) 
         return (Vec::new(), Vec::new());
     };
 
+    // Handle `x is Type` for union narrowing
+    if bin.op == BinaryOp::Is {
+        if let Expr::Ident(ident) = &bin.left {
+            let Some(current_ty) = env.lookup(&ident.name) else {
+                return (Vec::new(), Vec::new());
+            };
+            let type_name = match &bin.right {
+                Expr::Literal(Literal::String(s, _)) => s.as_str(),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            return is_narrowings(&ident.name, current_ty, type_name);
+        }
+    }
+
+    // Handle `x != null` / `x == null`
     let Some(name) = null_checked_ident(&bin.left, &bin.right) else {
         return (Vec::new(), Vec::new());
     };
@@ -186,6 +201,64 @@ fn null_narrowings(condition: &Expr, env: &TypeEnv) -> (Narrowings, Narrowings) 
         BinaryOp::Ne => (vec![(name.to_string(), narrowed)], Vec::new()),
         BinaryOp::Eq => (Vec::new(), vec![(name.to_string(), narrowed)]),
         _ => (Vec::new(), Vec::new()),
+    }
+}
+
+/// Narrow a union type based on an `is` check.
+/// `x is int` → then-branch: x = int, else-branch: x = union minus int
+fn is_narrowings(var_name: &str, current_ty: &Ty, type_name: &str) -> (Narrowings, Narrowings) {
+    let target_ty = type_name_to_ty(type_name);
+    match current_ty {
+        Ty::Union(types) => {
+            // True branch: narrow to the matching type
+            let then_ty = types.iter().find(|t| type_matches(t, type_name)).cloned().unwrap_or(target_ty.clone());
+            // False branch: remove the matching type from the union
+            let else_types: Vec<Ty> = types.iter()
+                .filter(|t| !type_matches(t, type_name))
+                .cloned()
+                .collect();
+            let else_ty = Ty::union(else_types);
+            ((vec![(var_name.to_string(), then_ty)]),
+             (if else_ty == Ty::Never { vec![] } else { vec![(var_name.to_string(), else_ty)] }))
+        }
+        _ => {
+            // Non-union: if the type matches, true branch narrows; false branch remains same
+            if type_matches(current_ty, type_name) {
+                (vec![(var_name.to_string(), target_ty)], vec![])
+            } else {
+                (vec![], vec![])
+            }
+        }
+    }
+}
+
+fn type_matches(ty: &Ty, type_name: &str) -> bool {
+    match ty {
+        Ty::Int => type_name == "int",
+        Ty::Float => type_name == "float",
+        Ty::String => type_name == "string",
+        Ty::Bool => type_name == "bool",
+        Ty::Null => type_name == "null",
+        Ty::Named(name) => name == type_name,
+        Ty::Enum(name, _) => name == type_name,
+        Ty::List(_) => type_name == "list",
+        Ty::Map(_, _) => type_name == "map",
+        Ty::Function { .. } => type_name == "function",
+        _ => false,
+    }
+}
+
+fn type_name_to_ty(name: &str) -> Ty {
+    match name {
+        "int" => Ty::Int,
+        "float" => Ty::Float,
+        "string" => Ty::String,
+        "bool" => Ty::Bool,
+        "null" => Ty::Null,
+        "void" => Ty::Void,
+        "list" => Ty::List(Box::new(Ty::Unknown)),
+        "map" => Ty::Map(Box::new(Ty::Unknown), Box::new(Ty::Unknown)),
+        _ => Ty::Named(name.to_string()),
     }
 }
 
