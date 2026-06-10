@@ -28,6 +28,7 @@ impl Interpreter {
             Expr::Lambda(lambda) => self.eval_lambda(lambda),
             Expr::Postfix(postfix) => self.eval_postfix(postfix),
             Expr::Parallel(parallel) => self.eval_parallel(parallel),
+            Expr::New(new_expr) => self.eval_new(new_expr),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported expression: {:?}",
                 std::mem::discriminant(expr)
@@ -268,6 +269,89 @@ impl Interpreter {
                 postfix.op
             )))),
         }
+    }
+
+    fn eval_new(&mut self, new_expr: &NewExpr) -> IResult {
+        let class_name = &new_expr.type_name.name;
+
+        // Look up the class definition
+        let class_val = match self.env.get(class_name) {
+            Some(v) => v.clone(),
+            None => {
+                return Err(Signal::Error(RuntimeError::new(format!(
+                    "class '{}' not found",
+                    class_name
+                ))));
+            }
+        };
+
+        // Extract class metadata
+        let class_map = match &class_val {
+            Value::Map(gc) => &gc.data,
+            _ => {
+                return Err(Signal::Error(RuntimeError::new(format!(
+                    "'{}' is not a class",
+                    class_name
+                ))));
+            }
+        };
+
+        // Create a new instance (empty map)
+        let instance = std::collections::HashMap::new();
+
+        // Evaluate constructor arguments
+        let mut args = Vec::new();
+        for arg in &new_expr.args {
+            args.push(self.eval_expr(&arg.value)?);
+        }
+
+        // Tag instance with its class name for method dispatch
+        let mut instance_map = instance;
+        instance_map.insert(
+            "__class__".to_string(),
+            Value::String(class_name.to_string()),
+        );
+
+        // Call the constructor if present
+        if let Some(ctor_val) = class_map.get("__constructor__") {
+            if let Value::Function(ctor_func) = ctor_val {
+                // Allocate the instance value once
+                let instance_val = self.alloc_map(instance_map);
+
+                // Push `$` scope for constructor body
+                self.env.push_scope();
+                self.env.define("$".to_string(), instance_val, true);
+
+                // Push call stack frame
+                self.call_stack.push(StackFrame {
+                    function_name: format!("new {}", class_name),
+                    def_span: None,
+                    call_site: Some(new_expr.span),
+                    file: self.source_file.clone(),
+                });
+
+                // Call constructor
+                let result = self.call_function(ctor_func, args);
+
+                // On success, get back the instance (modified by constructor via $)
+                let final_instance = self
+                    .env
+                    .get("$")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+
+                self.call_stack.pop();
+                self.env.pop_scope();
+
+                match result {
+                    Ok(_) => return Ok(final_instance),
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
+        // No constructor — just return the instance
+        Ok(self.alloc_map(instance_map))
     }
 
     fn eval_call(&mut self, call: &CallExpr) -> IResult {
