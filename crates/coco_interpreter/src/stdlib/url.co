@@ -1,0 +1,76 @@
+// std/url — URL parsing and formatting.
+// Pure Coco implementation using str_* builtins.
+
+export fn parse(url: string): map<string, mixed> {
+    let result = { "protocol": "http", "host": "", "port": 80, "path": "/", "query": {}, "hash": "" };
+    let remaining = url;
+
+    // Protocol
+    const protoIdx = str_indexOf(remaining, "://");
+    if protoIdx != -1 {
+        result = map_set(result, "protocol", str_substring(remaining, 0, protoIdx));
+        remaining = str_substring(remaining, protoIdx + 3, len(remaining));
+    }
+
+    // Hash
+    const hashIdx = str_indexOf(remaining, "#");
+    if hashIdx != -1 {
+        result = map_set(result, "hash", str_substring(remaining, hashIdx + 1, len(remaining)));
+        remaining = str_substring(remaining, 0, hashIdx);
+    }
+
+    // Query
+    const queryIdx = str_indexOf(remaining, "?");
+    if queryIdx != -1 {
+        const qs = str_substring(remaining, queryIdx + 1, len(remaining));
+        result = map_set(result, "query", parseQuery(qs));
+        remaining = str_substring(remaining, 0, queryIdx);
+    }
+
+    // Host and port
+    const pathIdx = str_indexOf(remaining, "/");
+    let hostPart = remaining;
+    if pathIdx != -1 {
+        hostPart = str_substring(remaining, 0, pathIdx);
+        result = map_set(result, "path", str_substring(remaining, pathIdx, len(remaining)));
+    }
+
+    const portIdx = str_indexOf(hostPart, ":");
+    if portIdx != -1 {
+        result = map_set(result, "host", str_substring(hostPart, 0, portIdx));
+        result = map_set(result, "port", parseInt(str_substring(hostPart, portIdx + 1, len(hostPart))));
+    } else {
+        result = map_set(result, "host", hostPart);
+    }
+
+    return result;
+}
+
+export fn parseQuery(qs: string): map<string, mixed> {
+    let result = {};
+    if qs == "" { return result; }
+    const pairs = str_split(qs, "&");
+    let i = 0;
+    while i < len(pairs) {
+        const pair = pairs[i];
+        const eqIdx = str_indexOf(pair, "=");
+        if eqIdx > 0 {
+            const key = str_substring(pair, 0, eqIdx);
+            const val = str_substring(pair, eqIdx + 1, len(pair));
+            result = map_set(result, key, val);
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+export fn format(url: map<string, mixed>): string {
+    const protocol = map_get(url, "protocol", "http");
+    const host = map_get(url, "host", "localhost");
+    const port = map_get(url, "port", 80);
+    const path = map_get(url, "path", "/");
+    let result = protocol + "://" + host;
+    if port != 80 { result = result + ":" + toString(port); }
+    result = result + path;
+    return result;
+}

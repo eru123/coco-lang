@@ -1,24 +1,73 @@
-// std/collections — Queue, Stack, and Set data structures (pure Coco).
-// Built on top of native lists and maps.
+// std/collections — Queue, Stack, and Set backed by list mutation builtins.
 
 // ---- Queue (FIFO) ----
 export fn createQueue(): map<string, mixed> {
     return { "items": [], "__type__": "Queue" };
 }
-export fn queuePush(q: map<string, mixed>, item: mixed): void {
-    const list = q["items"];
-    if list == null { return; }
-    // Manual push — we can't call methods so use concatenation
-    const newList = list + [item];
-    // Re-assign — in the interpreter this mutates the map ref
+export fn queuePush(q: map<string, mixed>, item: mixed): map<string, mixed> {
+    const items = map_get(q, "items", []);
+    const newItems = list_push(items, item);
+    return map_set(q, "items", newItems);
+}
+export fn queuePop(q: map<string, mixed>): map<string, mixed> {
+    const items = map_get(q, "items", []);
+    const result = list_pop(items);
+    const value = map_get(result, "value", null);
+    const newItems = map_get(result, "list", []);
+    return map_set(map_set(q, "items", newItems), "__lastPop__", value);
+}
+export fn queuePeek(q: map<string, mixed>): mixed {
+    const items = map_get(q, "items", []);
+    if len(items) == 0 { return null; }
+    return items[0];
+}
+export fn queueSize(q: map<string, mixed>): int {
+    return len(map_get(q, "items", []));
 }
 
 // ---- Stack (LIFO) ----
 export fn createStack(): map<string, mixed> {
     return { "items": [], "__type__": "Stack" };
 }
+export fn stackPush(s: map<string, mixed>, item: mixed): map<string, mixed> {
+    const items = map_get(s, "items", []);
+    return map_set(s, "items", list_push(items, item));
+}
+export fn stackPop(s: map<string, mixed>): map<string, mixed> {
+    const items = map_get(s, "items", []);
+    const result = list_pop(items);
+    const value = map_get(result, "value", null);
+    const newItems = map_get(result, "list", []);
+    return map_set(map_set(s, "items", newItems), "__lastPop__", value);
+}
+export fn stackPeek(s: map<string, mixed>): mixed {
+    const items = map_get(s, "items", []);
+    if len(items) == 0 { return null; }
+    return items[len(items) - 1];
+}
 
-// ---- Set (unique values) ----
+// ---- Set (unique values using map keys) ----
 export fn createSet(): map<string, mixed> {
-    return { "items": [], "__type__": "Set" };
+    return { "values": {}, "__type__": "Set" };
+}
+export fn setAdd(s: map<string, mixed>, item: mixed): map<string, mixed> {
+    const values = map_get(s, "values", {});
+    const key = toString(item);
+    return map_set(s, "values", map_set(values, key, item));
+}
+export fn setHas(s: map<string, mixed>, item: mixed): bool {
+    const values = map_get(s, "values", {});
+    return map_has(values, toString(item));
+}
+export fn setRemove(s: map<string, mixed>, item: mixed): map<string, mixed> {
+    const values = map_get(s, "values", {});
+    return map_set(s, "values", map_delete(values, toString(item)));
+}
+export fn setSize(s: map<string, mixed>): int {
+    const values = map_get(s, "values", {});
+    return len(map_keys(values));
+}
+export fn setItems(s: map<string, mixed>): list<mixed> {
+    const values = map_get(s, "values", {});
+    return map_values(values);
 }

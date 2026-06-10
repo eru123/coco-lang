@@ -1,0 +1,20 @@
+// std/log — Leveled logging for Coco applications.
+export const LEVELS = { "DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3 };
+export let currentLevel = 1; // INFO by default
+
+export fn setLevel(level: string): void {
+    currentLevel = map_get(LEVELS, level, 1);
+}
+
+export fn debug(msg: string): void {
+    if currentLevel <= 0 { print("[DEBUG] " + msg); }
+}
+export fn info(msg: string): void {
+    if currentLevel <= 1 { print("[INFO] " + msg); }
+}
+export fn warn(msg: string): void {
+    if currentLevel <= 2 { print("[WARN] " + msg); }
+}
+export fn error(msg: string): void {
+    if currentLevel <= 3 { print("[ERROR] " + msg); }
+}

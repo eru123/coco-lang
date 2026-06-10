@@ -1,0 +1,14 @@
+// std/crypto — Cryptographic hashing for Coco.
+// Wraps the sha256 builtin and provides random bytes.
+export fn sha256(data: string): string { return sha256(data); }
+
+export fn randomBytes(count: int): string {
+    let result = "";
+    let i = 0;
+    while i < count {
+        const n = random(256);
+        result = result + toString(n) + ",";
+        i = i + 1;
+    }
+    return result;
+}

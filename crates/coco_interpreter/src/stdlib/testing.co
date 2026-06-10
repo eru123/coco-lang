@@ -1,0 +1,42 @@
+// std/testing — Test runner with describe/it blocks and assertions.
+export fn describe(name: string, tests: function): void {
+    print("\n  " + name);
+    tests();
+}
+
+export fn it(name: string, test: function): void {
+    try {
+        test();
+        print("    ✓ " + name);
+    } catch (e: mixed) {
+        print("    ✗ " + name + " — " + toString(e));
+    }
+}
+
+export fn expect(actual: mixed): map<string, mixed> {
+    return { "actual": actual, "__expect__": "true" };
+}
+
+export fn toEqual(expectObj: map<string, mixed>, expected: mixed): void {
+    const actual = map_get(expectObj, "actual", null);
+    const actualStr = toString(actual);
+    const expectedStr = toString(expected);
+    if actualStr != expectedStr {
+        error("expected " + expectedStr + " but got " + actualStr);
+    }
+}
+
+export fn toBeTruthy(expectObj: map<string, mixed>): void {
+    const actual = map_get(expectObj, "actual", null);
+    // Use builtin truthiness check
+    if actual == null || actual == false || actual == 0 || actual == "" {
+        error("expected truthy but got " + toString(actual));
+    }
+}
+
+export fn toBeNull(expectObj: map<string, mixed>): void {
+    const actual = map_get(expectObj, "actual", null);
+    if actual != null {
+        error("expected null but got " + toString(actual));
+    }
+}

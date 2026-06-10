@@ -36,6 +36,10 @@ pub fn get_stdlib_source(module: &str) -> Option<&'static str> {
         "std/regex" => Some(include_str!("stdlib/regex.co")),
         "std/net" => Some(include_str!("stdlib/net.co")),
         "std/collections" => Some(include_str!("stdlib/collections.co")),
+        "std/url" => Some(include_str!("stdlib/url.co")),
+        "std/testing" => Some(include_str!("stdlib/testing.co")),
+        "std/crypto" => Some(include_str!("stdlib/crypto.co")),
+        "std/log" => Some(include_str!("stdlib/log.co")),
         _ => None,
     }
 }
