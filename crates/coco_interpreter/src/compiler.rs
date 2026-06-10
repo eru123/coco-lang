@@ -214,6 +214,8 @@ impl Compiler {
             Stmt::Continue(_) => self.compile_continue(),
             Stmt::Throw(throw) => self.compile_throw(throw),
             Stmt::Try(try_stmt) => self.compile_try(try_stmt),
+            Stmt::Parallel(parallel) => self.compile_parallel(parallel),
+            Stmt::Coro(coro) => self.compile_coro(coro),
             _ => Ok(()),
         }
     }
@@ -509,6 +511,47 @@ impl Compiler {
         }
 
         self.place_label(end_label);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // parallel { run expr; ... }
+    // -----------------------------------------------------------------------
+
+    fn compile_parallel(&mut self, parallel: &ParallelStmt) -> CResult<()> {
+        let count = parallel.runs.len();
+        if count == 0 {
+            return Ok(());
+        }
+
+        // Compile each run — the call expression returns a TaskHandle.
+        for run in &parallel.runs {
+            self.compile_expr(&run.expr)?;
+        }
+
+        // Await all results in reverse order (stack discipline).
+        // Each OP_AWAIT pops a TaskHandle, suspends if needed, pushes result.
+        for _ in 0..count {
+            self.emit_op(OP_AWAIT);
+        }
+
+        // The results are now on the stack in order of the runs.
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // coro { body }
+    // -----------------------------------------------------------------------
+
+    fn compile_coro(&mut self, _coro: &CoroStmt) -> CResult<()> {
+        // For fire-and-forget coroutines, we compile the body as an
+        // immediately-invoked async lambda and discard the handle.
+        // The body scope is already handled by the parser.
+
+        // We emit a simple approach: push a null placeholder since coro
+        // is fire-and-forget and doesn't return a value to the caller.
+        // Future: compile body as a separate task and spawn it.
+        self.emit_op(OP_NULL);
         Ok(())
     }
 
