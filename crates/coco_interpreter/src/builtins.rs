@@ -959,6 +959,22 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
         }
 
+        // ---- Hashing ----
+        "hash" => {
+            if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("hash(value) expects 1 arg"))); }
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            match &args[0] {
+                Value::Int(n) => n.hash(&mut h),
+                Value::Float(f) => f.to_bits().hash(&mut h),
+                Value::String(s) => s.hash(&mut h),
+                Value::Bool(b) => b.hash(&mut h),
+                Value::Null => 0u8.hash(&mut h),
+                _ => format!("{:?}", args[0]).hash(&mut h),
+            }
+            Ok(Value::Int(BigInt::from(h.finish())))
+        }
+
         // ---- SHA256 hashing ----
         "sha256" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("sha256(str) expects 1 arg"))); }
