@@ -1,6 +1,9 @@
+use std::path::Path;
+
+use coco_parser::Parser;
 use coco_syntax::*;
 
-use crate::error::IResult;
+use crate::error::{IResult, RuntimeError, Signal};
 use crate::value::{Function, Value};
 use crate::Interpreter;
 
@@ -14,6 +17,7 @@ impl Interpreter {
             Item::ExprStmt(expr_stmt) => self.eval_expr(&expr_stmt.expr),
             Item::Stmt(stmt) => self.exec_stmt(stmt),
             Item::ClassDecl(class_decl) => self.exec_class_decl(class_decl),
+            Item::Import(import) => self.exec_import(import),
             _ => Ok(Value::Null),
         }
     }
@@ -98,6 +102,74 @@ impl Interpreter {
         let class_val = self.alloc_map(class_map);
         self.env
             .define(class_decl.name.name.clone(), class_val, false);
+        Ok(Value::Null)
+    }
+
+    /// Execute an import statement — resolve the module, parse it,
+    /// execute its items, and import the requested names.
+    fn exec_import(&mut self, import: &Import) -> IResult {
+        // Build the module file path
+        let module_path = match &self.source_file {
+            Some(base) => {
+                let parent = base.parent().unwrap_or(Path::new("."));
+                parent.join(&import.source)
+            }
+            None => Path::new(&import.source).to_path_buf(),
+        };
+
+        // Read the module file
+        let src = match std::fs::read_to_string(&module_path) {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(Signal::Error(RuntimeError::new(format!(
+                    "cannot read module '{}': {}",
+                    module_path.display(),
+                    e
+                ))));
+            }
+        };
+
+        // Parse the module
+        let mut parser = Parser::new(&src);
+        let program = parser.parse_program();
+
+        // Extract requested import names
+        let export_names: Vec<String> = match &import.items {
+            ImportItems::Named(idents) => idents.iter().map(|i| i.name.clone()).collect(),
+            ImportItems::Namespace(_) => Vec::new(), // `import * as name` deferred
+        };
+
+        // Execute the module's items in a fresh scope to collect exports
+        let saved_file = self.source_file.clone();
+        self.source_file = Some(module_path);
+        self.env.push_scope();
+
+        for item in &program.items {
+            if let Err(e) = self.exec_item(item) {
+                self.env.pop_scope();
+                self.source_file = saved_file;
+                return Err(e);
+            }
+        }
+
+        // Collect exported values before popping module scope
+        let mut exports: Vec<(String, Value)> = Vec::new();
+        for name in &export_names {
+            if let Some(val) = self.env.get_current_scope(name) {
+                exports.push((name.clone(), val));
+            }
+        }
+
+        // Pop the module scope
+        self.env.pop_scope();
+
+        // Define exports in parent (now-current) scope
+        for (name, val) in exports {
+            self.env.define(name, val, true);
+        }
+
+        self.source_file = saved_file;
+
         Ok(Value::Null)
     }
 }

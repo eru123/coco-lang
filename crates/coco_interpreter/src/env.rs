@@ -64,6 +64,14 @@ impl Environment {
         None
     }
 
+    /// Look up a variable only in the current (topmost) scope.
+    /// Used for extracting exports from a module scope.
+    pub fn get_current_scope(&self, name: &str) -> Option<Value> {
+        self.scopes.last()
+            .and_then(|scope| scope.bindings.get(name))
+            .map(|(val, _)| val.clone())
+    }
+
     /// Set an existing variable's value. Returns false if not found or not mutable.
     pub fn set(&mut self, name: &str, value: Value) -> Result<(), String> {
         for scope in self.scopes.iter_mut().rev() {

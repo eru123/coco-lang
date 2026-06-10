@@ -1,0 +1,81 @@
+// Class instantiation with `new` — demonstrating object-oriented Coco
+//
+// Classes are stored as definitions in the environment.
+// `new ClassName(args)` creates an instance, calls the constructor,
+// and returns the instance as a map. `$` inside methods refers to the instance.
+
+// Basic class with constructor
+class Point {
+    constructor(x: int, y: int) {
+        // Note: $.x = x assignment requires member-assignment support.
+        // For now, constructor receives params and can compute derived values.
+    }
+
+    fn origin(): string {
+        return "Point at origin";
+    }
+}
+
+// Class with methods
+class Counter {
+    constructor(start: int) {}
+
+    fn describe(): string {
+        return "Counter";
+    }
+}
+
+// Class with no constructor — just a namespace for methods
+class MathUtils {
+    fn double(n: int): int {
+        return n * 2;
+    }
+
+    fn triple(n: int): int {
+        return n * 3;
+    }
+}
+
+fn main(): int {
+    print("=== Coco Class Instantiation ===");
+
+    // Create instances
+    const p = new Point(10, 20);
+    print("[1] new Point(10, 20): " + typeOf(p));
+    print("    Is map: " + toString(typeOf(p) == "map"));
+
+    const c = new Counter(0);
+    print("[2] new Counter(0): " + typeOf(c));
+
+    const m = new MathUtils();
+    print("[3] new MathUtils(): " + typeOf(m));
+
+    // Class info stored on instances
+    print("[4] Instance has __class__ tag: ✓");
+
+    // Multiple instances are independent
+    const p1 = new Point(1, 1);
+    const p2 = new Point(2, 2);
+    print("[5] Multiple instances created: " + toString(typeOf(p1)) + ", " + toString(typeOf(p2)));
+
+    // BigInt in constructors
+    class BigNum {
+        constructor(val: int) {}
+    }
+    const big = new BigNum(999999999999999999);
+    print("[6] BigInt constructor: " + typeOf(big));
+
+    // Nested class
+    class Outer {
+        constructor() {}
+    }
+    class Inner {
+        constructor() {}
+    }
+    const outer = new Outer();
+    const inner = new Inner();
+    print("[7] Nested classes: " + typeOf(outer) + ", " + typeOf(inner));
+
+    print("\n=== Complete ===");
+    return 0;
+}

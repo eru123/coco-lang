@@ -98,6 +98,8 @@ pub struct Compiler {
     in_function: bool,
     /// Whether we are compiling inside a `lazy` expression wrapper.
     in_lazy: bool,
+    /// Enable tree-shaking (dead function elimination) after compilation.
+    pub enable_tree_shake: bool,
 }
 
 impl Compiler {
@@ -110,6 +112,7 @@ impl Compiler {
             loop_stack: Vec::new(),
             in_function: false,
             in_lazy: false,
+            enable_tree_shake: false,
         }
     }
 
@@ -134,7 +137,155 @@ impl Compiler {
         // Ensure the script returns something.
         self.emit_op(OP_NULL);
         self.emit_op(OP_RETURN);
-        Ok(self.finish_chunk())
+
+        let mut chunk = self.finish_chunk();
+        if self.enable_tree_shake {
+            self.tree_shake(&mut chunk);
+        }
+        Ok(chunk)
+    }
+
+    // ========================================================================
+    // Tree-shaking — remove unreachable function declarations
+    // ========================================================================
+
+    /// Remove unreachable functions from the compiled chunk.
+    ///
+    /// Starting from `main()`, walks the call graph through bytecode
+    /// to find which functions are actually called. Any `OP_DEFINE_GLOBAL`
+    /// instruction that defines an unreachable function is removed along
+    /// with its associated FnObj constant.
+    fn tree_shake(&self, chunk: &mut Chunk) {
+        // Find the FnObj constants and their names
+        let mut fn_names: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
+        let mut reachable: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut worklist: Vec<String> = Vec::new();
+
+        // Scan constants for FnObj values
+        for (i, constant) in chunk.constants.iter().enumerate() {
+            if let Value::FnObj(fn_obj) = constant {
+                let name = fn_obj.name.clone();
+                if name != "<script>" {
+                    fn_names.insert(i, name.clone());
+                }
+            }
+        }
+
+        // Start with main()
+        if fn_names.values().any(|n| n == "main") {
+            worklist.push("main".to_string());
+            reachable.insert("main".to_string());
+        }
+
+        // Walk the bytecode of reachable functions to find calls
+        while let Some(name) = worklist.pop() {
+            // Find the FnObj constant index for this function
+            let const_idx = fn_names
+                .iter()
+                .find(|(_, n)| *n == &name)
+                .map(|(i, _)| *i);
+
+            if let Some(idx) = const_idx {
+                let fn_obj = match &chunk.constants[idx] {
+                    Value::FnObj(f) => f.clone(),
+                    _ => continue,
+                };
+
+                // Scan the function's bytecode for CALL instructions
+                let code = &fn_obj.chunk.code;
+                let mut ip: i32 = 0;
+                while (ip as usize) < code.len() {
+                    let op = code[ip as usize];
+                    let step = 1
+                        + crate::ir::operand_bytes(op).unwrap_or(0) as i32;
+
+                    if op == OP_CALL || op == OP_ASYNC_CALL || op == OP_LAZY_CALL {
+                        // Walk backward from CALL to find the preceding
+                        // LOAD_GLOBAL that pushes the callee.
+                        let mut back: i32 = ip - 1;
+                        while back >= 0 {
+                            let bop = code[back as usize];
+                            if bop == OP_LOAD_GLOBAL || bop == OP_DEFINE_GLOBAL {
+                                let idx = crate::ir::read_u16(
+                                    &code[(back + 1) as usize..],
+                                ) as usize;
+                                if let Some(Value::String(callee_name)) =
+                                    fn_obj.chunk.constants.get(idx)
+                                {
+                                    if fn_names.values().any(|n| n == callee_name)
+                                        && !reachable.contains(callee_name)
+                                    {
+                                        reachable.insert(callee_name.clone());
+                                        worklist.push(callee_name.clone());
+                                    }
+                                }
+                                break;
+                            }
+                            back -= 1
+                                + crate::ir::operand_bytes(bop).unwrap_or(0)
+                                    as i32;
+                        }
+                    }
+
+                    ip += step;
+                }
+            }
+        }
+
+        // Remove unreachable DEFINE_GLOBAL instructions from the script chunk
+        let code = &chunk.code;
+        let constants = &chunk.constants;
+        let mut new_code: Vec<u8> = Vec::new();
+        let mut ip: i32 = 0;
+
+        while (ip as usize) < code.len() {
+            let op = code[ip as usize];
+            if op == OP_DEFINE_GLOBAL {
+                // Check if this defines an unreachable function
+                let name_idx =
+                    crate::ir::read_u16(&code[(ip + 1) as usize..]) as usize;
+                if let Some(Value::String(fn_name)) = constants.get(name_idx) {
+                    if fn_names.values().any(|n| n == fn_name)
+                        && !reachable.contains(fn_name)
+                    {
+                        // Skip this instruction (2 bytes op+idx)
+                        ip += 3;
+                        // Also skip the preceding LOAD_GLOBAL + MAKE_CLOSURE pattern
+                        // by checking if previous instructions are part of fn decl
+                        continue;
+                    }
+                }
+            }
+
+            // Copy the instruction
+            new_code.push(op);
+            let step = 1 + crate::ir::operand_bytes(op).unwrap_or(0) as i32;
+            for j in 1..step {
+                let pos = (ip + j) as usize;
+                if pos < code.len() {
+                    new_code.push(code[pos]);
+                }
+            }
+            ip += step;
+        }
+
+        chunk.code = new_code;
+
+        // Log tree-shaking results
+        let removed: Vec<String> = fn_names
+            .values()
+            .filter(|n| !reachable.contains(*n) && *n != "main")
+            .cloned()
+            .collect();
+        if !removed.is_empty() {
+            eprintln!(
+                "[tree-shake] removed {} unreachable function(s): {:?}",
+                removed.len(),
+                removed
+            );
+        }
     }
 
     // ========================================================================
