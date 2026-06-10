@@ -18,7 +18,6 @@ use num_bigint::BigInt;
 
 use crate::builtins::call_builtin;
 use crate::ir::{read_i16, read_u16, Chunk, FnObj, *};
-use crate::stack::{CallStack, StackFrame};
 use crate::task::{TaskId, TaskScheduler};
 use crate::value::Value;
 
@@ -87,6 +86,8 @@ pub struct Vm {
     yield_flag: bool,
     /// The currently executing task id (set by run_task).
     current_task: TaskId,
+    /// Stack of `$` (this) bindings for OOP method calls.
+    this_stack: Vec<Value>,
 }
 
 impl Vm {
@@ -102,6 +103,7 @@ impl Vm {
             debug: false,
             yield_flag: false,
             current_task: 0,
+            this_stack: Vec::new(),
         }
     }
 
@@ -554,7 +556,7 @@ impl Vm {
                 let idx = self.read_u16_operand() as usize;
                 let prop = self.string_constant(idx)?;
                 let obj = self.pop();
-                self.push(Self::vm_member(obj, &prop)?);
+                self.push(self.vm_member(obj, &prop)?);
             }
             OP_STORE_MEMBER => {
                 let idx = self.read_u16_operand() as usize;
@@ -633,6 +635,115 @@ impl Vm {
                         )));
                     }
                 }
+            }
+
+            // ---- OOP ----
+            OP_THIS => {
+                let this_val = self.this_stack.last().cloned().unwrap_or(Value::Null);
+                self.push(this_val);
+            }
+            OP_METHOD_CALL => {
+                let name_idx = self.read_u16_operand() as usize;
+                // arg_count is at ip+3 (after op + u16)
+                let frame = self.frames.last().expect("no frame");
+                let chunk = self.chunk_of(&frame.closure).expect("no chunk");
+                let arg_count = chunk.code[frame.ip + 3] as usize;
+                let method_name = self.string_constant(name_idx)?;
+                let mut args = Vec::with_capacity(arg_count);
+                for _ in 0..arg_count {
+                    args.push(self.pop());
+                }
+                args.reverse();
+                let obj = self.pop();
+                let method = self.vm_member(obj.clone(), &method_name)?;
+                self.this_stack.push(obj);
+                self.call_value(method, args)?;
+                self.this_stack.pop();
+                return Ok(());
+            }
+            OP_SUPER_METHOD => {
+                let name_idx = self.read_u16_operand() as usize;
+                let frame = self.frames.last().expect("no frame");
+                let chunk = self.chunk_of(&frame.closure).expect("no chunk");
+                let arg_count = chunk.code[frame.ip + 3] as usize;
+                let method_name = self.string_constant(name_idx)?;
+                let mut args = Vec::with_capacity(arg_count);
+                for _ in 0..arg_count {
+                    args.push(self.pop());
+                }
+                args.reverse();
+                let current_this = self.this_stack.last().cloned().unwrap_or(Value::Null);
+                let class_name = match &current_this {
+                    Value::Map(m) => m.data.get("__class__")
+                        .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None }),
+                    _ => None,
+                };
+                let parent_method = match class_name {
+                    Some(name) => {
+                        let class_val = self.globals.get(&name).cloned().unwrap_or(Value::Null);
+                        match &class_val {
+                            Value::Map(class_map) => {
+                                if let Some(parent_val) = class_map.data.get("__parent__") {
+                                    let mut current = Some(parent_val.clone());
+                                    let mut found = None;
+                                    while let Some(Value::Map(ref cmap)) = current {
+                                        if let Some(m) = cmap.data.get(&method_name) {
+                                            found = Some(m.clone());
+                                            break;
+                                        }
+                                        current = cmap.data.get("__parent__").cloned();
+                                    }
+                                    found
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
+                    }
+                    None => None,
+                };
+                match parent_method {
+                    Some(method) => self.call_value(method, args)?,
+                    None => return Err(VmError::new(format!(
+                        "no method '{}' found in super chain", method_name
+                    ))),
+                }
+                return Ok(());
+            }
+            OP_NEW => {
+                let arg_count = self.read_u8_operand() as usize;
+                let mut args = Vec::with_capacity(arg_count);
+                for _ in 0..arg_count {
+                    args.push(self.pop());
+                }
+                args.reverse();
+                let class_val = self.pop();
+                let class_map = match &class_val {
+                    Value::Map(m) => &m.data,
+                    _ => return Err(VmError::new("'new' requires a class value")),
+                };
+                let class_name = class_map.get("__class__")
+                    .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })
+                    .unwrap_or_default();
+                let mut instance_map = HashMap::new();
+                instance_map.insert("__class__".to_string(), Value::String(class_name.clone()));
+                for (key, val) in class_map.iter() {
+                    if key.starts_with("__prop_") {
+                        let prop_name = key.strip_prefix("__prop_").unwrap_or(key);
+                        instance_map.insert(prop_name.to_string(), val.clone());
+                    }
+                }
+                let instance = self.alloc_map(instance_map);
+                if let Some(ctor_val) = class_map.get("__constructor__") {
+                    self.this_stack.push(instance.clone());
+                    self.call_value(ctor_val.clone(), args)?;
+                    let final_instance = self.this_stack.pop().unwrap_or(instance);
+                    self.push(final_instance);
+                } else {
+                    self.push(instance);
+                }
+                return Ok(());
             }
 
             _ => {
@@ -772,6 +883,55 @@ impl Vm {
             }
         }
 
+        Ok(())
+    }
+
+    /// Call a function value directly (not from the stack).
+    /// Used by OP_METHOD_CALL, OP_SUPER_METHOD, and OP_NEW.
+    fn call_value(&mut self, callee: Value, args: Vec<Value>) -> VmResult<()> {
+        let arg_count = args.len();
+        match callee {
+            Value::FnObj(fn_obj) => {
+                if fn_obj.is_async {
+                    return Err(VmError::new("async method calls not yet supported in VM"));
+                }
+                let arity = fn_obj.arity;
+                if arg_count != arity {
+                    return Err(VmError::new(format!(
+                        "{}() expects {} arguments, got {}",
+                        fn_obj.name, arity, arg_count
+                    )));
+                }
+                // Push the function and args onto the stack as locals
+                let stack_offset = self.stack.len();
+                self.stack.push(Value::FnObj(fn_obj));
+                for arg in args {
+                    self.stack.push(arg);
+                }
+                self.frames.push(CallFrame {
+                    closure: self.stack[stack_offset].clone(),
+                    ip: 0,
+                    stack_offset,
+                });
+            }
+            Value::BuiltinFn(name) => {
+                let result = call_builtin(&name, &args)
+                    .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
+                self.push(result);
+            }
+            Value::Function(func) => {
+                return Err(VmError::new(format!(
+                    "cannot call tree-walking function '{}' in VM mode",
+                    func.name
+                )));
+            }
+            _ => {
+                return Err(VmError::new(format!(
+                    "{} is not callable",
+                    callee
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -1160,11 +1320,27 @@ impl Vm {
         }
     }
 
-    fn vm_member(obj: Value, prop: &str) -> VmResult<Value> {
+    fn vm_member(&self, obj: Value, prop: &str) -> VmResult<Value> {
         match &obj {
             Value::List(list) if prop == "length" => Ok(Value::Int(BigInt::from(list.data.len()))),
             Value::String(s) if prop == "length" => Ok(Value::Int(BigInt::from(s.len()))),
-            Value::Map(map) => Ok(map.data.get(prop).cloned().unwrap_or(Value::Null)),
+            Value::Map(map) => {
+                // Direct property access
+                if let Some(val) = map.data.get(prop) {
+                    return Ok(val.clone());
+                }
+                // OOP prototype chain lookup via __class__
+                if let Some(Value::String(class_name)) = map.data.get("__class__") {
+                    let mut current = self.globals.get(class_name).cloned();
+                    while let Some(Value::Map(ref class_map)) = current {
+                        if let Some(method) = class_map.data.get(prop) {
+                            return Ok(method.clone());
+                        }
+                        current = class_map.data.get("__parent__").cloned();
+                    }
+                }
+                Ok(Value::Null)
+            }
             _ => Err(VmError::new(format!(
                 "cannot access property '{}' on value",
                 prop

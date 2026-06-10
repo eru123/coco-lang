@@ -109,6 +109,12 @@ pub const OP_AWAIT: u8 = 91;
 pub const OP_LAZY_CALL: u8 = 92;
 pub const OP_TRY: u8 = 93; // ? operator — propagate Err, unwrap Ok
 
+// OOP operations
+pub const OP_THIS: u8 = 94; // push current $ value
+pub const OP_METHOD_CALL: u8 = 95; // method call with $ binding (u16 name_idx, u8 arg_count)
+pub const OP_SUPER_METHOD: u8 = 96; // super.method() call (u16 name_idx, u8 arg_count)
+pub const OP_NEW: u8 = 97; // new Class(args) (u8 arg_count)
+
 /// Compound-assignment op sub-kinds carried by OP_ASSIGN_OP after the
 /// right-hand side is already on the stack (left is below it).
 pub const ASSIGN_OP_ADD: u8 = 0;
@@ -174,6 +180,10 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_AWAIT => "AWAIT",
         OP_LAZY_CALL => "LAZY_CALL",
         OP_TRY => "TRY",
+        OP_THIS => "THIS",
+        OP_METHOD_CALL => "METHOD_CALL",
+        OP_SUPER_METHOD => "SUPER_METHOD",
+        OP_NEW => "NEW",
         _ => "???",
     }
 }
@@ -202,7 +212,11 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
 
         OP_CALL | OP_ASYNC_CALL | OP_LAZY_CALL => Some(1),
 
-        OP_AWAIT | OP_TRY => Some(0),
+        OP_METHOD_CALL | OP_SUPER_METHOD => Some(3), // u16 name_idx + u8 arg_count
+
+        OP_NEW => Some(1),
+
+        OP_THIS | OP_AWAIT | OP_TRY => Some(0),
 
         OP_NULL
         | OP_TRUE
@@ -453,6 +467,18 @@ impl ChunkBuilder {
         self.code.push(val);
     }
 
+    /// Emit an opcode followed by a u16 operand and a u8 operand.
+    /// Used for OP_METHOD_CALL and OP_SUPER_METHOD (name_idx: u16, arg_count: u8).
+    pub fn emit_op_u16_u8(&mut self, op: u8, val16: u16, val8: u8) {
+        self.record_line();
+        self.code.push(op);
+        let start = self.code.len();
+        self.code.push(0);
+        self.code.push(0);
+        write_u16(&mut self.code[start..start + 2], val16);
+        self.code.push(val8);
+    }
+
     /// Emit a jump instruction whose target is a label not yet placed.
     /// The operand will be patched when `place_label` is called.
     pub fn emit_jump(&mut self, jump_op: u8, label: Label) {
@@ -600,6 +626,19 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize, out: &mut String) -
                 }
             } else {
                 out.push_str(&format!("{} {:>4}\n", op_name, val));
+            }
+        }
+        3 => {
+            let val16 = read_u16(&chunk.code[offset + 1..offset + 3]);
+            let val8 = chunk.code[offset + 3];
+            if op == OP_METHOD_CALL || op == OP_SUPER_METHOD {
+                if let Some(Value::String(s)) = chunk.constants.get(val16 as usize) {
+                    out.push_str(&format!("{} {:>4} {:>4}  ; {} \n", op_name, val16, val8, s));
+                } else {
+                    out.push_str(&format!("{} {:>4} {:>4}\n", op_name, val16, val8));
+                }
+            } else {
+                out.push_str(&format!("{} {:>4} {:>4}\n", op_name, val16, val8));
             }
         }
         _ => {

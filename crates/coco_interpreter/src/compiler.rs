@@ -17,9 +17,10 @@ use crate::ir::{
     Chunk, ChunkBuilder, FnObj, Label, OP_ADD, OP_BIT_AND, OP_BIT_NOT, OP_BIT_OR, OP_BIT_XOR,
     OP_BUILD_LIST, OP_BUILD_MAP, OP_CALL, OP_CATCH, OP_CONST, OP_DEFINE_GLOBAL, OP_DIV, OP_DUP,
     OP_EQ, OP_FALSE, OP_GE, OP_GT, OP_INDEX, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LE,
-    OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_MOD, OP_MUL, OP_NE,
-    OP_NEG, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE, OP_POW, OP_RETURN, OP_SHL, OP_SHR,
-    OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL, OP_STORE_MEMBER, OP_SUB, OP_THROW, OP_TRUE,
+    OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_METHOD_CALL,
+    OP_MOD, OP_MUL, OP_NE, OP_NEG, OP_NEW, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE,
+    OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
+    OP_STORE_MEMBER, OP_SUB, OP_SUPER_METHOD, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
 };
 use crate::value::Value;
@@ -308,7 +309,10 @@ impl Compiler {
                 Ok(())
             }
             Item::Stmt(stmt) => self.compile_stmt(stmt),
-            _ => Ok(()), // classes, traits, etc. — deferred
+            Item::ClassDecl(class_decl) => self.compile_class_decl(class_decl),
+            Item::InterfaceDecl(_) => Ok(()), // interfaces are compile-time contracts
+            Item::TraitDecl(trait_decl) => self.compile_trait_decl(trait_decl),
+            _ => Ok(()),
         }
     }
 
@@ -772,6 +776,16 @@ impl Compiler {
             Expr::Lambda(lambda) => self.compile_lambda(lambda),
             Expr::Postfix(postfix) => self.compile_postfix(postfix),
             Expr::Parallel(parallel) => self.compile_parallel_expr(parallel),
+            Expr::Dollar(_) | Expr::This(_) => {
+                self.emit_op(OP_THIS);
+                Ok(())
+            }
+            Expr::New(new_expr) => self.compile_new(new_expr),
+            Expr::Super(_) => {
+                // super pushes the parent class map via OP_THIS + prototype lookup
+                // For now, we'll handle it in compile_call when used as super.method()
+                Err(CompileError::new("super only valid in method call position"))
+            }
             _ => Err(CompileError::new("unsupported expression")),
         }
     }
@@ -1057,13 +1071,36 @@ impl Compiler {
     // -----------------------------------------------------------------------
 
     fn compile_call(&mut self, call: &CallExpr) -> CResult<()> {
-        self.compile_expr(&call.callee)?;
-        let arg_count = call.args.len();
-        for arg in &call.args {
-            self.compile_expr(&arg.value)?;
+        // Check if this is a method call: obj.method(...) or super.method(...)
+        if let Expr::Member(member) = &call.callee {
+            let is_super = matches!(&member.object, Expr::Super(_));
+            if is_super {
+                // super.method(args) — use OP_SUPER_METHOD
+                let name_idx = self.name_constant(&member.property.name);
+                let arg_count = call.args.len();
+                for arg in &call.args {
+                    self.compile_expr(&arg.value)?;
+                }
+                self.emit_op_u16_u8(OP_SUPER_METHOD, name_idx, arg_count as u8);
+            } else {
+                // obj.method(args) — use OP_METHOD_CALL
+                self.compile_expr(&member.object)?; // push obj first
+                let name_idx = self.name_constant(&member.property.name);
+                let arg_count = call.args.len();
+                for arg in &call.args {
+                    self.compile_expr(&arg.value)?;
+                }
+                self.emit_op_u16_u8(OP_METHOD_CALL, name_idx, arg_count as u8);
+            }
+        } else {
+            self.compile_expr(&call.callee)?;
+            let arg_count = call.args.len();
+            for arg in &call.args {
+                self.compile_expr(&arg.value)?;
+            }
+            let op = if self.in_lazy { OP_LAZY_CALL } else { OP_CALL };
+            self.emit_op_u8(op, arg_count as u8);
         }
-        let op = if self.in_lazy { OP_LAZY_CALL } else { OP_CALL };
-        self.emit_op_u8(op, arg_count as u8);
         Ok(())
     }
 
@@ -1227,6 +1264,146 @@ impl Compiler {
     }
 
     // ========================================================================
+    // OOP compilation
+    // ========================================================================
+
+    /// Compile a `new ClassName(args)` expression.
+    fn compile_new(&mut self, new_expr: &NewExpr) -> CResult<()> {
+        // Push class value
+        let name_idx = self.name_constant(&new_expr.type_name.name);
+        if self.in_function {
+            if let Some(local) = self.resolve_local(&new_expr.type_name.name) {
+                self.emit_op_u16(OP_LOAD_LOCAL, local.slot as u16);
+            } else {
+                self.emit_op_u16(OP_LOAD_GLOBAL, name_idx);
+            }
+        } else {
+            self.emit_op_u16(OP_LOAD_GLOBAL, name_idx);
+        }
+        // Compile constructor args
+        let arg_count = new_expr.args.len();
+        for arg in &new_expr.args {
+            self.compile_expr(&arg.value)?;
+        }
+        self.emit_op_u8(OP_NEW, arg_count as u8);
+        Ok(())
+    }
+
+    /// Compile a class declaration into a runtime map constant.
+    fn compile_class_decl(&mut self, class_decl: &ClassDecl) -> CResult<()> {
+        let class_name = &class_decl.name.name;
+        let mut values: Vec<(String, Value)> = Vec::new();
+
+        // __class__ marker
+        values.push(("__class__".to_string(), Value::String(class_name.clone())));
+
+        // Parent class (deferred — the class map won't have __parent__ at compile
+        // time; the interpreter-like approach resolves it dynamically. For the VM,
+        // we store the parent name and resolve at first use. For simple compilation
+        // we skip extends for now and rely on the interpreter backend for inheritance.)
+
+        // Members
+        for member in &class_decl.members {
+            match member {
+                ClassMember::Constructor(ctor) => {
+                    let params: Vec<String> = ctor.params.iter().map(|p| p.name.name.clone()).collect();
+                    let ctor_chunk = self.compile_function_body(
+                        &format!("{}.constructor", class_name),
+                        &params,
+                        &ctor.body,
+                    )?;
+                    values.push(("__constructor__".to_string(), Value::FnObj(FnObj {
+                        name: format!("{}.constructor", class_name),
+                        arity: params.len(),
+                        chunk: ctor_chunk,
+                        is_async: false,
+                    })));
+                }
+                ClassMember::Method(method) => {
+                    let params: Vec<String> = method.params.iter().map(|p| p.name.name.clone()).collect();
+                    let meth_chunk = self.compile_function_body(
+                        &format!("{}.{}", class_name, method.name.name),
+                        &params,
+                        &method.body,
+                    )?;
+                    values.push((method.name.name.clone(), Value::FnObj(FnObj {
+                        name: format!("{}.{}", class_name, method.name.name),
+                        arity: params.len(),
+                        chunk: meth_chunk,
+                        is_async: method.is_async,
+                    })));
+                }
+                _ => {}
+            }
+        }
+
+        // Push pairs of [key, value] for BUILD_MAP
+        for (key, val) in &values {
+            let key_idx = self.add_constant(Value::String(key.clone()));
+            self.emit_op_u16(OP_CONST, key_idx);
+            match val {
+                Value::FnObj(fn_obj) => {
+                    let val_idx = self.add_constant(Value::FnObj(fn_obj.clone()));
+                    self.emit_op_u16(OP_MAKE_CLOSURE, val_idx);
+                }
+                Value::String(s) => {
+                    let val_idx = self.add_constant(Value::String(s.clone()));
+                    self.emit_op_u16(OP_CONST, val_idx);
+                }
+                _ => {}
+            }
+        }
+
+        let pair_count = values.len();
+        self.emit_op_u16(OP_BUILD_MAP, pair_count as u16);
+
+        let name_idx = self.name_constant(class_name);
+        self.emit_op_u16(OP_DEFINE_GLOBAL, name_idx);
+        Ok(())
+    }
+
+    /// Compile a trait declaration — similar to class but with only methods.
+    fn compile_trait_decl(&mut self, trait_decl: &TraitDecl) -> CResult<()> {
+        let mut values: Vec<(String, Value)> = Vec::new();
+
+        values.push(("__trait__".to_string(), Value::String(trait_decl.name.name.clone())));
+
+        for member in &trait_decl.members {
+            if let TraitMember::Method(method) = member {
+                let params: Vec<String> = method.params.iter().map(|p| p.name.name.clone()).collect();
+                let meth_chunk = self.compile_function_body(
+                    &format!("{}.{}", trait_decl.name.name, method.name.name),
+                    &params,
+                    &method.body,
+                )?;
+                let fn_obj = FnObj {
+                    name: format!("{}.{}", trait_decl.name.name, method.name.name),
+                    arity: params.len(),
+                    chunk: meth_chunk,
+                    is_async: method.is_async,
+                };
+                values.push((method.name.name.clone(), Value::FnObj(fn_obj)));
+            }
+        }
+
+        for (key, val) in &values {
+            let key_idx = self.add_constant(Value::String(key.clone()));
+            self.emit_op_u16(OP_CONST, key_idx);
+            if let Value::FnObj(fn_obj) = val {
+                let val_idx = self.add_constant(Value::FnObj(fn_obj.clone()));
+                self.emit_op_u16(OP_MAKE_CLOSURE, val_idx);
+            }
+        }
+
+        let pair_count = values.len();
+        self.emit_op_u16(OP_BUILD_MAP, pair_count as u16);
+
+        let name_idx = self.name_constant(&trait_decl.name.name);
+        self.emit_op_u16(OP_DEFINE_GLOBAL, name_idx);
+        Ok(())
+    }
+
+    // ========================================================================
     // Function compilation
     // ========================================================================
 
@@ -1325,6 +1502,9 @@ impl Compiler {
     }
     fn emit_op_u8(&mut self, op: u8, val: u8) {
         self.builder.emit_op_u8(op, val);
+    }
+    fn emit_op_u16_u8(&mut self, op: u8, val16: u16, val8: u8) {
+        self.builder.emit_op_u16_u8(op, val16, val8);
     }
     fn emit_jump(&mut self, jump_op: u8, label: Label) {
         self.builder.emit_jump(jump_op, label);
