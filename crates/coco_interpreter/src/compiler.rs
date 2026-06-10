@@ -74,7 +74,7 @@ struct LoopLabels {
     /// Where to jump on `continue`.
     start_label: Label,
     /// The hidden local slot holding the loop variable (for-in only).
-    loop_var_slot: Option<usize>,
+    _loop_var_slot: Option<usize>,
 }
 
 // ============================================================================
@@ -290,7 +290,7 @@ impl Compiler {
         self.loop_stack.push(LoopLabels {
             end_label,
             start_label,
-            loop_var_slot: None,
+            _loop_var_slot: None,
         });
 
         self.place_label(start_label);
@@ -353,7 +353,7 @@ impl Compiler {
         self.loop_stack.push(LoopLabels {
             end_label,
             start_label,
-            loop_var_slot: Some(elem_slot),
+            _loop_var_slot: Some(elem_slot),
         });
 
         self.place_label(start_label);
@@ -404,7 +404,7 @@ impl Compiler {
         self.loop_stack.push(LoopLabels {
             end_label,
             start_label,
-            loop_var_slot: None,
+            _loop_var_slot: None,
         });
 
         self.place_label(start_label);

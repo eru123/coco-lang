@@ -527,19 +527,6 @@ mod tests {
         tokens
     }
 
-    fn lex_all_text(source: &str) -> Vec<String> {
-        let mut lexer = Lexer::new(source);
-        let mut tokens = Vec::new();
-        loop {
-            let token = lexer.next_token();
-            if token.kind == TokenKind::Eof {
-                break;
-            }
-            tokens.push(token.text);
-        }
-        tokens
-    }
-
     #[test]
     fn test_keywords() {
         let tokens = lex_all("fn class const let if for async await return while match");
