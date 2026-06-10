@@ -27,7 +27,7 @@ use coco_parser::Parser;
 use coco_syntax::Program;
 use env::Environment;
 use error::{ControlFlow, IResult, Signal};
-use stack::{CallStack, StackFrame};
+use stack::CallStack;
 
 /// The Coco tree-walking interpreter.
 pub struct Interpreter {

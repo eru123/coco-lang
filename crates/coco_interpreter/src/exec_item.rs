@@ -17,6 +17,8 @@ impl Interpreter {
             Item::ExprStmt(expr_stmt) => self.eval_expr(&expr_stmt.expr),
             Item::Stmt(stmt) => self.exec_stmt(stmt),
             Item::ClassDecl(class_decl) => self.exec_class_decl(class_decl),
+            Item::InterfaceDecl(iface_decl) => self.exec_interface_decl(iface_decl),
+            Item::TraitDecl(trait_decl) => self.exec_trait_decl(trait_decl),
             Item::Import(import) => self.exec_import(import),
             _ => Ok(Value::Null),
         }
@@ -64,7 +66,6 @@ impl Interpreter {
 
         // Inheritance: store parent class reference
         if let Some(parent) = &class_decl.extends {
-            // Extract the class name from the type annotation
             let parent_name = match parent {
                 Type::Named(named) => &named.name.name,
                 _ => {
@@ -81,7 +82,22 @@ impl Interpreter {
             }
         }
 
-        // Process members: Constructor, Method, Property
+        // Store implements interface names for validation
+        let mut iface_names: Vec<String> = Vec::new();
+        for iface_type in &class_decl.implements {
+            if let Type::Named(named) = iface_type {
+                iface_names.push(named.name.name.clone());
+            }
+        }
+        if !iface_names.is_empty() {
+            class_map.insert(
+                "__implements__".to_string(),
+                Value::String(iface_names.join(",")),
+            );
+        }
+
+        // Process members: Constructor, Method, Property, UseTrait
+        let mut defined_methods: Vec<String> = Vec::new();
         for member in &class_decl.members {
             match member {
                 ClassMember::Constructor(ctor) => {
@@ -111,16 +127,167 @@ impl Interpreter {
                         params,
                         body: method.body.clone(),
                     };
-                    class_map
-                        .insert(method.name.name.clone(), Value::Function(meth_func));
+                    let is_static = method.modifiers.contains(&Modifier::Static);
+                    class_map.insert(method.name.name.clone(), Value::Function(meth_func));
+                    if !is_static {
+                        defined_methods.push(method.name.name.clone());
+                    }
+                    // Store modifier metadata
+                    if !method.modifiers.is_empty() {
+                        let mod_key = format!("__mod_{}", method.name.name);
+                        let mod_str = method.modifiers.iter()
+                            .map(|m| format!("{:?}", m))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        class_map.insert(mod_key, Value::String(mod_str));
+                    }
                 }
-                _ => {} // Property and UseTrait deferred
+                ClassMember::Property(prop) => {
+                    let default_val = match &prop.default_value {
+                        Some(expr) => match self.eval_expr(expr) {
+                            Ok(v) => v,
+                            Err(_) => Value::Null,
+                        },
+                        None => Value::Null,
+                    };
+                    let prop_name = format!("__prop_{}", prop.name.name);
+                    class_map.insert(prop_name, default_val);
+                    // Store modifier metadata for properties
+                    if !prop.modifiers.is_empty() {
+                        let mod_key = format!("__modprop_{}", prop.name.name);
+                        let mod_str = prop.modifiers.iter()
+                            .map(|m| format!("{:?}", m))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        class_map.insert(mod_key, Value::String(mod_str));
+                    }
+                }
+                ClassMember::UseTrait(use_trait) => {
+                    // Mix in trait methods
+                    for trait_ident in &use_trait.traits {
+                        let trait_name = &trait_ident.name;
+                        if let Some(trait_val) = self.env.get(trait_name) {
+                            if let Value::Map(trait_map) = trait_val {
+                                for (key, val) in &trait_map.data {
+                                    // Skip metadata keys, only copy methods
+                                    if !key.starts_with("__") {
+                                        // Class methods override trait methods
+                                        if !class_map.contains_key(key) {
+                                            class_map.insert(key.clone(), val.clone());
+                                            defined_methods.push(key.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate implements: check that all interface methods are defined
+        for iface_name in &iface_names {
+            if let Some(iface_val) = self.env.get(iface_name) {
+                if let Value::Map(iface_map) = iface_val {
+                    for (method_name, _) in &iface_map.data {
+                        if !method_name.starts_with("__")
+                            && !defined_methods.contains(method_name)
+                        {
+                            return Err(Signal::Error(RuntimeError::new(format!(
+                                "class '{}' does not implement interface method '{}' from '{}'",
+                                class_decl.name.name, method_name, iface_name
+                            ))));
+                        }
+                    }
+                }
+            } else {
+                return Err(Signal::Error(RuntimeError::new(format!(
+                    "interface '{}' not found (implemented by class '{}')",
+                    iface_name, class_decl.name.name
+                ))));
             }
         }
 
         let class_val = self.alloc_map(class_map);
         self.env
             .define(class_decl.name.name.clone(), class_val, false);
+        Ok(Value::Null)
+    }
+
+    /// Execute an interface declaration — store as a map of method signatures.
+    fn exec_interface_decl(&mut self, iface_decl: &InterfaceDecl) -> IResult {
+        let mut iface_map = std::collections::HashMap::new();
+        iface_map.insert(
+            "__interface__".to_string(),
+            Value::String(iface_decl.name.name.clone()),
+        );
+        // Store parent interface if extends
+        if let Some(parent) = &iface_decl.extends {
+            if let Type::Named(named) = parent {
+                iface_map.insert(
+                    "__extends__".to_string(),
+                    Value::String(named.name.name.clone()),
+                );
+            }
+        }
+        // Store method signatures
+        for member in &iface_decl.members {
+            match member {
+                InterfaceMember::MethodSignature(sig) => {
+                    iface_map.insert(
+                        sig.name.name.clone(),
+                        Value::String("method".to_string()),
+                    );
+                }
+                InterfaceMember::PropertySignature(sig) => {
+                    let prop_key = format!("__prop_{}", sig.name.name);
+                    iface_map.insert(prop_key, Value::String("property".to_string()));
+                }
+            }
+        }
+        let iface_val = self.alloc_map(iface_map);
+        self.env
+            .define(iface_decl.name.name.clone(), iface_val, false);
+        Ok(Value::Null)
+    }
+
+    /// Execute a trait declaration — store as a map of methods.
+    fn exec_trait_decl(&mut self, trait_decl: &TraitDecl) -> IResult {
+        let mut trait_map = std::collections::HashMap::new();
+        trait_map.insert(
+            "__trait__".to_string(),
+            Value::String(trait_decl.name.name.clone()),
+        );
+        for member in &trait_decl.members {
+            match member {
+                TraitMember::Method(method) => {
+                    let params: Vec<String> = method
+                        .params
+                        .iter()
+                        .map(|p| p.name.name.clone())
+                        .collect();
+                    let meth_func = Function {
+                        name: format!("{}.{}", trait_decl.name.name, method.name.name),
+                        params,
+                        body: method.body.clone(),
+                    };
+                    trait_map.insert(method.name.name.clone(), Value::Function(meth_func));
+                }
+                TraitMember::MethodSignature(sig) => {
+                    trait_map.insert(
+                        sig.name.name.clone(),
+                        Value::String("method".to_string()),
+                    );
+                }
+                TraitMember::Property(prop) => {
+                    let prop_key = format!("__prop_{}", prop.name.name);
+                    trait_map.insert(prop_key, Value::String("property".to_string()));
+                }
+            }
+        }
+        let trait_val = self.alloc_map(trait_map);
+        self.env
+            .define(trait_decl.name.name.clone(), trait_val, false);
         Ok(Value::Null)
     }
 

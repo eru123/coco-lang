@@ -459,6 +459,15 @@ impl Interpreter {
             Value::String(class_name.to_string()),
         );
 
+        // Initialize property defaults from the class definition.
+        // Copy all __prop_* entries from the class map to the instance.
+        for (key, val) in class_map.iter() {
+            if key.starts_with("__prop_") {
+                let prop_name = key.strip_prefix("__prop_").unwrap_or(key);
+                instance_map.insert(prop_name.to_string(), val.clone());
+            }
+        }
+
         // Call the constructor if present
         if let Some(ctor_val) = class_map.get("__constructor__") {
             if let Value::Function(ctor_func) = ctor_val {
