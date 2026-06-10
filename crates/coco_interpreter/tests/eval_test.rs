@@ -1,4 +1,5 @@
 use coco_interpreter::{Interpreter, Value};
+use num_bigint::BigInt;
 
 fn eval(src: &str) -> Value {
     let mut interp = Interpreter::new();
@@ -7,7 +8,7 @@ fn eval(src: &str) -> Value {
 
 #[test]
 fn int_literal() {
-    assert!(matches!(eval("42;"), Value::Int(42)));
+    assert!(matches!(eval("42;"), Value::Int(n) if n == BigInt::from(42)));
 }
 #[test]
 fn float_literal() {
@@ -30,27 +31,27 @@ fn null_literal() {
 }
 #[test]
 fn addition() {
-    assert!(matches!(eval("1 + 2;"), Value::Int(3)));
+    assert!(matches!(eval("1 + 2;"), Value::Int(n) if n == BigInt::from(3)));
 }
 #[test]
 fn subtraction() {
-    assert!(matches!(eval("10 - 3;"), Value::Int(7)));
+    assert!(matches!(eval("10 - 3;"), Value::Int(n) if n == BigInt::from(7)));
 }
 #[test]
 fn multiplication() {
-    assert!(matches!(eval("4 * 5;"), Value::Int(20)));
+    assert!(matches!(eval("4 * 5;"), Value::Int(n) if n == BigInt::from(20)));
 }
 #[test]
 fn division() {
-    assert!(matches!(eval("10 / 3;"), Value::Int(3)));
+    assert!(matches!(eval("10 / 3;"), Value::Int(n) if n == BigInt::from(3)));
 }
 #[test]
 fn modulo() {
-    assert!(matches!(eval("10 % 3;"), Value::Int(1)));
+    assert!(matches!(eval("10 % 3;"), Value::Int(n) if n == BigInt::from(1)));
 }
 #[test]
 fn power() {
-    assert!(matches!(eval("2 ** 10;"), Value::Int(1024)));
+    assert!(matches!(eval("2 ** 10;"), Value::Int(n) if n == BigInt::from(1024)));
 }
 #[test]
 fn comparison() {
@@ -70,7 +71,7 @@ fn logical_or() {
 }
 #[test]
 fn unary_neg() {
-    assert!(matches!(eval("-5;"), Value::Int(-5)));
+    assert!(matches!(eval("-5;"), Value::Int(n) if n == BigInt::from(-5)));
 }
 #[test]
 fn unary_not() {
@@ -85,90 +86,90 @@ fn string_concat() {
 }
 #[test]
 fn precedence() {
-    assert!(matches!(eval("2 + 3 * 4;"), Value::Int(14)));
+    assert!(matches!(eval("2 + 3 * 4;"), Value::Int(n) if n == BigInt::from(14)));
 }
 #[test]
 fn grouping() {
-    assert!(matches!(eval("(2 + 3) * 4;"), Value::Int(20)));
+    assert!(matches!(eval("(2 + 3) * 4;"), Value::Int(n) if n == BigInt::from(20)));
 }
 #[test]
 fn let_binding() {
-    assert!(matches!(eval("let x = 42; x;"), Value::Int(42)));
+    assert!(matches!(eval("let x = 42; x;"), Value::Int(n) if n == BigInt::from(42)));
 }
 #[test]
 fn const_binding() {
-    assert!(matches!(eval("const y = 99; y;"), Value::Int(99)));
+    assert!(matches!(eval("const y = 99; y;"), Value::Int(n) if n == BigInt::from(99)));
 }
 #[test]
 fn reassignment() {
-    assert!(matches!(eval("let x = 1; x = 2; x;"), Value::Int(2)));
+    assert!(matches!(eval("let x = 1; x = 2; x;"), Value::Int(n) if n == BigInt::from(2)));
 }
 #[test]
 fn add_assign() {
-    assert!(matches!(eval("let x = 10; x += 5; x;"), Value::Int(15)));
+    assert!(matches!(eval("let x = 10; x += 5; x;"), Value::Int(n) if n == BigInt::from(15)));
 }
 #[test]
 fn sub_assign() {
-    assert!(matches!(eval("let x = 10; x -= 3; x;"), Value::Int(7)));
+    assert!(matches!(eval("let x = 10; x -= 3; x;"), Value::Int(n) if n == BigInt::from(7)));
 }
 #[test]
 fn if_true() {
     assert!(matches!(
         eval("let x = 0; if true { x = 1; } x;"),
-        Value::Int(1)
+        Value::Int(n) if n == BigInt::from(1)
     ));
 }
 #[test]
 fn if_false() {
     assert!(matches!(
         eval("let x = 0; if false { x = 1; } x;"),
-        Value::Int(0)
+        Value::Int(n) if n == BigInt::from(0)
     ));
 }
 #[test]
 fn if_else() {
     assert!(matches!(
         eval("let x = 0; if false { x = 1; } else { x = 2; } x;"),
-        Value::Int(2)
+        Value::Int(n) if n == BigInt::from(2)
     ));
 }
 #[test]
 fn while_loop() {
     assert!(matches!(
         eval("let x = 0; while x < 5 { x += 1; } x;"),
-        Value::Int(5)
+        Value::Int(n) if n == BigInt::from(5)
     ));
 }
 #[test]
 fn for_loop() {
     assert!(matches!(
         eval("let s = 0; for n in [1, 2, 3] { s += n; } s;"),
-        Value::Int(6)
+        Value::Int(n) if n == BigInt::from(6)
     ));
 }
 #[test]
 fn loop_break() {
     assert!(matches!(
         eval("let x = 0; loop { x += 1; if x == 3 { break; } } x;"),
-        Value::Int(3)
+        Value::Int(n) if n == BigInt::from(3)
     ));
 }
 #[test]
 fn function_call() {
     assert!(matches!(
         eval("fn add(a, b) { return a + b; } add(2, 3);"),
-        Value::Int(5)
+        Value::Int(n) if n == BigInt::from(5)
     ));
 }
 #[test]
 fn arrow_expr_body_returns_value() {
-    assert!(matches!(eval("const x = () => 1; x();"), Value::Int(1)));
+    assert!(matches!(eval("const x = () => 1; x();"), Value::Int(n) if n == BigInt::from(1)));
 }
 #[test]
 fn recursion() {
     assert!(matches!(
         eval("fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fib(10);"),
-        Value::Int(55)
+        Value::Int(n) if n == BigInt::from(55)
     ));
 }
 #[test]
@@ -182,14 +183,14 @@ fn list_literal() {
 fn list_index() {
     assert!(matches!(
         eval("const a = [10, 20, 30]; a[1];"),
-        Value::Int(20)
+        Value::Int(n) if n == BigInt::from(20)
     ));
 }
 #[test]
 fn list_length() {
     assert!(matches!(
         eval("const a = [1, 2, 3, 4]; a.length;"),
-        Value::Int(4)
+        Value::Int(n) if n == BigInt::from(4)
     ));
 }
 #[test]
@@ -201,17 +202,17 @@ fn map_literal() {
 }
 #[test]
 fn null_coalesce() {
-    assert!(matches!(eval("null ?? 42;"), Value::Int(42)));
+    assert!(matches!(eval("null ?? 42;"), Value::Int(n) if n == BigInt::from(42)));
 }
 #[test]
 fn ternary() {
-    assert!(matches!(eval("let x = true ? 1 : 2; x;"), Value::Int(1)));
+    assert!(matches!(eval("let x = true ? 1 : 2; x;"), Value::Int(n) if n == BigInt::from(1)));
 }
 #[test]
 fn run_main() {
     let mut interp = Interpreter::new();
     let result = interp.run_main("fn main() { return 0; }").unwrap();
-    assert!(matches!(result, Value::Int(0)));
+    assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(0)));
 }
 #[test]
 fn run_main_with_print() {
@@ -219,5 +220,5 @@ fn run_main_with_print() {
     let result = interp
         .run_main("fn main() { print(\"hi\"); return 0; }")
         .unwrap();
-    assert!(matches!(result, Value::Int(0)));
+    assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(0)));
 }

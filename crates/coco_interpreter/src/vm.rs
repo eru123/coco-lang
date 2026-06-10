@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 
 use coco_gc::{CoW, Gc, Heap};
+use num_bigint::BigInt;
 
 use crate::builtins::call_builtin;
 use crate::ir::{read_i16, read_u16, Chunk, FnObj, *};
@@ -400,8 +401,20 @@ impl Vm {
             OP_BIT_AND => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x & y))?,
             OP_BIT_OR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x | y))?,
             OP_BIT_XOR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x ^ y))?,
-            OP_SHL => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x << y))?,
-            OP_SHR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x >> y))?,
+            OP_SHL => self.binop(|a, b| {
+                use num_traits::ToPrimitive;
+                Self::vm_bitop(a, b, |x, y| {
+                    let shift = y.to_usize().unwrap_or(0);
+                    x << shift
+                })
+            })?,
+            OP_SHR => self.binop(|a, b| {
+                use num_traits::ToPrimitive;
+                Self::vm_bitop(a, b, |x, y| {
+                    let shift = y.to_usize().unwrap_or(0);
+                    x >> shift
+                })
+            })?,
 
             // ---- Unary ----
             OP_NEG => {
@@ -956,12 +969,19 @@ impl Vm {
     // Arithmetic implementations (static so they can be used in closures)
     // ========================================================================
 
+    /// Convert a BigInt to f64, returning an error if overflow.
+    fn int_to_f64(n: &BigInt) -> VmResult<f64> {
+        use num_traits::ToPrimitive;
+        n.to_f64()
+            .ok_or_else(|| VmError::new("integer too large to convert to float"))
+    }
+
     fn vm_add(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? + b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + Self::int_to_f64(&b)?)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             _ => Err(VmError::new("invalid operands for +")),
         }
@@ -971,8 +991,8 @@ impl Vm {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 - b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? - b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - Self::int_to_f64(&b)?)),
             _ => Err(VmError::new("invalid operands for -")),
         }
     }
@@ -981,8 +1001,8 @@ impl Vm {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 * b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? * b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * Self::int_to_f64(&b)?)),
             _ => Err(VmError::new("invalid operands for *")),
         }
     }
@@ -990,14 +1010,14 @@ impl Vm {
     fn vm_div(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => {
-                if b == 0 {
+                if b == BigInt::from(0) {
                     return Err(VmError::new("division by zero"));
                 }
                 Ok(Value::Int(a / b))
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 / b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? / b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / Self::int_to_f64(&b)?)),
             _ => Err(VmError::new("invalid operands for /")),
         }
     }
@@ -1005,30 +1025,40 @@ impl Vm {
     fn vm_mod(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => {
-                if b == 0 {
+                if b == BigInt::from(0) {
                     return Err(VmError::new("modulo by zero"));
                 }
                 Ok(Value::Int(a % b))
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 % b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? % b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % Self::int_to_f64(&b)?)),
             _ => Err(VmError::new("invalid operands for %")),
         }
     }
 
     fn vm_pow(a: Value, b: Value) -> VmResult<Value> {
+        use num_traits::ToPrimitive;
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => {
-                if b >= 0 {
-                    Ok(Value::Int(a.pow(b as u32)))
+                if let Some(exp) = b.to_u32() {
+                    Ok(Value::Int(a.pow(exp)))
+                } else if let Some(exp) = b.to_i32() {
+                    // Negative exponent → float result
+                    Ok(Value::Float(Self::int_to_f64(&a)?.powi(exp)))
                 } else {
-                    Ok(Value::Float((a as f64).powi(b as i32)))
+                    Err(VmError::new("exponent too large"))
                 }
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.powf(b))),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float((a as f64).powf(b))),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.powi(b as i32))),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)?.powf(b))),
+            (Value::Float(a), Value::Int(b)) => {
+                if let Some(exp) = b.to_i32() {
+                    Ok(Value::Float(a.powi(exp)))
+                } else {
+                    Err(VmError::new("exponent too large"))
+                }
+            }
             _ => Err(VmError::new("invalid operands for **")),
         }
     }
@@ -1061,11 +1091,11 @@ impl Vm {
             (Value::Float(a), Value::Float(b)) => {
                 a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
             }
-            (Value::Int(a), Value::Float(b)) => (*a as f64)
+            (Value::Int(a), Value::Float(b)) => Self::int_to_f64(a)?
                 .partial_cmp(b)
                 .unwrap_or(std::cmp::Ordering::Equal),
             (Value::Float(a), Value::Int(b)) => a
-                .partial_cmp(&(*b as f64))
+                .partial_cmp(&Self::int_to_f64(b)?)
                 .unwrap_or(std::cmp::Ordering::Equal),
             (Value::String(a), Value::String(b)) => a.cmp(b),
             _ => return Err(VmError::new("cannot compare these values")),
@@ -1073,7 +1103,10 @@ impl Vm {
         Ok(Value::Bool(pred(ord)))
     }
 
-    fn vm_bitop(a: Value, b: Value, op: fn(i64, i64) -> i64) -> VmResult<Value> {
+    fn vm_bitop<F>(a: Value, b: Value, op: F) -> VmResult<Value>
+    where
+        F: FnOnce(BigInt, BigInt) -> BigInt,
+    {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
             _ => Err(VmError::new("bitwise operations require integers")),
@@ -1081,12 +1114,15 @@ impl Vm {
     }
 
     fn vm_index(collection: Value, index: Value) -> VmResult<Value> {
+        use num_traits::ToPrimitive;
         match (&collection, &index) {
             (Value::List(list), Value::Int(i)) => {
-                let idx = if *i < 0 {
-                    (list.data.len() as i64 + *i) as usize
+                let idx = if *i < BigInt::from(0) {
+                    let len = list.data.len() as i64;
+                    let offset = i.to_i64().unwrap_or(0);
+                    (len + offset).max(0) as usize
                 } else {
-                    *i as usize
+                    i.to_usize().unwrap_or(usize::MAX)
                 };
                 list.data
                     .get(idx)
@@ -1102,8 +1138,8 @@ impl Vm {
 
     fn vm_member(obj: Value, prop: &str) -> VmResult<Value> {
         match &obj {
-            Value::List(list) if prop == "length" => Ok(Value::Int(list.data.len() as i64)),
-            Value::String(s) if prop == "length" => Ok(Value::Int(s.len() as i64)),
+            Value::List(list) if prop == "length" => Ok(Value::Int(BigInt::from(list.data.len()))),
+            Value::String(s) if prop == "length" => Ok(Value::Int(BigInt::from(s.len()))),
             Value::Map(map) => Ok(map.data.get(prop).cloned().unwrap_or(Value::Null)),
             _ => Err(VmError::new(format!(
                 "cannot access property '{}' on value",
@@ -1156,20 +1192,20 @@ mod tests {
     #[test]
     fn test_vm_int_literal() {
         let result = run_src("fn main() { return 42; }").unwrap();
-        assert!(matches!(result, Value::Int(42)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(42)));
     }
 
     #[test]
     fn test_vm_addition() {
         let result = run_src("fn main() { return 1 + 2; }").unwrap();
-        assert!(matches!(result, Value::Int(3)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(3)));
     }
 
     #[test]
     fn test_vm_variables() {
         let result =
             run_src("fn main() { let x = 10; let y = 20; return x + y; }").unwrap();
-        assert!(matches!(result, Value::Int(30)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(30)));
     }
 
     #[test]
@@ -1178,7 +1214,7 @@ mod tests {
             "fn main() { let x = 0; if true { x = 1; } return x; }",
         )
         .unwrap();
-        assert!(matches!(result, Value::Int(1)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(1)));
     }
 
     #[test]
@@ -1187,7 +1223,7 @@ mod tests {
             "fn main() { let x = 0; if false { x = 1; } return x; }",
         )
         .unwrap();
-        assert!(matches!(result, Value::Int(0)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(0)));
     }
 
     #[test]
@@ -1196,7 +1232,7 @@ mod tests {
             "fn main() { let x = 0; while x < 5 { x += 1; } return x; }",
         )
         .unwrap();
-        assert!(matches!(result, Value::Int(5)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(5)));
     }
 
     #[test]
@@ -1205,7 +1241,7 @@ mod tests {
             "fn add(a, b) { return a + b; } fn main() { return add(2, 3); }",
         )
         .unwrap();
-        assert!(matches!(result, Value::Int(5)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(5)));
     }
 
     #[test]
@@ -1214,7 +1250,7 @@ mod tests {
             "fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fn main() { return fib(10); }",
         )
         .unwrap();
-        assert!(matches!(result, Value::Int(55)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(55)));
     }
 
     #[test]
@@ -1231,19 +1267,19 @@ mod tests {
     fn test_vm_ternary() {
         let result =
             run_src("fn main() { let x = true ? 1 : 2; return x; }").unwrap();
-        assert!(matches!(result, Value::Int(1)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(1)));
     }
 
     #[test]
     fn test_vm_null_coalesce() {
         let result =
             run_src("fn main() { let x = null ?? 42; return x; }").unwrap();
-        assert!(matches!(result, Value::Int(42)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(42)));
     }
 
     #[test]
     fn test_vm_list_literal() {
         let result = run_src("fn main() { let a = [1, 2, 3]; return a.length; }").unwrap();
-        assert!(matches!(result, Value::Int(3)));
+        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(3)));
     }
 }

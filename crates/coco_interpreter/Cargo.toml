@@ -10,3 +10,5 @@ coco_syntax = { path = "../coco_syntax" }
 coco_span = { path = "../coco_span" }
 coco_parser = { path = "../coco_parser" }
 coco_gc = { path = "../coco_gc" }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }

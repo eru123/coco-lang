@@ -8,6 +8,7 @@ use coco_parser::Parser;
 use coco_safety as safety;
 use coco_span::{FileId, SourceFile};
 use coco_syntax::Item;
+use num_traits::ToPrimitive;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -306,7 +307,7 @@ fn cmd_run(file: &Path, no_check: bool, debug: bool, use_vm: bool) {
     match interp.run_main(&source) {
         Ok(val) => {
             if let coco_interpreter::Value::Int(code) = val {
-                std::process::exit(code as i32);
+                std::process::exit(code.to_i32().unwrap_or(1));
             }
         }
         Err(e) => {
@@ -334,7 +335,7 @@ fn run_with_vm(source: &str, debug: bool) {
     match vm.run(&chunk) {
         Ok(val) => {
             if let coco_interpreter::Value::Int(code) = val {
-                std::process::exit(code as i32);
+                std::process::exit(code.to_i32().unwrap_or(1));
             }
         }
         Err(e) => {

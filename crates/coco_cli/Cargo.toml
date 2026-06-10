@@ -20,3 +20,5 @@ coco_interpreter = { workspace = true }
 coco_typeck = { workspace = true }
 coco_safety = { workspace = true }
 clap = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }

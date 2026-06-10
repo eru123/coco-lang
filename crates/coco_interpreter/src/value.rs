@@ -3,6 +3,7 @@ use std::fmt;
 
 use coco_gc::{CoW, Gc};
 use coco_syntax::{Block, Param};
+use num_bigint::BigInt;
 
 use crate::ir::FnObj;
 
@@ -12,7 +13,7 @@ use crate::ir::FnObj;
 /// Primitive types are stack-allocated.
 #[derive(Clone)]
 pub enum Value {
-    Int(i64),
+    Int(BigInt),
     Float(f64),
     String(String),
     Bool(bool),
@@ -102,7 +103,7 @@ impl Value {
         match self {
             Value::Bool(b) => *b,
             Value::Null => false,
-            Value::Int(n) => *n != 0,
+            Value::Int(n) => !n.iter_u32_digits().all(|d| d == 0) && *n != BigInt::from(0),
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.data.is_empty(),
@@ -112,7 +113,7 @@ impl Value {
             Value::Err(v) => match v.as_ref() {
                 Value::Null => false,
                 Value::Bool(b) => *b,
-                Value::Int(n) => *n != 0,
+                Value::Int(n) => !n.iter_u32_digits().all(|d| d == 0) && *n != BigInt::from(0),
                 Value::String(s) => !s.is_empty(),
                 _ => true,
             },

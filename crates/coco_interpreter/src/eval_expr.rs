@@ -1,3 +1,5 @@
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 use coco_syntax::*;
 
 use crate::builtins::call_builtin;
@@ -32,7 +34,7 @@ impl Interpreter {
 
     fn eval_literal(&self, lit: &Literal) -> IResult {
         Ok(match lit {
-            Literal::Int(n, _) => Value::Int(*n),
+            Literal::Int(n, _) => Value::Int(BigInt::from(*n)),
             Literal::Float(f, _) => Value::Float(*f),
             Literal::String(s, _) => Value::String(s.clone()),
             Literal::Bool(b, _) => Value::Bool(*b),
@@ -118,8 +120,14 @@ impl Interpreter {
             BinaryOp::BitAnd => self.bitwise_op(left, right, |a, b| a & b),
             BinaryOp::BitOr => self.bitwise_op(left, right, |a, b| a | b),
             BinaryOp::BitXor => self.bitwise_op(left, right, |a, b| a ^ b),
-            BinaryOp::Shl => self.bitwise_op(left, right, |a, b| a << b),
-            BinaryOp::Shr => self.bitwise_op(left, right, |a, b| a >> b),
+            BinaryOp::Shl => self.bitwise_op(left, right, |a, b| {
+                let shift = b.to_usize().unwrap_or(0);
+                a << shift
+            }),
+            BinaryOp::Shr => self.bitwise_op(left, right, |a, b| {
+                let shift = b.to_usize().unwrap_or(0);
+                a >> shift
+            }),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported binary op {:?}",
                 bin.op
@@ -202,7 +210,7 @@ impl Interpreter {
         let val = self.eval_expr(&un.expr)?;
         match un.op {
             UnaryOp::Neg => match val {
-                Value::Int(n) => Ok(Value::Int(-n)),
+                Value::Int(n) => Ok(Value::Int(-n.clone())),
                 Value::Float(f) => Ok(Value::Float(-f)),
                 _ => Err(Signal::Error(RuntimeError::new("cannot negate non-number"))),
             },
@@ -263,10 +271,10 @@ impl Interpreter {
         let index = self.eval_expr(&idx.index)?;
         match (&object, &index) {
             (Value::List(list), Value::Int(i)) => {
-                let idx = if *i < 0 {
-                    (list.data.len() as i64 + *i) as usize
+                let idx = if *i < BigInt::from(0) {
+                    (list.data.len() as i64 + i.to_i64().unwrap_or(0)) as usize
                 } else {
-                    *i as usize
+                    i.to_usize().unwrap_or(0)
                 };
                 list.data
                     .get(idx)
@@ -285,8 +293,8 @@ impl Interpreter {
         let prop = &mem.property.name;
 
         match &object {
-            Value::List(list) if prop == "length" => Ok(Value::Int(list.data.len() as i64)),
-            Value::String(s) if prop == "length" => Ok(Value::Int(s.len() as i64)),
+            Value::List(list) if prop == "length" => Ok(Value::Int(BigInt::from(list.data.len()))),
+            Value::String(s) if prop == "length" => Ok(Value::Int(BigInt::from(s.len()))),
             Value::Map(map) => Ok(map.data.get(prop).cloned().unwrap_or(Value::Null)),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "cannot access property '{}' on {:?}",
@@ -364,8 +372,8 @@ impl Interpreter {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_f64().unwrap_or(0.0) + b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b.to_f64().unwrap_or(0.0))),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for +"))),
         }
@@ -375,8 +383,8 @@ impl Interpreter {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 - b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_f64().unwrap_or(0.0) - b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - b.to_f64().unwrap_or(0.0))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for -"))),
         }
     }
@@ -385,8 +393,8 @@ impl Interpreter {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 * b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_f64().unwrap_or(0.0) * b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b.to_f64().unwrap_or(0.0))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for *"))),
         }
     }
@@ -394,14 +402,14 @@ impl Interpreter {
     fn div_values(&self, left: Value, right: Value) -> IResult {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
-                if b == 0 {
+                if b == BigInt::from(0) {
                     return Err(Signal::Error(RuntimeError::new("division by zero")));
                 }
                 Ok(Value::Int(a / b))
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 / b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_f64().unwrap_or(0.0) / b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / b.to_f64().unwrap_or(0.0))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for /"))),
         }
     }
@@ -409,14 +417,14 @@ impl Interpreter {
     fn mod_values(&self, left: Value, right: Value) -> IResult {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
-                if b == 0 {
+                if b == BigInt::from(0) {
                     return Err(Signal::Error(RuntimeError::new("modulo by zero")));
                 }
                 Ok(Value::Int(a % b))
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 % b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % b as f64)),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_f64().unwrap_or(0.0) % b)),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % b.to_f64().unwrap_or(0.0))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for %"))),
         }
     }
@@ -424,23 +432,30 @@ impl Interpreter {
     fn pow_values(&self, left: Value, right: Value) -> IResult {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
-                if b >= 0 {
-                    Ok(Value::Int(a.pow(b as u32)))
+                if b >= BigInt::from(0) {
+                    Ok(Value::Int(a.pow(b.to_u32().unwrap_or(0))))
                 } else {
-                    Ok(Value::Float((a as f64).powi(b as i32)))
+                    Ok(Value::Float((a.to_f64().unwrap_or(0.0)).powi(b.to_i32().unwrap_or(0))))
                 }
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.powf(b))),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float((a as f64).powf(b))),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.powi(b as i32))),
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Float((a.to_f64().unwrap_or(0.0)).powf(b))),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.powi(b.to_i32().unwrap_or(0)))),
             _ => Err(Signal::Error(RuntimeError::new("invalid operands for **"))),
         }
     }
 
-    fn bitwise_op(&self, left: Value, right: Value, op: fn(i64, i64) -> i64) -> IResult {
+    fn bitwise_op<F>(&self, left: Value, right: Value, op: F) -> IResult
+    where
+        F: FnOnce(BigInt, BigInt) -> BigInt,
+    {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
-            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(op(a as i64, b as i64) != 0)),
+            (Value::Bool(a), Value::Bool(b)) => {
+                let ai = BigInt::from(a as i64);
+                let bi = BigInt::from(b as i64);
+                Ok(Value::Bool(op(ai, bi) != BigInt::from(0)))
+            }
             _ => Err(Signal::Error(RuntimeError::new(
                 "bitwise ops require integers or booleans",
             ))),
@@ -451,8 +466,8 @@ impl Interpreter {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Float(a), Value::Float(b)) => a == b,
-            (Value::Int(a), Value::Float(b)) => (*a as f64) == *b,
-            (Value::Float(a), Value::Int(b)) => *a == (*b as f64),
+            (Value::Int(a), Value::Float(b)) => (a.to_f64().unwrap_or(0.0)) == *b,
+            (Value::Float(a), Value::Int(b)) => *a == (b.to_f64().unwrap_or(0.0)),
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Null, Value::Null) => true,
@@ -471,11 +486,11 @@ impl Interpreter {
             (Value::Float(a), Value::Float(b)) => {
                 a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
             }
-            (Value::Int(a), Value::Float(b)) => (*a as f64)
+            (Value::Int(a), Value::Float(b)) => (a.to_f64().unwrap_or(0.0))
                 .partial_cmp(b)
                 .unwrap_or(std::cmp::Ordering::Equal),
             (Value::Float(a), Value::Int(b)) => a
-                .partial_cmp(&(*b as f64))
+                .partial_cmp(&(b.to_f64().unwrap_or(0.0)))
                 .unwrap_or(std::cmp::Ordering::Equal),
             (Value::String(a), Value::String(b)) => a.cmp(b),
             _ => {

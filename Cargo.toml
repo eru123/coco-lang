@@ -38,6 +38,8 @@ coco_gc = { path = "crates/coco_gc" }
 ariadne = "0.4"
 unicode-xid = "0.2"
 clap = { version = "4.5", features = ["derive"] }
+num-bigint = "0.4"
+num-traits = "0.2"
 
 [profile.release]
 opt-level = 3

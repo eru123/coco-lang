@@ -17,6 +17,8 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::value::Value;
 use crate::vm::VmError;
+#[cfg(test)]
+use num_bigint::BigInt;
 
 /// Unique task identifier.
 pub type TaskId = usize;
@@ -276,8 +278,8 @@ mod tests {
         assert_eq!(sched.active_count(), 1);
 
         // Complete it.
-        sched.complete(id, Value::Int(42));
-        assert!(matches!(sched.root_result(), Some(Ok(Value::Int(42)))));
+        sched.complete(id, Value::Int(BigInt::from(42)));
+        assert!(matches!(sched.root_result(), Some(Ok(Value::Int(n))) if n == BigInt::from(42)));
     }
 
     #[test]
@@ -302,10 +304,10 @@ mod tests {
         assert_eq!(sched.active_count(), 2); // both pending
 
         // Complete child → should wake root.
-        sched.complete(child_id, Value::Int(7));
+        sched.complete(child_id, Value::Int(BigInt::from(7)));
         assert_eq!(sched.dequeue(), Some(root_id));
-        sched.complete(root_id, Value::Int(7));
-        assert!(matches!(sched.root_result(), Some(Ok(Value::Int(7)))));
+        sched.complete(root_id, Value::Int(BigInt::from(7)));
+        assert!(matches!(sched.root_result(), Some(Ok(Value::Int(n))) if n == BigInt::from(7)));
     }
 
     #[test]

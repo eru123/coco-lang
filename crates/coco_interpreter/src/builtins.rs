@@ -1,5 +1,6 @@
 use crate::error::{RuntimeError, Signal};
 use crate::value::Value;
+use num_bigint::BigInt;
 
 /// Execute a built-in function by name with the given arguments.
 pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
@@ -17,9 +18,9 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("len() expects 1 argument")));
             }
             match &args[0] {
-                Value::String(s) => Ok(Value::Int(s.len() as i64)),
-                Value::List(l) => Ok(Value::Int(l.data.len() as i64)),
-                Value::Map(m) => Ok(Value::Int(m.data.len() as i64)),
+                Value::String(s) => Ok(Value::Int(BigInt::from(s.len()))),
+                Value::List(l) => Ok(Value::Int(BigInt::from(l.data.len()))),
+                Value::Map(m) => Ok(Value::Int(BigInt::from(m.data.len()))),
                 _ => Err(Signal::Error(RuntimeError::new(
                     "len() expects a string, list, or map",
                 ))),
@@ -40,12 +41,12 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 )));
             }
             match &args[0] {
-                Value::String(s) => match s.parse::<i64>() {
+                Value::String(s) => match s.parse::<BigInt>() {
                     Ok(n) => Ok(Value::Int(n)),
                     Err(_) => Ok(Value::Null),
                 },
-                Value::Int(n) => Ok(Value::Int(*n)),
-                Value::Float(f) => Ok(Value::Int(*f as i64)),
+                Value::Int(n) => Ok(Value::Int(n.clone())),
+                Value::Float(f) => Ok(Value::Int(BigInt::from(*f as i64))),
                 _ => Ok(Value::Null),
             }
         }
@@ -60,7 +61,10 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                     Ok(f) => Ok(Value::Float(f)),
                     Err(_) => Ok(Value::Null),
                 },
-                Value::Int(n) => Ok(Value::Float(*n as f64)),
+                Value::Int(n) => {
+                    use num_traits::ToPrimitive;
+                    Ok(Value::Float(n.to_f64().unwrap_or(0.0)))
+                }
                 Value::Float(f) => Ok(Value::Float(*f)),
                 _ => Ok(Value::Null),
             }
@@ -86,7 +90,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("abs() expects 1 argument")));
             }
             match &args[0] {
-                Value::Int(n) => Ok(Value::Int(n.abs())),
+                Value::Int(n) => Ok(Value::Int(if *n >= BigInt::from(0) { n.clone() } else { -n.clone() })),
                 Value::Float(f) => Ok(Value::Float(f.abs())),
                 _ => Err(Signal::Error(RuntimeError::new("abs() expects a number"))),
             }
@@ -100,8 +104,14 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 match (best, arg) {
                     (Value::Int(a), Value::Int(b)) if a > b => best = arg,
                     (Value::Float(a), Value::Float(b)) if a > b => best = arg,
-                    (Value::Int(a), Value::Float(b)) if *a as f64 > *b => best = arg,
-                    (Value::Float(a), Value::Int(b)) if *a > *b as f64 => best = arg,
+                    (Value::Int(a), Value::Float(b)) => {
+                        use num_traits::ToPrimitive;
+                        if a.to_f64().unwrap_or(f64::INFINITY) > *b { best = arg; }
+                    }
+                    (Value::Float(a), Value::Int(b)) => {
+                        use num_traits::ToPrimitive;
+                        if *a > b.to_f64().unwrap_or(f64::NEG_INFINITY) { best = arg; }
+                    }
                     _ => {}
                 }
             }
@@ -116,8 +126,14 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 match (best, arg) {
                     (Value::Int(a), Value::Int(b)) if a < b => best = arg,
                     (Value::Float(a), Value::Float(b)) if a < b => best = arg,
-                    (Value::Int(a), Value::Float(b)) if (*a as f64) < *b => best = arg,
-                    (Value::Float(a), Value::Int(b)) if *a < *b as f64 => best = arg,
+                    (Value::Int(a), Value::Float(b)) => {
+                        use num_traits::ToPrimitive;
+                        if a.to_f64().unwrap_or(f64::NEG_INFINITY) < *b { best = arg; }
+                    }
+                    (Value::Float(a), Value::Int(b)) => {
+                        use num_traits::ToPrimitive;
+                        if *a < b.to_f64().unwrap_or(f64::INFINITY) { best = arg; }
+                    }
                     _ => {}
                 }
             }
@@ -128,8 +144,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("floor() expects 1 argument")));
             }
             match &args[0] {
-                Value::Float(f) => Ok(Value::Int(f.floor() as i64)),
-                Value::Int(n) => Ok(Value::Int(*n)),
+                Value::Float(f) => Ok(Value::Int(BigInt::from(f.floor() as i64))),
+                Value::Int(n) => Ok(Value::Int(n.clone())),
                 _ => Err(Signal::Error(RuntimeError::new("floor() expects a number"))),
             }
         }
@@ -138,8 +154,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("ceil() expects 1 argument")));
             }
             match &args[0] {
-                Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
-                Value::Int(n) => Ok(Value::Int(*n)),
+                Value::Float(f) => Ok(Value::Int(BigInt::from(f.ceil() as i64))),
+                Value::Int(n) => Ok(Value::Int(n.clone())),
                 _ => Err(Signal::Error(RuntimeError::new("ceil() expects a number"))),
             }
         }
@@ -148,8 +164,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("round() expects 1 argument")));
             }
             match &args[0] {
-                Value::Float(f) => Ok(Value::Int(f.round() as i64)),
-                Value::Int(n) => Ok(Value::Int(*n)),
+                Value::Float(f) => Ok(Value::Int(BigInt::from(f.round() as i64))),
+                Value::Int(n) => Ok(Value::Int(n.clone())),
                 _ => Err(Signal::Error(RuntimeError::new("round() expects a number"))),
             }
         }
@@ -159,7 +175,10 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
             match &args[0] {
                 Value::Float(f) => Ok(Value::Float(f.sqrt())),
-                Value::Int(n) => Ok(Value::Float((*n as f64).sqrt())),
+                Value::Int(n) => {
+                    use num_traits::ToPrimitive;
+                    Ok(Value::Float(n.to_f64().unwrap_or(0.0).sqrt()))
+                }
                 _ => Err(Signal::Error(RuntimeError::new("sqrt() expects a number"))),
             }
         }
@@ -169,15 +188,26 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
             match (&args[0], &args[1]) {
                 (Value::Int(a), Value::Int(b)) => {
-                    if *b >= 0 {
-                        Ok(Value::Int(a.pow(*b as u32)))
+                    use num_traits::ToPrimitive;
+                    if let Some(exp) = b.to_u32() {
+                        Ok(Value::Int(a.pow(exp)))
                     } else {
-                        Ok(Value::Float((*a as f64).powi(*b as i32)))
+                        Err(Signal::Error(RuntimeError::new("exponent too large")))
                     }
                 }
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.powf(*b))),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).powf(*b))),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.powi(*b as i32))),
+                (Value::Int(a), Value::Float(b)) => {
+                    use num_traits::ToPrimitive;
+                    Ok(Value::Float(a.to_f64().unwrap_or(0.0).powf(*b)))
+                }
+                (Value::Float(a), Value::Int(b)) => {
+                    use num_traits::ToPrimitive;
+                    if let Some(exp) = b.to_i32() {
+                        Ok(Value::Float(a.powi(exp)))
+                    } else {
+                        Err(Signal::Error(RuntimeError::new("exponent too large")))
+                    }
+                }
                 _ => Err(Signal::Error(RuntimeError::new("pow() expects numbers"))),
             }
         }
@@ -194,8 +224,11 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                     Value::Int(max) => {
                         use std::collections::hash_map::RandomState;
                         use std::hash::{BuildHasher, Hasher};
+                        use num_traits::ToPrimitive;
                         let h = RandomState::new().build_hasher().finish();
-                        Ok(Value::Int((h % (*max as u64)) as i64))
+                        let max_u64 = max.to_u64().unwrap_or(u64::MAX);
+                        let rem = if max_u64 > 0 { h % max_u64 } else { 0 };
+                        Ok(Value::Int(BigInt::from(rem)))
                     }
                     _ => Err(Signal::Error(RuntimeError::new(
                         "random() with 1 argument expects an integer max",

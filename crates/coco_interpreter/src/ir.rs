@@ -36,6 +36,8 @@
 //! | AssignOp            | 2     | u8 op-kind                |
 
 use crate::value::Value;
+#[cfg(test)]
+use num_bigint::BigInt;
 
 // ============================================================================
 // Opcodes
@@ -638,10 +640,10 @@ mod tests {
     #[test]
     fn test_chunk_builder_constants() {
         let mut b = ChunkBuilder::new();
-        let idx = b.add_constant(Value::Int(42));
+        let idx = b.add_constant(Value::Int(BigInt::from(42)));
         assert_eq!(idx, 0);
         // Dedup
-        let idx2 = b.add_constant(Value::Int(42));
+        let idx2 = b.add_constant(Value::Int(BigInt::from(42)));
         assert_eq!(idx2, 0);
         let idx3 = b.add_constant(Value::String("hello".to_string()));
         assert_eq!(idx3, 1);
@@ -690,7 +692,7 @@ mod tests {
     #[test]
     fn test_disassemble() {
         let mut b = ChunkBuilder::new();
-        let c = b.add_constant(Value::Int(42));
+        let c = b.add_constant(Value::Int(BigInt::from(42)));
         b.set_line(1);
         b.emit_op_u16(OP_CONST, c);
         b.emit_op(OP_RETURN);

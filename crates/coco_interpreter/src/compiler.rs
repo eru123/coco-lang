@@ -24,6 +24,7 @@ use crate::ir::{
 };
 use crate::value::Value;
 use coco_syntax::*;
+use num_bigint::BigInt;
 
 // ============================================================================
 // Compile error
@@ -347,7 +348,7 @@ impl Compiler {
         // Initialize index to 0
         self.emit_op(OP_NULL); // fallthrough: OP_CONST 0 would need a constant
         self.emit_op(OP_POP);
-        let zero_idx = self.add_constant(Value::Int(0));
+        let zero_idx = self.add_constant(Value::Int(BigInt::from(0)));
         self.emit_op_u16(OP_CONST, zero_idx);
         self.emit_op_u16(OP_STORE_LOCAL, idx_slot as u16);
         self.emit_op(OP_POP);
@@ -385,7 +386,7 @@ impl Compiler {
 
         // Increment index
         self.emit_op_u16(OP_LOAD_LOCAL, idx_slot as u16);
-        let one_idx = self.add_constant(Value::Int(1));
+        let one_idx = self.add_constant(Value::Int(BigInt::from(1)));
         self.emit_op_u16(OP_CONST, one_idx);
         self.emit_op(OP_ADD);
         self.emit_op_u16(OP_STORE_LOCAL, idx_slot as u16);
@@ -616,7 +617,7 @@ impl Compiler {
     fn compile_literal(&mut self, lit: &Literal) -> CResult<()> {
         match lit {
             Literal::Int(n, _) => {
-                let idx = self.add_constant(Value::Int(*n));
+                let idx = self.add_constant(Value::Int(BigInt::from(*n as i64)));
                 self.emit_op_u16(OP_CONST, idx);
             }
             Literal::Float(n, _) => {
