@@ -2,6 +2,21 @@
 
 > This document defines how Coco handles async operations, parallelism, and shared state.
 
+## Implementation Status
+
+| Feature | Parser | Type Check | Safety | VM | Notes |
+|---------|--------|------------|--------|----|-------|
+| `async fn` / `await` | ✅ | ✅ | ✅ | ✅ | Task scheduler in VM |
+| `lazy` | ✅ | ✅ stub | — | ✅ | Compiles to async lambda |
+| `parallel { run }` | ✅ | ✅ | ✅ | ✅ | Sequential in single-threaded VM |
+| `coro { }` | ✅ | — | ✅ | ✅ | Fire-and-forget task |
+| `select { case }` | ✅ | — | — | ✅ | OP_SELECT_TRY_RECV in VM |
+| `chan<T>` | ✅ | — | — | ✅ | Arc<Mutex<ChannelInner>> |
+| `Atomic<T>` | ✅ | — | — | ✅ | Arc<Mutex<AtomicInner>> |
+| `synchronized { }` | ✅ | — | — | ✅ | Scoped block (single-threaded) |
+| Real multi-threading | — | — | — | ⬜ | Planned |
+| Async I/O event loop | — | — | — | ⬜ | Planned |
+
 ---
 
 ## Overview
