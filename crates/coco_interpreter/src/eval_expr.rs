@@ -33,6 +33,7 @@ impl Interpreter {
             Expr::This(_) => self.eval_dollar(), // this == $
             Expr::Super(_) => self.eval_super(),
             Expr::New(new_expr) => self.eval_new(new_expr),
+            Expr::Match(match_expr) => self.eval_match(match_expr),
             _ => Err(Signal::Error(RuntimeError::new(format!(
                 "unsupported expression: {:?}",
                 std::mem::discriminant(expr)
@@ -810,6 +811,88 @@ impl Interpreter {
             _ => Err(Signal::Error(RuntimeError::new(
                 "bitwise ops require integers or booleans",
             ))),
+        }
+    }
+
+    fn eval_match(&mut self, match_expr: &MatchExpr) -> IResult {
+        let scrutinee = self.eval_expr(&match_expr.scrutinee)?;
+        for arm in &match_expr.arms {
+            if self.pattern_matches(&scrutinee, &arm.pattern) {
+                self.env.push_scope();
+                self.bind_pattern(&arm.pattern, &scrutinee)?;
+                let result = self.eval_expr(&arm.body);
+                self.env.pop_scope();
+                return result;
+            }
+        }
+        Err(Signal::Error(RuntimeError::new(
+            "match: no arm matched the scrutinee value",
+        )))
+    }
+
+    /// Check whether a value matches a pattern.
+    fn pattern_matches(&self, value: &Value, pattern: &Pattern) -> bool {
+        match pattern {
+            Pattern::Literal(lit) => {
+                let lit_val = self.eval_literal(lit).unwrap_or(Value::Null);
+                self.values_eq(value, &lit_val)
+            }
+            Pattern::Ident(_) => {
+                // Identifier patterns always match — they bind the value.
+                true
+            }
+            Pattern::IsType(_type) => {
+                // Type guard: check if the value is of the expected type.
+                // This is a simple runtime type check based on the type name.
+                match _type {
+                    Type::Primitive(prim, _) => self.type_matches_primitive(value, *prim),
+                    Type::Named(named) => self.type_matches_named(value, &named.name.name),
+                    _ => false,
+                }
+            }
+            Pattern::Wildcard(_) => true,
+        }
+    }
+
+    /// Bind a pattern's variables in the current scope.
+    fn bind_pattern(&mut self, pattern: &Pattern, value: &Value) -> Result<(), Signal> {
+        match pattern {
+            Pattern::Ident(ident) => {
+                self.env
+                    .define(ident.name.clone(), value.clone(), true);
+            }
+            Pattern::Literal(_) | Pattern::IsType(_) | Pattern::Wildcard(_) => {
+                // No binding needed.
+            }
+        }
+        Ok(())
+    }
+
+    /// Check if a value matches a primitive type name.
+    fn type_matches_primitive(&self, value: &Value, prim: PrimitiveType) -> bool {
+        match (prim, value) {
+            (PrimitiveType::Int, Value::Int(_)) => true,
+            (PrimitiveType::Float, Value::Float(_)) => true,
+            (PrimitiveType::String, Value::String(_)) => true,
+            (PrimitiveType::Bool, Value::Bool(_)) => true,
+            (PrimitiveType::Null, Value::Null) => true,
+            _ => false,
+        }
+    }
+
+    /// Check if a value matches a named type (e.g., class instance).
+    /// This is a best-effort check — in the tree-walking interpreter,
+    /// we check if the value is a map with a `__class` marker.
+    fn type_matches_named(&self, value: &Value, name: &str) -> bool {
+        match value {
+            Value::Map(map) => {
+                if let Some(Value::String(class_name)) = map.data.get("__class") {
+                    class_name == name
+                } else {
+                    false
+                }
+            }
+            _ => false,
         }
     }
 
