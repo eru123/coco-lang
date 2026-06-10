@@ -424,6 +424,7 @@ impl Compiler {
             Stmt::If(if_stmt) => self.compile_if(if_stmt),
             Stmt::For(for_stmt) => self.compile_for(for_stmt),
             Stmt::While(while_stmt) => self.compile_while(while_stmt),
+            Stmt::DoWhile(dw) => self.compile_do_while(dw),
             Stmt::Loop(loop_stmt) => self.compile_loop(loop_stmt),
             Stmt::Return(ret) => self.compile_return(ret),
             Stmt::Break(_) => self.compile_break(),
@@ -528,6 +529,36 @@ impl Compiler {
         self.end_scope();
 
         self.emit_loop(start_label);
+        self.place_label(end_label);
+
+        self.loop_stack.pop();
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // do-while — body always executes once; condition checked after
+    // -----------------------------------------------------------------------
+
+    fn compile_do_while(&mut self, dw: &DoWhileStmt) -> CResult<()> {
+        let body_label = self.new_label();
+        let end_label = self.new_label();
+
+        self.loop_stack.push(LoopLabels {
+            end_label,
+            start_label: body_label,
+            _loop_var_slot: None,
+        });
+
+        // Body executes at least once
+        self.place_label(body_label);
+        self.begin_scope();
+        self.compile_block(&dw.body)?;
+        self.end_scope();
+
+        // Condition — loop back if true
+        self.compile_expr(&dw.condition)?;
+        self.emit_jump(OP_JUMP_IF_TRUE, body_label);
+
         self.place_label(end_label);
 
         self.loop_stack.pop();
