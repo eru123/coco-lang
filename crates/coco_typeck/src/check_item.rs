@@ -242,10 +242,16 @@ fn fn_sig_from_fn(fn_decl: &FnDecl) -> FnSig {
         .collect();
     let is_typed =
         fn_decl.return_type.is_some() || fn_decl.params.iter().any(|p| p.type_ann.is_some());
+    let type_params = fn_decl
+        .type_params
+        .as_ref()
+        .map(|tps| tps.iter().map(|tp| tp.name.name.clone()).collect())
+        .unwrap_or_default();
     FnSig {
         params,
         ret,
         is_typed,
+        type_params,
     }
 }
 
@@ -271,6 +277,7 @@ fn fn_sig_from_method(method: &Method) -> FnSig {
         params,
         ret,
         is_typed,
+        type_params: vec![],
     }
 }
 
@@ -288,6 +295,7 @@ fn fn_sig_from_method_signature(method: &MethodSignature) -> FnSig {
             .collect(),
         ret: ast_type_to_ty(&method.return_type),
         is_typed: true,
+        type_params: vec![],
     }
 }
 
@@ -305,6 +313,7 @@ fn fn_sig_from_constructor(constructor: &Constructor) -> FnSig {
             .collect(),
         ret: Ty::Void,
         is_typed: constructor.params.iter().any(|p| p.type_ann.is_some()),
+        type_params: vec![],
     }
 }
 

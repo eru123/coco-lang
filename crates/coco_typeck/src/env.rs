@@ -11,6 +11,8 @@ pub struct FnSig {
     pub ret: Ty,
     /// Whether this function has any type annotations at all.
     pub is_typed: bool,
+    /// Generic type parameter names (e.g., ["T", "U"] for `fn foo<T, U>(...)`).
+    pub type_params: Vec<String>,
 }
 
 /// Kinds of named type shapes Coco can type-check.
@@ -86,6 +88,7 @@ impl TypeEnv {
                 params: vec![Ty::Mixed],
                 ret: Ty::Void,
                 is_typed: true,
+                type_params: vec![],
             },
         );
 
@@ -96,6 +99,7 @@ impl TypeEnv {
                 params: vec![Ty::Mixed],
                 ret: Ty::Int,
                 is_typed: true,
+                type_params: vec![],
             },
         );
 
@@ -106,6 +110,7 @@ impl TypeEnv {
                 params: vec![Ty::Mixed],
                 ret: Ty::String,
                 is_typed: true,
+                type_params: vec![],
             },
         );
 
@@ -116,6 +121,7 @@ impl TypeEnv {
                 params: vec![Ty::String],
                 ret: Ty::Int,
                 is_typed: true,
+                type_params: vec![],
             },
         );
 
@@ -126,6 +132,7 @@ impl TypeEnv {
                 params: vec![Ty::String],
                 ret: Ty::Float,
                 is_typed: true,
+                type_params: vec![],
             },
         );
     }

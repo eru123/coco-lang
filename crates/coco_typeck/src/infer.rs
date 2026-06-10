@@ -160,7 +160,31 @@ fn infer_call(call: &CallExpr, env: &TypeEnv) -> Ty {
     // Resolve the callee to a function name
     if let Expr::Ident(ident) = &call.callee {
         if let Some(sig) = env.lookup_fn(&ident.name) {
-            return sig.ret.clone();
+            if sig.type_params.is_empty() {
+                return sig.ret.clone();
+            }
+            // Generic instantiation: infer type args from call arguments
+            let mut inferred_args: Vec<Ty> = Vec::new();
+            for param_name in &sig.type_params {
+                // For each type param, try to find a matching argument
+                let mut found = None;
+                for (i, param_ty) in sig.params.iter().enumerate() {
+                    if let Ty::Named(name) = param_ty {
+                        if name == param_name {
+                            // This param's type is the type param — infer from arg
+                            if let Some(arg) = call.args.get(i) {
+                                let arg_ty = infer_expr(&arg.value, env);
+                                if !arg_ty.is_unknown() {
+                                    found = Some(arg_ty);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                inferred_args.push(found.unwrap_or(Ty::Unknown));
+            }
+            return sig.ret.substitute(&sig.type_params, &inferred_args);
         }
     }
     if let Ty::Function { ret, .. } = infer_expr(&call.callee, env) {

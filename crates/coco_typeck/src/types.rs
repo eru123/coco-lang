@@ -95,6 +95,42 @@ impl Ty {
     pub fn is_unknown(&self) -> bool {
         matches!(self, Ty::Unknown)
     }
+
+    /// Substitute type parameter names with concrete types.
+    /// `params` and `args` must be the same length.
+    pub fn substitute(&self, params: &[String], args: &[Ty]) -> Ty {
+        if params.is_empty() || args.is_empty() {
+            return self.clone();
+        }
+        let pairs: Vec<(&String, &Ty)> = params.iter().zip(args.iter()).collect();
+        self.subst_impl(&pairs)
+    }
+
+    fn subst_impl(&self, pairs: &[(&String, &Ty)]) -> Ty {
+        match self {
+            Ty::Named(name) => {
+                for (param, arg) in pairs {
+                    if *param == name {
+                        return (*arg).clone();
+                    }
+                }
+                self.clone()
+            }
+            Ty::List(elem) => Ty::List(Box::new(elem.subst_impl(pairs))),
+            Ty::Map(k, v) => Ty::Map(Box::new(k.subst_impl(pairs)), Box::new(v.subst_impl(pairs))),
+            Ty::Tuple(types) => Ty::Tuple(types.iter().map(|t| t.subst_impl(pairs)).collect()),
+            Ty::Union(types) => Ty::Union(types.iter().map(|t| t.subst_impl(pairs)).collect()),
+            Ty::Function { params, ret } => Ty::Function {
+                params: params.iter().map(|t| t.subst_impl(pairs)).collect(),
+                ret: Box::new(ret.subst_impl(pairs)),
+            },
+            Ty::Result(ok, err) => Ty::Result(
+                Box::new(ok.subst_impl(pairs)),
+                Box::new(err.subst_impl(pairs)),
+            ),
+            other => other.clone(),
+        }
+    }
 }
 
 impl fmt::Display for Ty {

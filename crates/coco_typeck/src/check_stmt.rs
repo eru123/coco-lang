@@ -129,6 +129,7 @@ fn check_item_stmt(item: &Item, env: &mut TypeEnv, errors: &mut Vec<TypeckError>
                     params,
                     ret: ret_ty,
                     is_typed: has_any_annotation,
+                    type_params: vec![],
                 },
             );
         }

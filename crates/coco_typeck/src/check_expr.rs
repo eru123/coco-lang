@@ -208,6 +208,34 @@ fn check_call(call: &CallExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>)
                 return sig.ret.clone();
             }
 
+            // Generic instantiation: infer type args and substitute
+            if !sig.type_params.is_empty() {
+                let mut inferred_args: Vec<Ty> = Vec::new();
+                for param_name in &sig.type_params {
+                    let mut found = None;
+                    for (i, param_ty) in sig.params.iter().enumerate() {
+                        if let Ty::Named(name) = param_ty {
+                            if name == param_name {
+                                if let Some(arg) = call.args.get(i) {
+                                    let arg_ty = check_expr(&arg.value, env, errors);
+                                    if !arg_ty.is_unknown() {
+                                        found = Some(arg_ty);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    inferred_args.push(found.unwrap_or(Ty::Unknown));
+                }
+                let subst_params: Vec<Ty> = sig.params.iter()
+                    .map(|p| p.substitute(&sig.type_params, &inferred_args))
+                    .collect();
+                let subst_ret = sig.ret.substitute(&sig.type_params, &inferred_args);
+                check_args_against(&subst_params, &call.args, call.span, env, errors);
+                return subst_ret;
+            }
+
             check_args_against(&sig.params, &call.args, call.span, env, errors);
             return sig.ret.clone();
         }
