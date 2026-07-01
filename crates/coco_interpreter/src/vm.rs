@@ -121,6 +121,39 @@ impl Vm {
         );
     }
 
+    /// Replace this VM's globals (used to seed a worker VM for parallel runs).
+    pub fn set_globals(&mut self, globals: std::collections::HashMap<String, Value>) {
+        self.globals = globals;
+    }
+
+    /// Call a `FnObj` with the given args and run it to completion.
+    /// Used by the parallel runtime to execute a `run` clause on a fresh VM.
+    pub fn call_function(&mut self, fn_obj: crate::ir::FnObj, args: Vec<Value>) -> VmResult<Value> {
+        if args.len() != fn_obj.arity {
+            return Err(VmError::new(format!(
+                "{}() expects {} arguments, got {}",
+                fn_obj.name, fn_obj.arity, args.len()
+            )));
+        }
+        // Build a stack: [FnObj, arg0, arg1, ...] and a frame, then run.
+        let mut stack: Vec<Value> = Vec::with_capacity(args.len() + 1);
+        stack.push(Value::FnObj(fn_obj.clone()));
+        for a in args {
+            stack.push(a);
+        }
+        self.stack = stack;
+        self.frames.clear();
+        self.frames.push(CallFrame {
+            closure: Value::FnObj(fn_obj),
+            ip: 0,
+            // Locals (params) start after the closure at stack[0], so the
+            // first param (slot 0) maps to stack[1]. This matches the calling
+            // convention used by `call`/`async_call`.
+            stack_offset: 1,
+        });
+        self.run_loop()
+    }
+
     // ========================================================================
     // Public API
     // ========================================================================
@@ -359,6 +392,49 @@ impl Vm {
                     return Ok(());
                 }
                 return Err(VmError::new("await requires a task handle"));
+            }
+            OP_PARALLEL_RUN => {
+                // Pop N TaskHandles, extract their (FnObj, args) from the
+                // scheduler, run them concurrently on OS threads, and push the
+                // last result. Falls back to serial await if a handle isn't a
+                // pending task (e.g. already completed or a non-task value).
+                let n = self.read_u8_operand() as usize;
+                self.step_ip(step);
+                let mut handles: Vec<Value> = Vec::with_capacity(n);
+                for _ in 0..n {
+                    handles.push(self.pop());
+                }
+                handles.reverse();
+                let mut runs: Vec<crate::parallel::ParallelRun> = Vec::with_capacity(n);
+                for h in &handles {
+                    if let Value::TaskHandle(id) = h {
+                        if let Some(task) = self.scheduler.take_task(*id) {
+                            if let Value::FnObj(fn_obj) = task.frame.closure.clone() {
+                                // stack[0] is the FnObj; stack[1..] are args.
+                                let args = task.stack.iter().skip(1).cloned().collect();
+                                runs.push(crate::parallel::ParallelRun {
+                                    callee: fn_obj,
+                                    args,
+                                });
+                                continue;
+                            }
+                        }
+                    }
+                    // Fallback: not a runnable task — leave it to be awaited
+                    // serially by pushing a null result slot.
+                    runs.push(crate::parallel::ParallelRun {
+                        callee: crate::ir::FnObj {
+                            name: "<noop>".to_string(),
+                            arity: 0,
+                            chunk: crate::ir::Chunk::new(),
+                            is_async: false,
+                        },
+                        args: vec![],
+                    });
+                }
+                let result = crate::parallel::parallel_join(runs, &self.globals)?;
+                self.push(result);
+                return Ok(());
             }
             OP_LAZY_CALL => {
                 let arg_count = self.read_u8_operand() as usize;
@@ -1326,6 +1402,11 @@ impl Vm {
         );
         // Database builtins (std/db).
         for name in ["db_open", "db_exec", "db_query", "db_close"] {
+            self.globals
+                .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
+        }
+        // Time builtins (used by std/time and parallel-block timing).
+        for name in ["time_now", "time_sleep"] {
             self.globals
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
         }

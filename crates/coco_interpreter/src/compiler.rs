@@ -22,7 +22,7 @@ use crate::ir::{
     OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
     OP_STORE_MEMBER, OP_SUB, OP_SUPER_METHOD, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
-    OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF,
+    OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF, OP_PARALLEL_RUN,
     // OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE are dispatched by the VM but
     // not yet emitted by the compiler; import them here when compile_for /
     // compile_pipe / scope-close are wired to emit them.
@@ -771,13 +771,17 @@ impl Compiler {
     // -----------------------------------------------------------------------
 
     fn compile_parallel_expr(&mut self, parallel: &ParallelExpr) -> CResult<()> {
-        // Spawn each task and immediately await it. This is correct for
-        // the stack-based VM. Tasks become concurrent when they involve
-        // I/O that yields to the scheduler.
+        // Spawn each run clause (leaving TaskHandles), then join in parallel
+        // on OS threads via OP_PARALLEL_RUN. The `await` prefix is a no-op
+        // here because the join blocks until all runs complete.
+        if parallel.runs.is_empty() {
+            self.emit_op(OP_NULL);
+            return Ok(());
+        }
         for run in &parallel.runs {
             self.compile_expr(&run.expr)?;
-            self.emit_op(OP_AWAIT);
         }
+        self.emit_op_u8(OP_PARALLEL_RUN, parallel.runs.len() as u8);
         Ok(())
     }
 
@@ -790,10 +794,14 @@ impl Compiler {
             self.emit_op(OP_NULL);
             return Ok(());
         }
+        // Spawn each run clause (each leaves a TaskHandle on the stack), then
+        // join them in parallel on OS threads and push the last result. This
+        // replaces the previous serial await-per-run which ran tasks one at a
+        // time on the cooperative scheduler.
         for run in &parallel.runs {
             self.compile_expr(&run.expr)?;
-            self.emit_op(OP_AWAIT);
         }
+        self.emit_op_u8(OP_PARALLEL_RUN, parallel.runs.len() as u8);
         Ok(())
     }
 

@@ -139,6 +139,9 @@ pub const OP_ITER_MAP: u8 = 110; // get next key from map iterator
 // Closures
 pub const OP_CLOSE_UPVALUE: u8 = 111; // close upvalue: move stack value to heap
 
+// Real parallelism
+pub const OP_PARALLEL_RUN: u8 = 112; // run N (callee,args) pairs on OS threads, join, push last result. u8 count.
+
 /// Compound-assignment op sub-kinds carried by OP_ASSIGN_OP after the
 /// right-hand side is already on the stack (left is below it).
 pub const ASSIGN_OP_ADD: u8 = 0;
@@ -222,6 +225,7 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_PIPE_VAL => "PIPE_VAL",
         OP_ITER_MAP => "ITER_MAP",
         OP_CLOSE_UPVALUE => "CLOSE_UPVALUE",
+        OP_PARALLEL_RUN => "PARALLEL_RUN",
         _ => "???",
     }
 }
@@ -253,6 +257,8 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
         OP_METHOD_CALL | OP_SUPER_METHOD => Some(3), // u16 name_idx + u8 arg_count
 
         OP_NEW => Some(1),
+
+        OP_PARALLEL_RUN => Some(1), // u8 run count
 
         OP_SELECT_TRY_RECV => Some(2), // u16 jump offset
 

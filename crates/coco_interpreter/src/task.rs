@@ -145,6 +145,12 @@ impl TaskScheduler {
         self.tasks.values()
     }
 
+    /// Remove and return a task by id (used by OP_PARALLEL_RUN to extract a
+    /// task's callable for OS-thread execution).
+    pub fn take_task(&mut self, id: TaskId) -> Option<Task> {
+        self.tasks.remove(&id)
+    }
+
     /// Dequeue the next ready task, or None if the scheduler is done.
     pub fn dequeue(&mut self) -> Option<TaskId> {
         self.ready_queue.pop_front()
