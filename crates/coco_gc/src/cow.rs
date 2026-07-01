@@ -1,51 +1,37 @@
 //! Copy-on-Write wrapper for GC-managed data.
 //!
-//! CoW<T> wraps a heap-allocated T and provides shared-read, copy-on-write-mutate semantics.
-//! Clone bumps a refcount; mutation triggers a copy if the data is shared.
+//! `CoW<T>` wraps a heap-allocated `T`. Sharing is governed solely by the
+//! `Heap`'s refcount (bumped by `Gc<T>::clone`, decremented by `Gc<T>`'s
+//! `Drop`) — `CoW` itself no longer tracks a separate refcount. Callers that
+//! need copy-on-write semantics should check `Heap::refcount(id)` before
+//! mutating shared data.
+//!
+//! Historical note: an earlier design gave `CoW` its own `Cell<usize>`
+//! refcount and a `get_mut` that copied when shared. That count was never
+//! kept in sync with the `Heap`'s count and `get_mut` was never called, so
+//! the two diverged. The refcount is now unified on the `Heap` exclusively.
 
 use std::any::Any;
-use std::cell::Cell;
 use std::fmt;
 
 use crate::heap::GcObj;
 
-/// A CoW wrapper stored inside a Gc<T>. The actual data lives on the heap.
-/// Clone creates a new reference. Mutation via `get_mut()` copies if shared.
+/// A CoW wrapper stored inside a `Gc<T>`. The actual data lives on the heap.
 pub struct CoW<T: Clone + 'static> {
     pub data: T,
-    refcount: Cell<usize>,
 }
 
 impl<T: Clone + 'static> CoW<T> {
     pub fn new(data: T) -> Self {
-        Self {
-            data,
-            refcount: Cell::new(1),
-        }
+        Self { data }
     }
 
-    pub fn refcount(&self) -> usize {
-        self.refcount.get()
-    }
-
-    pub fn inc_ref(&self) {
-        let rc = self.refcount.get();
-        self.refcount.set(rc + 1);
-    }
-
-    pub fn dec_ref(&self) -> bool {
-        let rc = self.refcount.get();
-        if rc > 0 {
-            self.refcount.set(rc - 1);
-        }
-        self.refcount.get() == 0
-    }
-
+    /// Get mutable access to the inner data.
+    ///
+    /// This does **not** perform copy-on-write automatically. The caller is
+    /// responsible for checking `Heap::refcount(id)` first if shared mutation
+    /// must be avoided, since `CoW` no longer holds its own refcount.
     pub fn get_mut(&mut self) -> &mut T {
-        if self.refcount.get() > 1 {
-            self.data = self.data.clone();
-            self.refcount.set(1);
-        }
         &mut self.data
     }
 }
