@@ -37,7 +37,7 @@ fn take_tcp(handle: usize) {
     TCP_REGISTRY.lock().unwrap().remove(&handle);
 }
 
-fn with_tcp_stream<F: FnOnce(&mut TcpStream) -> Result<Value, Signal>>(
+pub(crate) fn with_tcp_stream<F: FnOnce(&mut TcpStream) -> Result<Value, Signal>>(
     handle: usize,
     f: F,
 ) -> Result<Value, Signal> {
@@ -49,7 +49,7 @@ fn with_tcp_stream<F: FnOnce(&mut TcpStream) -> Result<Value, Signal>>(
     }
 }
 
-fn with_tcp_listener<F: FnOnce(&TcpListener) -> Result<Value, Signal>>(
+pub(crate) fn with_tcp_listener<F: FnOnce(&TcpListener) -> Result<Value, Signal>>(
     handle: usize,
     f: F,
 ) -> Result<Value, Signal> {
@@ -424,6 +424,9 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
         "db_exec" => crate::db::db_exec(args),
         "db_query" => crate::db::db_query(args, heap),
         "db_close" => crate::db::db_close(args),
+
+        // ---- Async I/O event loop (mio-backed fd readiness) ----
+        "io_wait" => crate::io_loop::io_wait(args),
 
         // ---- Filesystem builtins ----
         "fs_readFile" => {

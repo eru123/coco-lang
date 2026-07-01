@@ -9,6 +9,7 @@
 pub mod builtins;
 pub mod compiler;
 pub mod db;
+pub mod io_loop;
 pub mod parallel;
 #[cfg(feature = "tree-walker")]
 #[deprecated(since = "0.2.0", note = "Tree-walking interpreter is deprecated; use the VM")]

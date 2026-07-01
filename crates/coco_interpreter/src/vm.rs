@@ -1410,6 +1410,14 @@ impl Vm {
             self.globals
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
         }
+        // Async I/O event loop primitive (mio-backed fd readiness).
+        self.globals
+            .insert("io_wait".to_string(), Value::BuiltinFn("io_wait".to_string()));
+        // TCP builtins (used by std/net and the HTTP server).
+        for name in ["tcp_listen", "tcp_accept", "tcp_read", "tcp_write", "tcp_close", "tcp_connect"] {
+            self.globals
+                .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
+        }
     }
 
     // ========================================================================
