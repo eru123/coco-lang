@@ -294,7 +294,13 @@ impl<'ctx> Codegen<'ctx> {
             Expr::Literal(lit) => self.compile_literal(lit),
             Expr::Ident(ident) => self.compile_ident(ident),
             Expr::Binary(bin) => self.compile_binary(bin),
+            Expr::Unary(un) => self.compile_unary(un),
             Expr::Call(call) => self.compile_call(call),
+            Expr::Index(idx) => self.compile_index(idx),
+            Expr::Member(mem) => self.compile_member(mem),
+            Expr::Ternary(tern) => self.compile_ternary(tern),
+            Expr::NullCoalesce(nc) => self.compile_null_coalesce(nc),
+            Expr::Array(arr) => self.compile_array(arr),
             Expr::Group(inner) => self.compile_expr(inner),
             _ => {
                 // Return null for unsupported expressions
@@ -304,6 +310,127 @@ impl<'ctx> Codegen<'ctx> {
                 ))
             }
         }
+    }
+
+    /// Compile a unary expression (negation, logical not).
+    fn compile_unary(&mut self, un: &UnaryExpr) -> Result<StructValue<'ctx>, String> {
+        let i64 = self.context.i64_type();
+        let operand = self.compile_expr(&un.expr)?;
+        match un.op {
+            UnaryOp::Neg => {
+                let data = self.extract_data(&operand);
+                let result = self.builder.build_int_neg(data, "neg").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), result))
+            }
+            UnaryOp::Not => {
+                let data = self.extract_data(&operand);
+                // Logical not: 1 if data == 0, else 0.
+                let zero = i64.const_int(0, false);
+                let is_zero = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ, data, zero, "iszero",
+                ).map_err(|e| e.to_string())?;
+                let result = self.builder.build_int_z_extend(is_zero, i64, "not").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
+            }
+            _ => {
+                // typeof, await, lazy — return null for now.
+                Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+            }
+        }
+    }
+
+    /// Compile an index expression (list[i] or map["k"]).
+    fn compile_index(&mut self, idx: &IndexExpr) -> Result<StructValue<'ctx>, String> {
+        // Indexing requires runtime list/map support not yet in coco_rt.
+        // Compile the operands for side effects, then return null.
+        self.compile_expr(&idx.object)?;
+        self.compile_expr(&idx.index)?;
+        let i64 = self.context.i64_type();
+        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+    }
+
+    /// Compile a member-access expression (obj.prop).
+    fn compile_member(&mut self, mem: &MemberExpr) -> Result<StructValue<'ctx>, String> {
+        // Member access requires runtime object support not yet in coco_rt.
+        self.compile_expr(&mem.object)?;
+        let i64 = self.context.i64_type();
+        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+    }
+
+    /// Compile a ternary expression (cond ? then : else).
+    fn compile_ternary(&mut self, tern: &TernaryExpr) -> Result<StructValue<'ctx>, String> {
+        let cond_val = self.compile_expr(&tern.condition)?;
+        let cond = self.extract_tag(&cond_val);
+        let is_true = self.builder.build_int_compare(
+            inkwell::IntPredicate::NE, cond,
+            self.context.i64_type().const_int(0, false), "terncond",
+        ).map_err(|e| e.to_string())?;
+
+        let then_block = self.context.append_basic_block(self.current_fn.unwrap(), "ternthen");
+        let else_block = self.context.append_basic_block(self.current_fn.unwrap(), "ternelse");
+        let merge_block = self.context.append_basic_block(self.current_fn.unwrap(), "ternmerge");
+
+        self.builder.build_conditional_branch(is_true, then_block, else_block).map_err(|e| e.to_string())?;
+
+        // Then branch.
+        self.builder.position_at_end(then_block);
+        let then_val = self.compile_expr(&tern.then_expr)?;
+        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        let then_block = self.builder.get_insert_block().unwrap();
+
+        // Else branch.
+        self.builder.position_at_end(else_block);
+        let else_val = self.compile_expr(&tern.else_expr)?;
+        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        let else_block = self.builder.get_insert_block().unwrap();
+
+        // Merge: phi over the two branches.
+        self.builder.position_at_end(merge_block);
+        let phi = self.builder.build_phi(self.value_type, "ternval").map_err(|e| e.to_string())?;
+        phi.add_incoming(&[(&then_val, then_block), (&else_val, else_block)]);
+        Ok(phi.as_basic_value().into_struct_value())
+    }
+
+    /// Compile a null-coalesce expression (a ?? b): a if a is not null, else b.
+    fn compile_null_coalesce(&mut self, nc: &NullCoalesceExpr) -> Result<StructValue<'ctx>, String> {
+        let left = self.compile_expr(&nc.left)?;
+        let tag = self.extract_tag(&left);
+        let is_null = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ, tag,
+            self.context.i64_type().const_int(TAG_NULL, false), "isnull",
+        ).map_err(|e| e.to_string())?;
+
+        let then_block = self.context.append_basic_block(self.current_fn.unwrap(), "ncthen");
+        let else_block = self.context.append_basic_block(self.current_fn.unwrap(), "ncelse");
+        let merge_block = self.context.append_basic_block(self.current_fn.unwrap(), "ncmerge");
+
+        // If left is null, evaluate right; else use left.
+        self.builder.build_conditional_branch(is_null, else_block, then_block).map_err(|e| e.to_string())?;
+
+        self.builder.position_at_end(then_block);
+        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        let then_block = self.builder.get_insert_block().unwrap();
+
+        self.builder.position_at_end(else_block);
+        let right_val = self.compile_expr(&nc.right)?;
+        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        let else_block = self.builder.get_insert_block().unwrap();
+
+        self.builder.position_at_end(merge_block);
+        let phi = self.builder.build_phi(self.value_type, "ncval").map_err(|e| e.to_string())?;
+        phi.add_incoming(&[(&left, then_block), (&right_val, else_block)]);
+        Ok(phi.as_basic_value().into_struct_value())
+    }
+
+    /// Compile an array/list literal.
+    fn compile_array(&mut self, arr: &ArrayLiteral) -> Result<StructValue<'ctx>, String> {
+        // Compile each element for side effects; list construction needs
+        // runtime support not yet in coco_rt. Return null.
+        for el in &arr.elements {
+            self.compile_expr(el)?;
+        }
+        let i64 = self.context.i64_type();
+        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
     }
 
     /// Compile a literal value.
@@ -488,11 +615,31 @@ impl<'ctx> Codegen<'ctx> {
         ))
     }
 
-    /// Build a Coco Value struct from tag and data.
-    fn build_value(&self, _tag: IntValue<'ctx>, _data: IntValue<'ctx>) -> StructValue<'ctx> {
-        // TODO: properly construct struct from tag+data
-        // For now, return zero-initialized struct as placeholder
-        self.value_type.const_zero()
+    /// Build a Coco Value struct from tag and data via a runtime alloc call.
+    ///
+    /// Constructs a `{ i64 tag, i64 data }` struct in LLVM IR by calling the
+    /// runtime's `coco_rt_alloc(tag, data)` (which mallocs a two-word struct)
+    /// and loading the result. This matches the Value layout the VM uses and
+    /// keeps heap-allocated values GC-visible.
+    fn build_value(&self, tag: IntValue<'ctx>, data: IntValue<'ctx>) -> StructValue<'ctx> {
+        // Call coco_rt_alloc(tag, data) -> {i64,i64}*.
+        let alloc_fn = self
+            .module
+            .get_function("coco_rt_alloc")
+            .expect("coco_rt_alloc must be declared");
+        let ret = self
+            .builder
+            .build_call(alloc_fn, &[tag.into(), data.into()], "rt_alloc")
+            .unwrap()
+            .try_as_basic_value()
+            .left()
+            .expect("coco_rt_alloc returns a value");
+        // Load the struct from the returned pointer.
+        let ptr = ret.into_pointer_value();
+        self.builder
+            .build_load(self.value_type, ptr, "val")
+            .unwrap()
+            .into_struct_value()
     }
 
     /// Extract the tag field from a Value struct.
