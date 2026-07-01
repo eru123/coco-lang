@@ -17,12 +17,16 @@ pub trait GcObj: Any + fmt::Debug {
 }
 
 struct HeapEntry {
-    /// Raw pointer to the heap-allocated object (owned by us).
-    ptr: *mut (),
+    /// Fat pointer to the heap-allocated trait object (owns the data + vtable).
+    /// Carries the vtable so the GC can downcast via `as_any` for tracing.
+    obj: *mut dyn GcObj,
     /// Drop function for this type.
     drop_fn: unsafe fn(*mut ()),
     /// Reference count from outstanding `Gc<T>` handles.
     refcount: Cell<usize>,
+    /// Mark bit for tracing collection. Set during the mark phase, cleared
+    /// before each collection cycle.
+    marked: Cell<bool>,
     /// Object size in bytes.
     size: usize,
 }
@@ -36,6 +40,8 @@ pub struct GcStats {
     pub bytes_allocated: usize,
     pub bytes_freed: usize,
     pub alive_objects: usize,
+    /// Number of objects reclaimed by tracing collection (cycles included).
+    pub traced_freed: usize,
 }
 
 pub struct Heap {
@@ -59,12 +65,16 @@ impl Heap {
     /// Allocate a value on the heap. Returns a GcRef and a raw pointer.
     pub fn allocate<T: GcObj + 'static>(&mut self, value: T) -> (GcRef, *const T) {
         let size = value.size();
-        let ptr = Box::into_raw(Box::new(value)) as *mut ();
+        let boxed: Box<dyn GcObj> = Box::new(value);
+        let obj = Box::into_raw(boxed);
+        // The typed data pointer is the same address; coerce for Gc<T> deref.
+        let ptr = obj as *mut () as *const T;
         let id = self.entries.len();
         self.entries.push(HeapEntry {
-            ptr,
+            obj,
             drop_fn: drop_obj::<T>,
             refcount: Cell::new(1),
+            marked: Cell::new(false),
             size,
         });
         self.stats.allocations += 1;
@@ -77,7 +87,7 @@ impl Heap {
             self.collect();
         }
 
-        (GcRef(id), ptr as *const T)
+        (GcRef(id), ptr)
     }
 
     pub fn inc_ref(&self, id: GcRef) {
@@ -100,8 +110,30 @@ impl Heap {
     }
 
     pub fn mark(&self, id: GcRef) {
-        // For mark-sweep integration — not used in current refcount-only mode.
-        let _ = id;
+        // Mark the object reachable. Used by the tracing collector's mark
+        // phase; a no-op effect only when no tracing collection is run.
+        if let Some(entry) = self.entries.get(id.0) {
+            entry.marked.set(true);
+        }
+    }
+
+    /// Returns whether `id` was marked during the last tracing mark phase.
+    pub fn is_marked(&self, id: GcRef) -> bool {
+        self.entries
+            .get(id.0)
+            .map(|e| e.marked.get())
+            .unwrap_or(false)
+    }
+
+    /// Borrow the `GcObj` stored at `id` as `&dyn Any` for downcasting.
+    ///
+    /// Used by tracers that need to inspect an object's children (e.g. the
+    /// interpreter downcasting `CoW<Vec<Value>>` to extract inner `GcRef`s).
+    pub fn obj_as_any(&self, id: GcRef) -> Option<&dyn Any> {
+        // SAFETY: the object is alive for as long as &self borrows the heap,
+        // and no mutation occurs during the borrow. `obj` is a fat pointer
+        // carrying the correct vtable.
+        self.entries.get(id.0).map(|entry| unsafe { (&*entry.obj).as_any() })
     }
 
     /// Get the refcount for an object (for CoW checks).
@@ -128,7 +160,7 @@ impl Heap {
                 freed_bytes += entry.size;
                 // SAFETY: refcount 0 means no outstanding Gc<T> references.
                 unsafe {
-                    (entry.drop_fn)(entry.ptr);
+                    (entry.drop_fn)(entry.obj as *mut ());
                 }
                 false
             } else {
@@ -149,6 +181,99 @@ impl Heap {
             );
         }
     }
+
+    /// Tracing mark-and-sweep collection with root discovery.
+    ///
+    /// `roots` are the directly-reachable `GcRef`s (VM stack + globals). The
+    /// `tracer` closure receives the downcast `&dyn Any` for an object and
+    /// returns the `GcRef`s of objects its data references (e.g. the `Value`s
+    /// inside a `List`/`Map`). The interpreter supplies this because it owns
+    /// the `Value` type; `coco_gc` is agnostic to the concrete value
+    /// representation.
+    ///
+    /// This collects unreachable cycles that pure refcounting cannot, since a
+    /// mutually-referential cluster with no external root is never marked and
+    /// is therefore swept despite each member having refcount > 0.
+    ///
+    /// Note: this frees objects whose refcount is non-zero but which are
+    /// unreachable. Outstanding `Gc<T>` handles to such objects become
+    /// dangling; callers must ensure roots accurately reflect all live
+    /// references before invoking this.
+    pub fn collect_tracing<F>(&mut self, roots: &[GcRef], tracer: F)
+    where
+        F: Fn(&dyn Any) -> Vec<GcRef>,
+    {
+        self.stats.collections += 1;
+
+        // Mark phase (shared borrow): clear marks, then BFS from roots.
+        self.mark_roots(roots, &tracer);
+
+        // Sweep phase (exclusive borrow): free unmarked entries. These are
+        // unreachable, including unreachable cycles (each member retains a
+        // refcount > 0 but was never reached from a root).
+        let before = self.entries.len();
+        let mut freed = 0;
+        let mut freed_bytes = 0;
+
+        self.entries.retain(|entry| {
+            if entry.marked.get() {
+                true
+            } else {
+                freed += 1;
+                freed_bytes += entry.size;
+                // SAFETY: the object is unreachable (no path from any root),
+                // so no live `Gc<T>` will deref it again.
+                unsafe {
+                    (entry.drop_fn)(entry.obj as *mut ());
+                }
+                false
+            }
+        });
+
+        self.stats.bytes_freed += freed_bytes;
+        self.stats.traced_freed += freed;
+        self.stats.alive_objects = self.entries.len();
+
+        if freed > 0 {
+            eprintln!(
+                "GC: tracing collected {} objects ({} bytes), {} remain (swept {})",
+                freed,
+                freed_bytes,
+                self.entries.len(),
+                before
+            );
+        }
+    }
+
+    /// Mark phase: clear all marks, then BFS from `roots`, calling `tracer`
+    /// on each reached object's `&dyn Any` to discover child `GcRef`s.
+    /// Marks are stored in `Cell`s so this only needs `&self`.
+    fn mark_roots<F>(&self, roots: &[GcRef], tracer: &F)
+    where
+        F: Fn(&dyn Any) -> Vec<GcRef>,
+    {
+        for entry in &self.entries {
+            entry.marked.set(false);
+        }
+
+        let mut worklist: Vec<GcRef> = roots.to_vec();
+        while let Some(id) = worklist.pop() {
+            let entry = match self.entries.get(id.0) {
+                Some(e) => e,
+                None => continue,
+            };
+            if entry.marked.get() {
+                continue; // Already marked — avoid re-traversing cycles.
+            }
+            entry.marked.set(true);
+            // Downcast the object and let the tracer discover children.
+            // SAFETY: object is alive for the duration of this shared borrow.
+            let any: &dyn Any = unsafe { (&*entry.obj).as_any() };
+            for child in tracer(any) {
+                worklist.push(child);
+            }
+        }
+    }
 }
 
 /// Type-erased drop function.
@@ -163,7 +288,7 @@ impl Drop for Heap {
         // Free all remaining entries.
         for entry in &self.entries {
             unsafe {
-                (entry.drop_fn)(entry.ptr);
+                (entry.drop_fn)(entry.obj as *mut ());
             }
         }
     }

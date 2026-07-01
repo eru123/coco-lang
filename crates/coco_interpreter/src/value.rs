@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use coco_gc::{CoW, Gc};
+use coco_gc::{CoW, Gc, GcRef};
 use num_bigint::BigInt;
 
 use crate::ir::FnObj;
@@ -173,6 +173,17 @@ impl Value {
                 Value::String(s) => !s.is_empty(),
                 _ => true,
             },
+        }
+    }
+
+    /// Returns the heap `GcRef` if this value is a GC-managed heap object
+    /// (currently `List` and `Map`), else `None`. Used by the tracing GC to
+    /// discover roots and to walk the object graph.
+    pub fn gc_ref(&self) -> Option<GcRef> {
+        match self {
+            Value::List(g) => Some(g.id()),
+            Value::Map(g) => Some(g.id()),
+            _ => None,
         }
     }
 

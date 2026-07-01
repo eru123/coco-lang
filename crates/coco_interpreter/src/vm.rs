@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use coco_gc::{CoW, Gc, Heap};
+use coco_gc::{CoW, Gc, GcRef, Heap};
 use num_bigint::BigInt;
 
 use crate::builtins::call_builtin;
@@ -1336,6 +1336,61 @@ impl Vm {
         let cow = CoW::new(items);
         let (id, ptr) = self.heap.allocate(cow);
         Value::Map(Gc::new(&self.heap, id, ptr))
+    }
+
+    /// Run a tracing GC cycle.
+    ///
+    /// Roots are the operand stack, globals, the `$` (this) stack, and the
+    /// scheduler's task stacks. The tracer downcasts each heap object to its
+    /// `CoW<Vec<Value>>` / `CoW<HashMap<String, Value>>` form and collects the
+    /// `GcRef`s of any nested heap objects, so cycles unreachable from the
+    /// roots are reclaimed.
+    pub fn gc_collect(&mut self) {
+        // Gather roots: every GcRef reachable from live Values.
+        let mut roots: Vec<GcRef> = Vec::new();
+        for v in &self.stack {
+            if let Some(id) = v.gc_ref() {
+                roots.push(id);
+            }
+        }
+        for v in self.globals.values() {
+            if let Some(id) = v.gc_ref() {
+                roots.push(id);
+            }
+        }
+        for v in &self.this_stack {
+            if let Some(id) = v.gc_ref() {
+                roots.push(id);
+            }
+        }
+        // Task stacks hold live Values awaiting resumption.
+        for task in self.scheduler.tasks() {
+            for v in &task.stack {
+                if let Some(id) = v.gc_ref() {
+                    roots.push(id);
+                }
+            }
+        }
+
+        // Tracer: given an object's &dyn Any, return child GcRefs.
+        // Lists hold Vec<Value>; Maps hold HashMap<String, Value>.
+        self.heap.collect_tracing(&roots, |any| {
+            let mut children = Vec::new();
+            if let Some(list) = any.downcast_ref::<CoW<Vec<Value>>>() {
+                for v in &list.data {
+                    if let Some(id) = v.gc_ref() {
+                        children.push(id);
+                    }
+                }
+            } else if let Some(map) = any.downcast_ref::<CoW<HashMap<String, Value>>>() {
+                for v in map.data.values() {
+                    if let Some(id) = v.gc_ref() {
+                        children.push(id);
+                    }
+                }
+            }
+            children
+        });
     }
 
     // ========================================================================

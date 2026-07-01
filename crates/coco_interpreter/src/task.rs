@@ -140,6 +140,11 @@ impl TaskScheduler {
         self.tasks.get(&id)
     }
 
+    /// Iterate over all tasks (used by the tracing GC for root discovery).
+    pub fn tasks(&self) -> impl Iterator<Item = &Task> {
+        self.tasks.values()
+    }
+
     /// Dequeue the next ready task, or None if the scheduler is done.
     pub fn dequeue(&mut self) -> Option<TaskId> {
         self.ready_queue.pop_front()
