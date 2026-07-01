@@ -229,3 +229,14 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod send_sync_assert {
+    use super::Value;
+    fn _assert_send<T: Send>() {}
+    fn _assert_sync<T: Sync>() {}
+    fn _check() {
+        _assert_send::<Value>();
+        _assert_sync::<Value>();
+    }
+}

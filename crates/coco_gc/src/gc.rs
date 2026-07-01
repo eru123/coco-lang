@@ -97,3 +97,15 @@ impl<T: fmt::Display + 'static> fmt::Display for Gc<T> {
         fmt::Display::fmt(self.deref(), f)
     }
 }
+
+// SAFETY: `Gc<T>` holds a raw pointer into a `Heap` and a `*const Heap`.
+// The pointer is stable for the lifetime of the `Heap` (objects are not
+// moved by the GC; collection only drops unreachable entries). The `Heap`
+// must outlive all `Gc<T>` handles — an invariant the VM already enforces.
+// We assert `Send`/`Sync` so that `Value` (which contains `Gc<CoW<...>>`)
+// can be `Send + Sync`, enabling cross-thread value sharing in `parallel`
+// blocks. This is sound as long as the `Heap` is not concurrently mutated
+// without synchronization; the parallel-runtime path must ensure each
+// thread either owns its `Heap` or accesses a shared one through a lock.
+unsafe impl<T: 'static + Send> Send for Gc<T> {}
+unsafe impl<T: 'static + Send + Sync> Sync for Gc<T> {}
