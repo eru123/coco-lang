@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
 coco_syntax = { path = "../coco_syntax" }

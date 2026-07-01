@@ -1,2 +1,4 @@
-[env]
-LLVM_SYS_180_PREFIX = "/usr/lib/llvm-18"
+# LLVM_SYS_180_PREFIX is set dynamically by crates/coco_codegen/build.rs when
+# the `native` feature is enabled (it detects or downloads LLVM 18). Do not
+# hardcode it here — a static path breaks builds on machines without that
+# exact install location.
