@@ -1,0 +1,11 @@
+[package]
+name = "coco_rt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Minimal C-ABI runtime stub linked by native (LLVM) Coco builds."
+
+[lib]
+# Build as a static library so it can be linked into a native binary via `cc`.
+crate-type = ["staticlib", "rlib"]

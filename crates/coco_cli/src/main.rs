@@ -157,6 +157,26 @@ fn resolve_file_in(base: &Path, file: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Locate the `libcoco_rt.a` static archive produced by the `coco_rt` crate.
+///
+/// Searched relative to the current executable (the `coco` binary lives in
+/// `target/<profile>/coco`, and the archive in `target/<profile>/libcoco_rt.a`).
+/// Returns None if not found, in which case native linking proceeds without
+/// it (and will fail to resolve `coco_rt_alloc` if the codegen emits calls to
+/// it — surfacing the missing-runtime dependency clearly).
+fn locate_coco_rt() -> Option<std::path::PathBuf> {
+    // The `coco` binary lives in `target/<profile>/coco`; the coco_rt
+    // staticlib output is `target/<profile>/libcoco_rt.a`.
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let archive = dir.join("libcoco_rt.a");
+    if archive.exists() {
+        Some(archive)
+    } else {
+        None
+    }
+}
+
 /// Resolve the entry point file. If none given, look for src/main.co, main.co.
 fn resolve_entry(file: Option<&Path>) -> PathBuf {
     if let Some(f) = file { return f.to_path_buf(); }
@@ -434,12 +454,18 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
                 let obj_path = resolved.with_extension("o");
                 match codegen.compile_to_object(&obj_path.to_string_lossy()) {
                     Ok(()) => {
-                        // Link: cc obj.o -o binary
+                        // Link: cc obj.o -o binary, linking the coco_rt
+                        // static runtime (provides coco_rt_alloc) produced by
+                        // the coco_rt crate's staticlib output.
                         let bin_path = resolved.with_extension("");
-                        let status = std::process::Command::new("cc")
-                            .arg(&obj_path)
-                            .arg("-o").arg(&bin_path)
-                            .status();
+                        let rt_archive = locate_coco_rt();
+                        let mut cmd = std::process::Command::new("cc");
+                        cmd.arg(&obj_path);
+                        if let Some(rt) = &rt_archive {
+                            cmd.arg(rt);
+                        }
+                        cmd.arg("-o").arg(&bin_path);
+                        let status = cmd.status();
                         match status {
                             Ok(s) if s.success() => {
                                 println!("Compiled {} -> {}", resolved.display(), bin_path.display());

@@ -12,6 +12,7 @@ members = [
     "crates/coco_gc",
     "crates/coco_cli",
     "crates/coco_codegen",
+    "crates/coco_rt",
 ]
 resolver = "2"
 
