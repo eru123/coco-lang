@@ -4,7 +4,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
 use crate::error::{RuntimeError, Signal};
-use crate::value::{AtomicInner, ChannelInner, Value};
+use crate::value::{value_eq, AtomicInner, ChannelInner, Value};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
@@ -148,6 +148,18 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
                 )));
             }
             Ok(Value::String(format!("{}", args[0])))
+        }
+        "deepEquals" => {
+            // Structural equality: deep for lists/maps, type-strict for
+            // primitives, reference-based for channels/atomics. Used by the
+            // HashSet (and any code needing value equality) instead of
+            // toString comparison, which is order-dependent and conflates types.
+            if args.len() != 2 {
+                return Err(Signal::Error(RuntimeError::new(
+                    "deepEquals(a, b) expects 2 arguments",
+                )));
+            }
+            Ok(Value::Bool(value_eq(&args[0], &args[1])))
         }
         "parseInt" => {
             if args.len() != 1 {

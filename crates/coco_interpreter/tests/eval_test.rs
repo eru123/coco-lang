@@ -113,6 +113,19 @@ fn unary_neg() {
     assert!(matches!(run_src("-5"), Value::Int(n) if n == BigInt::from(-5)));
 }
 #[test]
+fn deep_equals_builtin() {
+    // Structural equality: type-strict, deep, order-independent for maps.
+    assert!(matches!(run_src("deepEquals(1, 1)"), Value::Bool(true)));
+    assert!(matches!(run_src("deepEquals(1, \"1\")"), Value::Bool(false)));
+    assert!(matches!(run_src("deepEquals([1,2,3], [1,2,3])"), Value::Bool(true)));
+    assert!(matches!(run_src("deepEquals([1,2], [1,2,3])"), Value::Bool(false)));
+    // Map order independence — the bug that toString comparison had.
+    assert!(matches!(
+        run_src("deepEquals({\"a\":1,\"b\":2}, {\"b\":2,\"a\":1})"),
+        Value::Bool(true)
+    ));
+}
+#[test]
 fn unary_not() {
     assert!(matches!(run_src("!true"), Value::Bool(false)));
 }

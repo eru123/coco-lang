@@ -188,3 +188,44 @@ impl Value {
     }
 
 }
+
+/// Structural equality for `Value`s, exposed as the `deepEquals` builtin.
+///
+/// - Primitives compared by value, type-strict (`1 != "1"`, `1 != 1.0`).
+/// - Lists/Maps compared structurally (deep, order-independent for maps).
+/// - Channels/Atomics compared by reference identity.
+///
+/// This is shared between `Vm::vm_eq` and the `deepEquals` builtin so the
+/// HashSet and other stdlib structures can compare values without resorting
+/// to `toString` (which is order-dependent for maps and conflates types).
+pub fn value_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Int(a), Value::Int(b)) => a == b,
+        (Value::Float(a), Value::Float(b)) => a == b,
+        (Value::String(a), Value::String(b)) => a == b,
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::Null, Value::Null) => true,
+        (Value::TaskHandle(a), Value::TaskHandle(b)) => a == b,
+        (Value::Ok(a), Value::Ok(b)) => value_eq(a, b),
+        (Value::Err(a), Value::Err(b)) => value_eq(a, b),
+        (Value::List(a), Value::List(b)) => {
+            if a.data.len() != b.data.len() {
+                return false;
+            }
+            a.data.iter().zip(b.data.iter()).all(|(x, y)| value_eq(x, y))
+        }
+        (Value::Map(a), Value::Map(b)) => {
+            if a.data.len() != b.data.len() {
+                return false;
+            }
+            a.data
+                .iter()
+                .all(|(k, v)| b.data.get(k).map(|bv| value_eq(v, bv)).unwrap_or(false))
+        }
+        (Value::Channel(a), Value::Channel(b)) => Arc::ptr_eq(a, b),
+        (Value::Atomic(a), Value::Atomic(b)) => Arc::ptr_eq(a, b),
+        (Value::BuiltinFn(a), Value::BuiltinFn(b)) => a == b,
+        (Value::FnObj(a), Value::FnObj(b)) => a.name == b.name && a.arity == b.arity,
+        _ => false,
+    }
+}

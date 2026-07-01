@@ -30,6 +30,7 @@ class Queue {
         $.items = list_remove($.items, $.tail);
         $.items = list_insert($.items, $.tail, item);
         $.tail = ($.tail + 1) % len($.items);
+        $.count = $.count + 1;
     }
 
     public dequeue(): mixed {
@@ -51,25 +52,26 @@ class Queue {
     public isEmpty(): bool { return $.count == 0; }
 
     private grow(): void {
+        // Double capacity and compact live elements into a contiguous region.
+        // The old buffer may wrap (head + count > oldLen), so walk the live
+        // range with modular indexing and copy each element in order.
         const oldLen = len($.items);
         const newLen = oldLen * 2;
+        let compact: list<mixed> = [];
         let i = 0;
-        while i < oldLen {
-            $.items = list_push($.items, null);
+        while i < $.count {
+            const src = ($.head + i) % oldLen;
+            compact = list_push(compact, $.items[src]);
             i = i + 1;
         }
-        // Reorder: move items starting at head to their correct positions
-        if $.head != 0 {
-            let j = 0;
-            while j < $.count {
-                const src = ($.head + j) % oldLen;
-                $.items = list_remove($.items, oldLen + j);
-                $.items = list_insert($.items, oldLen + j, $.items[src]);
-                j = j + 1;
-            }
-            $.head = oldLen;
-            $.tail = ($.head + $.count) % newLen;
+        // Pad the remainder of the new buffer with nulls.
+        while i < newLen {
+            compact = list_push(compact, null);
+            i = i + 1;
         }
+        $.items = compact;
+        $.head = 0;
+        $.tail = $.count % newLen;
     }
 }
 
@@ -187,6 +189,8 @@ class HashSet {
     }
 
     private valuesEqual(a: mixed, b: mixed): bool {
-        return toString(a) == toString(b);
+        // Structural equality via the deepEquals builtin. toString comparison
+        // was order-dependent for maps and conflated types (1 == "1").
+        return deepEquals(a, b);
     }
 }
