@@ -276,13 +276,26 @@ class Server {
             print("Failed to bind to port " + toString(port));
             return;
         }
+        // Accept loop: each connection is handled in its own coro so the
+        // accept loop is not blocked by a slow handler. The handler task is
+        // spawned (fire-and-forget) and the loop immediately returns to
+        // accepting. A short sleep between accepts yields to the scheduler so
+        // pending handler tasks get CPU time. True non-blocking I/O (epoll/
+        // kqueue integration) is tracked separately under the async I/O event
+        // loop task; until then tcp_accept remains a blocking call.
+        const router = $.router;
         while true {
             const conn = tcp_accept(listener);
             if conn == null { continue; }
             const clientHandle = map_get(conn, "handle", 0);
             if clientHandle != 0 {
-                $.router.handle(clientHandle);
+                // Spawn a handler task per connection.
+                coro {
+                    router.handle(clientHandle);
+                };
             }
+            // Yield to the scheduler so spawned handler tasks can run.
+            time_sleep(0);
         }
     }
 }
