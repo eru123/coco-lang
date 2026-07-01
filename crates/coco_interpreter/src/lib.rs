@@ -8,6 +8,7 @@
 
 pub mod builtins;
 pub mod compiler;
+pub mod db;
 #[cfg(feature = "tree-walker")]
 #[deprecated(since = "0.2.0", note = "Tree-walking interpreter is deprecated; use the VM")]
 pub mod env;
@@ -57,6 +58,7 @@ pub fn get_stdlib_source(module: &str) -> Option<&'static str> {
         "std/context" => Some(include_str!("stdlib/context.co")),
         "std/xml" => Some(include_str!("stdlib/xml.co")),
         "std/yaml" => Some(include_str!("stdlib/yaml.co")),
+        "std/db" => Some(include_str!("stdlib/db.co")),
         _ => None,
     }
 }

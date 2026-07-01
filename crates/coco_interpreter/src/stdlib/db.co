@@ -1,0 +1,148 @@
+// std/db — SQLite database access.
+// Per spec: Database with query, queryOne, insert, update, delete,
+// transaction; Pool for connection pooling.
+//
+// Backed by the db_open/db_exec/db_query/db_close builtins (rusqlite).
+
+class Database {
+    private handle: int;
+
+    constructor(path: string) {
+        $.handle = db_open(path);
+    }
+
+    // Run a SELECT, returning a list of row maps.
+    public query(sql: string, params: list<mixed>): list<mixed> {
+        return db_query($.handle, sql, params);
+    }
+
+    // Run a SELECT returning the first row, or null if no rows.
+    public queryOne(sql: string, params: list<mixed>): mixed {
+        const rows = db_query($.handle, sql, params);
+        if len(rows) == 0 { return null; }
+        return rows[0];
+    }
+
+    // Execute an INSERT/UPDATE/DELETE/DDL. Returns rows affected.
+    public exec(sql: string, params: list<mixed>): int {
+        return db_exec($.handle, sql, params);
+    }
+
+    // INSERT a row into a table and return rows affected (1 on success).
+    public insert(table: string, row: map<string, mixed>): int {
+        const keys = map_keys(row);
+        let cols = "";
+        let vals = "";
+        let params: list<mixed> = [];
+        let i = 0;
+        while i < len(keys) {
+            if i > 0 { cols = cols + ", "; vals = vals + ", "; }
+            cols = cols + keys[i];
+            vals = vals + "?";
+            params = list_push(params, row[keys[i]]);
+            i = i + 1;
+        }
+        const sql = "INSERT INTO " + table + " (" + cols + ") VALUES (" + vals + ")";
+        return db_exec($.handle, sql, params);
+    }
+
+    // UPDATE rows matching `where` (a map of column=value conditions).
+    public update(table: string, set: map<string, mixed>, where: map<string, mixed>): int {
+        const setKeys = map_keys(set);
+        let setClause = "";
+        let params: list<mixed> = [];
+        let i = 0;
+        while i < len(setKeys) {
+            if i > 0 { setClause = setClause + ", "; }
+            setClause = setClause + setKeys[i] + " = ?";
+            params = list_push(params, set[setKeys[i]]);
+            i = i + 1;
+        }
+        const whereKeys = map_keys(where);
+        let whereClause = "";
+        let j = 0;
+        while j < len(whereKeys) {
+            if j > 0 { whereClause = whereClause + " AND "; }
+            whereClause = whereClause + whereKeys[j] + " = ?";
+            params = list_push(params, where[whereKeys[j]]);
+            j = j + 1;
+        }
+        let sql = "UPDATE " + table + " SET " + setClause;
+        if len(whereKeys) > 0 { sql = sql + " WHERE " + whereClause; }
+        return db_exec($.handle, sql, params);
+    }
+
+    // DELETE rows matching `where`.
+    public delete(table: string, where: map<string, mixed>): int {
+        const whereKeys = map_keys(where);
+        let whereClause = "";
+        let params: list<mixed> = [];
+        let j = 0;
+        while j < len(whereKeys) {
+            if j > 0 { whereClause = whereClause + " AND "; }
+            whereClause = whereClause + whereKeys[j] + " = ?";
+            params = list_push(params, where[whereKeys[j]]);
+            j = j + 1;
+        }
+        let sql = "DELETE FROM " + table;
+        if len(whereKeys) > 0 { sql = sql + " WHERE " + whereClause; }
+        return db_exec($.handle, sql, params);
+    }
+
+    // Run a function as a single transaction. BEGIN ... COMMIT on success,
+    // ROLLBACK if the body throws. Returns the body's result.
+    public transaction(callback: function): mixed {
+        db_exec($.handle, "BEGIN", []);
+        // Coco has no try/catch over arbitrary function results here, so we
+        // rely on the body returning a Result; on Err we roll back.
+        const result = callback($);
+        // Heuristic: if the result is an Err Result, roll back.
+        if isErr(result) {
+            db_exec($.handle, "ROLLBACK", []);
+            return result;
+        }
+        db_exec($.handle, "COMMIT", []);
+        return result;
+    }
+
+    public close(): void {
+        db_close($.handle);
+    }
+}
+
+// A simple connection pool: opens `size` connections to the same path and
+// hands them out round-robin. (No blocking/waiting on exhaustion — callers
+// should size the pool to their concurrency level.)
+class Pool {
+    private conns: list<Database>;
+    private next: int;
+
+    constructor(path: string, size: int) {
+        $.conns = [];
+        $.next = 0;
+        let i = 0;
+        while i < size {
+            $.conns = list_push($.conns, new Database(path));
+            i = i + 1;
+        }
+    }
+
+    // Borrow the next connection (round-robin).
+    public acquire(): Database {
+        const conn = $.conns[$.next];
+        $.next = ($.next + 1) % len($.conns);
+        return conn;
+    }
+
+    public close(): void {
+        let i = 0;
+        while i < len($.conns) {
+            $.conns[i].close();
+            i = i + 1;
+        }
+    }
+}
+
+export fn open(path: string): Database {
+    return new Database(path);
+}

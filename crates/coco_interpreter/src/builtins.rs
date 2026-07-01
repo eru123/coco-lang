@@ -419,6 +419,12 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             }
         }
 
+        // ---- Database builtins (std/db, backed by SQLite) ----
+        "db_open" => crate::db::db_open(args),
+        "db_exec" => crate::db::db_exec(args),
+        "db_query" => crate::db::db_query(args, heap),
+        "db_close" => crate::db::db_close(args),
+
         // ---- Filesystem builtins ----
         "fs_readFile" => {
             if args.len() != 1 {

@@ -1324,6 +1324,11 @@ impl Vm {
             "unwrap".to_string(),
             Value::BuiltinFn("unwrap".to_string()),
         );
+        // Database builtins (std/db).
+        for name in ["db_open", "db_exec", "db_query", "db_close"] {
+            self.globals
+                .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
+        }
     }
 
     // ========================================================================
