@@ -51,6 +51,12 @@ pub fn get_stdlib_source(module: &str) -> Option<&'static str> {
         "std/testing" => Some(include_str!("stdlib/testing.co")),
         "std/crypto" => Some(include_str!("stdlib/crypto.co")),
         "std/log" => Some(include_str!("stdlib/log.co")),
+        "std/random" => Some(include_str!("stdlib/random.co")),
+        "std/csv" => Some(include_str!("stdlib/csv.co")),
+        "std/cache" => Some(include_str!("stdlib/cache.co")),
+        "std/context" => Some(include_str!("stdlib/context.co")),
+        "std/xml" => Some(include_str!("stdlib/xml.co")),
+        "std/yaml" => Some(include_str!("stdlib/yaml.co")),
         _ => None,
     }
 }

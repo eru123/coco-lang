@@ -1,0 +1,85 @@
+// std/random — Random number generation utilities.
+// Built on the `random` builtin (random() -> float 0..1, random(max) -> int 0..max).
+
+export fn int(min: int, max: int): int {
+    // Inclusive range [min, max].
+    if max < min { return min; }
+    const span = max - min + 1;
+    return min + random(span);
+}
+
+export fn float(): float {
+    return random();
+}
+
+export fn floatRange(min: float, max: float): float {
+    return min + random() * (max - min);
+}
+
+export fn bool(): bool {
+    return random(2) == 0;
+}
+
+export fn pick(list: list<mixed>): mixed {
+    if len(list) == 0 { return null; }
+    return list[random(len(list))];
+}
+
+export fn shuffle(items: list<mixed>): list<mixed> {
+    // Fisher-Yates. Copy first so the input is unchanged.
+    let result: list<mixed> = [];
+    let i = 0;
+    while i < len(items) {
+        result = list_push(result, items[i]);
+        i = i + 1;
+    }
+    let j = len(result) - 1;
+    while j > 0 {
+        const k = random(j + 1);
+        const tmp = result[j];
+        result = list_remove(result, j);
+        result = list_insert(result, j, result[k]);
+        result = list_remove(result, k);
+        result = list_insert(result, k, tmp);
+        j = j - 1;
+    }
+    return result;
+}
+
+const HEX_CHARS = "0123456789abcdef";
+
+export fn uuid(): string {
+    // RFC 4122 v4: 8-4-4-4-12 hex with version (4) and variant (8/9/a/b) bits.
+    let hex = "";
+    let i = 0;
+    while i < 32 {
+        hex = hex + str_charAt(HEX_CHARS, random(16));
+        i = i + 1;
+    }
+    // Set version nibble (position 12) to '4' and variant nibble (position 16)
+    // to 8/9/a/b.
+    const variant = str_charAt(HEX_CHARS, 8 + random(4));
+    return substring_via_substring(hex, 0, 8) + "-"
+        + substring_via_substring(hex, 8, 12) + "-4"
+        + substring_via_substring(hex, 13, 16) + "-"
+        + variant + substring_via_substring(hex, 17, 20) + "-"
+        + substring_via_substring(hex, 20, 32);
+}
+
+// Local alias so this module is self-contained even if std/string's
+// `substring` export isn't in scope.
+fn substring_via_substring(s: string, start: int, end: int): string {
+    return str_substring(s, start, end);
+}
+
+export fn string(length: int): string {
+    // Random alphanumeric string of given length.
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let s = "";
+    let i = 0;
+    while i < length {
+        s = s + str_charAt(alphabet, random(len(alphabet)));
+        i = i + 1;
+    }
+    return s;
+}

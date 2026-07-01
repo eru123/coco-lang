@@ -1,0 +1,121 @@
+// std/cache — In-memory caches.
+// Per spec: Cache, TTLCache, get, set, delete, clear.
+
+// A simple key->value cache with no eviction beyond explicit deletion.
+class Cache {
+    private entries: map<string, mixed>;
+
+    constructor() {
+        $.entries = {};
+    }
+
+    public get(key: string): mixed {
+        return $.entries[key];
+    }
+
+    public set(key: string, value: mixed): void {
+        $.entries[key] = value;
+    }
+
+    public has(key: string): bool {
+        return map_has($.entries, key);
+    }
+
+    public delete(key: string): void {
+        $.entries = map_delete($.entries, key);
+    }
+
+    public clear(): void {
+        $.entries = {};
+    }
+
+    public size(): int {
+        return len($.entries);
+    }
+
+    public keys(): list<string> {
+        return map_keys($.entries);
+    }
+}
+
+// A TTL cache: entries expire after a configurable duration (in ms, via
+// std/time). Stores the insertion timestamp and the TTL per entry.
+class TTLCache {
+    private values: map<string, mixed>;
+    private deadlines: map<string, int>;
+    private defaultTtl: int;
+
+    constructor(ttlMs: int) {
+        $.values = {};
+        $.deadlines = {};
+        $.defaultTtl = ttlMs;
+    }
+
+    public get(key: string): mixed {
+        if !map_has($.deadlines, key) { return null; }
+        if $.isExpired(key) {
+            $.evict(key);
+            return null;
+        }
+        return $.values[key];
+    }
+
+    public set(key: string, value: mixed): void {
+        $.setTtl(key, value, $.defaultTtl);
+    }
+
+    public setTtl(key: string, value: mixed, ttlMs: int): void {
+        $.values[key] = value;
+        $.deadlines[key] = time_now() + ttlMs;
+    }
+
+    public has(key: string): bool {
+        if !map_has($.deadlines, key) { return false; }
+        if $.isExpired(key) {
+            $.evict(key);
+            return false;
+        }
+        return true;
+    }
+
+    public delete(key: string): void {
+        $.evict(key);
+    }
+
+    public clear(): void {
+        $.values = {};
+        $.deadlines = {};
+    }
+
+    public size(): int {
+        // Sweep expired entries first for an accurate count.
+        $.purgeExpired();
+        return len($.values);
+    }
+
+    private isExpired(key: string): bool {
+        return time_now() >= $.deadlines[key];
+    }
+
+    private evict(key: string): void {
+        $.values = map_delete($.values, key);
+        $.deadlines = map_delete($.deadlines, key);
+    }
+
+    private purgeExpired(): void {
+        const keys = map_keys($.deadlines);
+        let i = 0;
+        while i < len(keys) {
+            if $.isExpired(keys[i]) {
+                $.evict(keys[i]);
+            }
+            i = i + 1;
+        }
+    }
+}
+
+// Wrapper functions operating on a Cache instance, matching the spec API.
+export fn get(cache: Cache, key: string): mixed { return cache.get(key); }
+export fn set(cache: Cache, key: string, value: mixed): void { cache.set(key, value); }
+export fn delete(cache: Cache, key: string): void { cache.delete(key); }
+export fn clear(cache: Cache): void { cache.clear(); }

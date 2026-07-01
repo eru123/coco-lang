@@ -1,0 +1,236 @@
+// std/yaml — YAML parsing and stringification (block-style subset).
+// Per spec: parse, stringify.
+//
+// Supports a practical subset of YAML block style:
+//   - Mappings (key: value) and sequences (- item), nested by indentation.
+//   - Scalars: int, float, bool, null, and quoted/plain strings.
+//   - Comments (# ...) and blank lines are ignored.
+// Flow style ({}, []) and anchors/aliases are not supported.
+
+class YamlParser {
+    private lines: list<string>;
+    private pos: int;
+
+    constructor(src: string) {
+        $.lines = str_split(src, "\n");
+        $.pos = 0;
+    }
+
+    private current(): string {
+        if $.pos >= len($.lines) { return ""; }
+        return $.lines[$.pos];
+    }
+
+    private advance(): void {
+        $.pos = $.pos + 1;
+    }
+
+    // A line is significant if it has non-whitespace content outside a comment.
+    private isSignificant(line: string): bool {
+        const trimmed = str_trim(line);
+        if trimmed == "" { return false; }
+        if str_startsWith(trimmed, "#") { return false; }
+        return true;
+    }
+
+    private indentOf(line: string): int {
+        let n = 0;
+        while n < len(line) && str_charAt(line, n) == " " {
+            n = n + 1;
+        }
+        return n;
+    }
+
+    private stripComment(line: string): string {
+        // Remove an unquoted # comment.
+        let inSingle = false;
+        let inDouble = false;
+        let i = 0;
+        while i < len(line) {
+            const ch = str_charAt(line, i);
+            if ch == "'" && !inDouble { inSingle = !inSingle; }
+            if ch == "\"" && !inSingle { inDouble = !inDouble; }
+            if ch == "#" && !inSingle && !inDouble { return str_trim(str_substring(line, 0, i)); }
+            i = i + 1;
+        }
+        return str_trim(line);
+    }
+
+    private parseScalar(raw: string): mixed {
+        const s = str_trim(raw);
+        if s == "" { return null; }
+        if s == "null" || s == "~" { return null; }
+        if s == "true" { return true; }
+        if s == "false" { return false; }
+        // Quoted strings.
+        if len(s) >= 2 && str_charAt(s, 0) == "\"" && str_charAt(s, len(s) - 1) == "\"" {
+            return str_substring(s, 1, len(s) - 1);
+        }
+        if len(s) >= 2 && str_charAt(s, 0) == "'" && str_charAt(s, len(s) - 1) == "'" {
+            return str_substring(s, 1, len(s) - 1);
+        }
+        // Try integer.
+        const asInt = parseInt(s);
+        if asInt != null { return asInt; }
+        // Try float.
+        const asFloat = parseFloat(s);
+        if asFloat != null && str_contains(s, ".") { return asFloat; }
+        return s; // plain string
+    }
+
+    // Parse a block at the given indent; returns a map or list depending on
+    // the first significant line at that indent.
+    public parseBlock(indent: int): mixed {
+        // Skip insignificant lines.
+        while $.pos < len($.lines) && !$.isSignificant($.current()) {
+            $.advance();
+        }
+        if $.pos >= len($.lines) { return {}; }
+        const line = $.stripComment($.current());
+        if $.indentOf($.current()) < indent { return {}; }
+        if str_startsWith(line, "- ") || line == "-" {
+            return $.parseSequence(indent);
+        }
+        return $.parseMapping(indent);
+    }
+
+    private parseMapping(indent: int): map<string, mixed> {
+        const result: map<string, mixed> = {};
+        while $.pos < len($.lines) {
+            if !$.isSignificant($.current()) { $.advance(); continue; }
+            const raw = $.current();
+            if $.indentOf(raw) < indent { return result; }
+            if $.indentOf(raw) > indent { $.advance(); continue; }
+            const line = $.stripComment(raw);
+            const colon = str_indexOf(line, ":");
+            if colon < 0 { $.advance(); continue; }
+            const key = str_trim(str_substring(line, 0, colon));
+            const rest = str_trim(str_substring(line, colon + 1, len(line)));
+            $.advance();
+            if rest == "" {
+                // Nested block: determine child indent from the next line.
+                result[key] = $.parseChildBlock(indent);
+            } else {
+                result[key] = $.parseScalar(rest);
+            }
+        }
+        return result;
+    }
+
+    private parseSequence(indent: int): list<mixed> {
+        const result: list<mixed> = [];
+        while $.pos < len($.lines) {
+            if !$.isSignificant($.current()) { $.advance(); continue; }
+            const raw = $.current();
+            if $.indentOf(raw) < indent { return result; }
+            if $.indentOf(raw) > indent { $.advance(); continue; }
+            const line = $.stripComment(raw);
+            if !str_startsWith(line, "-") { return result; }
+            const rest = str_trim(str_substring(line, 1, len(line)));
+            $.advance();
+            if rest == "" {
+                result = list_push(result, $.parseChildBlock(indent));
+            } else {
+                // Could be "- key: value" (a map item) or a scalar item.
+                const colon = str_indexOf(rest, ":");
+                if colon >= 0 {
+                    // Map item: re-parse by treating rest as the first mapping
+                    // line at a virtual indent. Simplest: build a single-entry
+                    // map inline; deeper nesting follows via parseChildBlock.
+                    const m: map<string, mixed> = {};
+                    const k = str_trim(str_substring(rest, 0, colon));
+                    const v = str_trim(str_substring(rest, colon + 1, len(rest)));
+                    if v == "" {
+                        m[k] = $.parseChildBlock(indent + 2);
+                    } else {
+                        m[k] = $.parseScalar(v);
+                    }
+                    result = list_push(result, m);
+                } else {
+                    result = list_push(result, $.parseScalar(rest));
+                }
+            }
+        }
+        return result;
+    }
+
+    private parseChildBlock(parentIndent: int): mixed {
+        // Skip blanks, then parse at the child's indent (must be > parent).
+        while $.pos < len($.lines) && !$.isSignificant($.current()) { $.advance(); }
+        if $.pos >= len($.lines) { return null; }
+        const childIndent = $.indentOf($.current());
+        if childIndent <= parentIndent { return null; }
+        return $.parseBlock(childIndent);
+    }
+}
+
+export fn parse(text: string): mixed {
+    const parser = new YamlParser(text);
+    return parser.parseBlock(0);
+}
+
+fn isMap(v: mixed): bool {
+    return typeOf(v) == "map";
+}
+
+fn stringifyScalar(v: mixed): string {
+    if v == null { return "null"; }
+    if v == true { return "true"; }
+    if v == false { return "false"; }
+    const t = typeOf(v);
+    if t == "string" {
+        const s = v;
+        // Quote if it looks like another type or contains special chars.
+        if s == "null" || s == "true" || s == "false"
+            || str_contains(s, ":") || str_contains(s, "#")
+            || str_contains(s, "\n") {
+            return "\"" + s + "\"";
+        }
+        return s;
+    }
+    return toString(v);
+}
+
+fn stringifyMap(m: map<string, mixed>, indent: int): string {
+    const pad = str_repeat("  ", indent);
+    let out = "";
+    const keys = map_keys(m);
+    let i = 0;
+    while i < len(keys) {
+        const v = m[keys[i]];
+        if isMap(v) {
+            out = out + pad + keys[i] + ":\n";
+            out = out + stringifyMap(v, indent + 1);
+        } else if typeOf(v) == "list" {
+            out = out + pad + keys[i] + ":\n";
+            out = out + stringifyList(v, indent + 1);
+        } else {
+            out = out + pad + keys[i] + ": " + stringifyScalar(v) + "\n";
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn stringifyList(items: list<mixed>, indent: int): string {
+    const pad = str_repeat("  ", indent);
+    let out = "";
+    let i = 0;
+    while i < len(items) {
+        if isMap(items[i]) {
+            out = out + pad + "- " + stringifyMap(items[i], 0);
+        } else if typeOf(items[i]) == "list" {
+            out = out + pad + "-\n" + stringifyList(items[i], indent + 1);
+        } else {
+            out = out + pad + "- " + stringifyScalar(items[i]) + "\n";
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+export fn stringify(value: mixed): string {
+    if isMap(value) { return stringifyMap(value, 0); }
+    if typeOf(value) == "list" { return stringifyList(value, 0); }
+    return stringifyScalar(value) + "\n";
+}

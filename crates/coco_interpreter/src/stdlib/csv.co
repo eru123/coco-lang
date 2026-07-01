@@ -1,0 +1,116 @@
+// std/csv — CSV parsing and stringification.
+// Per spec: parse, stringify, CsvOptions.
+
+// CsvOptions:
+//   delimiter: string (default ",")
+//   quote: string (default '"')
+//   header: bool (default true) — first row is header when parsing to maps
+
+export fn parse(text: string, opts: map<string, mixed>): list<mixed> {
+    const delim = opts["delimiter"] != null ? opts["delimiter"] : ",";
+    const quote = opts["quote"] != null ? opts["quote"] : "\"";
+    const rows: list<mixed> = [];
+    let row: list<string> = [];
+    let field = "";
+    let inQuotes = false;
+    let i = 0;
+    const n = len(text);
+    while i < n {
+        const ch = str_charAt(text, i);
+        if inQuotes {
+            if ch == quote {
+                // Doubled quote = literal quote inside field.
+                if i + 1 < n && str_charAt(text, i + 1) == quote {
+                    field = field + quote;
+                    i = i + 2;
+                    continue;
+                }
+                inQuotes = false;
+                i = i + 1;
+                continue;
+            }
+            field = field + ch;
+            i = i + 1;
+            continue;
+        }
+        if ch == quote {
+            inQuotes = true;
+            i = i + 1;
+            continue;
+        }
+        if ch == delim {
+            row = list_push(row, field);
+            field = "";
+            i = i + 1;
+            continue;
+        }
+        if ch == "\n" {
+            row = list_push(row, field);
+            rows = list_push(rows, row);
+            row = [];
+            field = "";
+            i = i + 1;
+            continue;
+        }
+        if ch == "\r" {
+            // Treat CRLF as a single line break.
+            i = i + 1;
+            continue;
+        }
+        field = field + ch;
+        i = i + 1;
+    }
+    // Flush trailing field/row if any content remains.
+    if len(field) > 0 || len(row) > 0 {
+        row = list_push(row, field);
+        rows = list_push(rows, row);
+    }
+    return rows;
+}
+
+export fn parseObjects(text: string, opts: map<string, mixed>): list<mixed> {
+    // Parse with the first row as a header, yielding a map per record.
+    const rows = parse(text, opts);
+    if len(rows) < 2 { return []; }
+    const header = rows[0];
+    const result: list<mixed> = [];
+    let r = 1;
+    while r < len(rows) {
+        const obj: map<string, string> = {};
+        let c = 0;
+        while c < len(header) && c < len(rows[r]) {
+            obj[header[c]] = rows[r][c];
+            c = c + 1;
+        }
+        result = list_push(result, obj);
+        r = r + 1;
+    }
+    return result;
+}
+
+export fn stringify(rows: list<mixed>, opts: map<string, mixed>): string {
+    const delim = opts["delimiter"] != null ? opts["delimiter"] : ",";
+    const quote = opts["quote"] != null ? opts["quote"] : "\"";
+    let out = "";
+    let r = 0;
+    while r < len(rows) {
+        let c = 0;
+        while c < len(rows[r]) {
+            if c > 0 { out = out + delim; }
+            const f = rows[r][c];
+            // Quote if the field contains the delimiter, quote, or a newline.
+            if str_contains(f, delim) || str_contains(f, quote)
+                || str_contains(f, "\n") || str_contains(f, "\r") {
+                // Wrap in quotes, doubling any inner quotes.
+                let escaped = str_replace(f, quote, quote + quote);
+                out = out + quote + escaped + quote;
+            } else {
+                out = out + f;
+            }
+            c = c + 1;
+        }
+        out = out + "\n";
+        r = r + 1;
+    }
+    return out;
+}

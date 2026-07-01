@@ -1,0 +1,228 @@
+// std/xml — XML parsing and stringification.
+// Per spec: parse, stringify.
+//
+// Parses into a node map: { "tag": string, "attrs": map<string,string>,
+// "children": list<node>, "text": string }. Text and element children are
+// interleaved in `children`; standalone text is a { "text": ... } node.
+
+class XmlParser {
+    private src: string;
+    private pos: int;
+
+    constructor(src: string) {
+        $.src = src;
+        $.pos = 0;
+    }
+
+    private peek(): string {
+        if $.pos >= len($.src) { return ""; }
+        return str_charAt($.src, $.pos);
+    }
+
+    private next(): string {
+        const ch = $.peek();
+        $.pos = $.pos + 1;
+        return ch;
+    }
+
+    private startsWith(s: string): bool {
+        return str_substring($.src, $.pos, $.pos + len(s)) == s;
+    }
+
+    private skipWs(): void {
+        while $.pos < len($.src) {
+            const ch = $.peek();
+            if ch == " " || ch == "\t" || ch == "\n" || ch == "\r" {
+                $.pos = $.pos + 1;
+            } else {
+                return;
+            }
+        }
+    }
+
+    private parseName(): string {
+        let name = "";
+        while $.pos < len($.src) {
+            const ch = $.peek();
+            if ch == " " || ch == "\t" || ch == "\n" || ch == "\r"
+                || ch == ">" || ch == "/" || ch == "=" || ch == "<" {
+                break;
+            }
+            name = name + ch;
+            $.pos = $.pos + 1;
+        }
+        return name;
+    }
+
+    private parseAttrValue(): string {
+        const quote = $.next();
+        let val = "";
+        while $.pos < len($.src) && $.peek() != quote {
+            val = val + $.next();
+        }
+        $.pos = $.pos + 1; // consume closing quote
+        return $.unescape(val);
+    }
+
+    private parseAttrs(): map<string, string> {
+        const attrs: map<string, string> = {};
+        while true {
+            $.skipWs();
+            const ch = $.peek();
+            if ch == ">" || ch == "/" || ch == "" { return attrs; }
+            const name = $.parseName();
+            if name == "" { return attrs; }
+            $.skipWs();
+            if $.peek() == "=" {
+                $.pos = $.pos + 1;
+                $.skipWs();
+                attrs[name] = $.parseAttrValue();
+            } else {
+                attrs[name] = "";
+            }
+        }
+    }
+
+    private unescape(s: string): string {
+        let out = str_replace(s, "&lt;", "<");
+        out = str_replace(out, "&gt;", ">");
+        out = str_replace(out, "&quot;", "\"");
+        out = str_replace(out, "&apos;", "'");
+        out = str_replace(out, "&amp;", "&");
+        return out;
+    }
+
+    private escape(s: string): string {
+        let out = str_replace(s, "&", "&amp;");
+        out = str_replace(out, "<", "&lt;");
+        out = str_replace(out, ">", "&gt;");
+        out = str_replace(out, "\"", "&quot;");
+        return out;
+    }
+
+    // Exported for stringify use; takes a raw string.
+    public escapeText(s: string): string {
+        let out = str_replace(s, "&", "&amp;");
+        out = str_replace(out, "<", "&lt;");
+        out = str_replace(out, ">", "&gt;");
+        return out;
+    }
+
+    private parseComment(): void {
+        // Skip <!-- ... -->
+        $.pos = $.pos + 4; // skip "<!--"
+        while $.pos < len($.src) && !$.startsWith("-->") {
+            $.pos = $.pos + 1;
+        }
+        $.pos = $.pos + 3; // skip "-->"
+    }
+
+    private parseElement(): map<string, mixed> {
+        $.pos = $.pos + 1; // consume '<'
+        const tag = $.parseName();
+        const attrs = $.parseAttrs();
+        $.skipWs();
+        const node: map<string, mixed> = {};
+        node["tag"] = tag;
+        node["attrs"] = attrs;
+        node["children"] = [];
+        node["text"] = "";
+        if $.peek() == "/" {
+            // Self-closing tag <foo/>
+            $.pos = $.pos + 2; // consume "/>"
+            return node;
+        }
+        $.pos = $.pos + 1; // consume '>'
+        $.parseChildren(node);
+        return node;
+    }
+
+    private parseChildren(parent: map<string, mixed>): void {
+        let text = "";
+        while $.pos < len($.src) {
+            if $.startsWith("</") {
+                // Closing tag: </tag>
+                $.pos = $.pos + 2;
+                $.parseName(); // tag name (assumed matching)
+                while $.pos < len($.src) && $.peek() != ">" { $.pos = $.pos + 1; }
+                $.pos = $.pos + 1; // consume '>'
+                if len(text) > 0 {
+                    const tn: map<string, mixed> = {};
+                    tn["text"] = $.unescape(str_trim(text));
+                    parent["children"] = list_push(parent["children"], tn);
+                }
+                return;
+            }
+            if $.startsWith("<!--") {
+                $.parseComment();
+                continue;
+            }
+            if $.peek() == "<" {
+                if len(text) > 0 {
+                    const tn: map<string, mixed> = {};
+                    tn["text"] = $.unescape(str_trim(text));
+                    parent["children"] = list_push(parent["children"], tn);
+                    text = "";
+                }
+                const child = $.parseElement();
+                parent["children"] = list_push(parent["children"], child);
+                continue;
+            }
+            text = text + $.next();
+        }
+    }
+
+    public parse(): map<string, mixed> {
+        $.skipWs();
+        // Optional XML declaration <?xml ...?>
+        if $.startsWith("<?xml") {
+            while $.pos < len($.src) && !$.startsWith("?>") { $.pos = $.pos + 1; }
+            $.pos = $.pos + 2;
+        }
+        $.skipWs();
+        // Skip comments before root.
+        while $.startsWith("<!--") {
+            $.parseComment();
+            $.skipWs();
+        }
+        if $.peek() != "<" { return {}; }
+        return $.parseElement();
+    }
+}
+
+export fn parse(text: string): map<string, mixed> {
+    const parser = new XmlParser(text);
+    return parser.parse();
+}
+
+fn stringifyNode(node: map<string, mixed>, indent: int): string {
+    const pad = str_repeat("  ", indent);
+    const tag = node["tag"];
+    if tag == null || tag == "" {
+        // Text node.
+        return pad + node["text"] + "\n";
+    }
+    let out = pad + "<" + tag;
+    const attrs = node["attrs"];
+    const keys = map_keys(attrs);
+    let i = 0;
+    while i < len(keys) {
+        out = out + " " + keys[i] + "=\"" + attrs[keys[i]] + "\"";
+        i = i + 1;
+    }
+    const children = node["children"];
+    if len(children) == 0 {
+        return out + " />\n";
+    }
+    out = out + ">\n";
+    let j = 0;
+    while j < len(children) {
+        out = out + stringifyNode(children[j], indent + 1);
+        j = j + 1;
+    }
+    return out + pad + "</" + tag + ">\n";
+}
+
+export fn stringify(node: map<string, mixed>): string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + stringifyNode(node, 0);
+}

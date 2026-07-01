@@ -1,0 +1,100 @@
+// std/context — Cancellation, deadlines, and request-scoped values.
+// Per spec: Context, withCancel, withTimeout, withDeadline.
+
+// A Context carries a cancellation signal, an optional deadline, and
+// request-scoped key/value pairs. Cancellation propagates to children.
+class Context {
+    private done: bool;
+    private err: string;
+    private deadline: int;       // 0 = no deadline
+    private values: map<string, mixed>;
+    private children: list<Context>;
+    private parent: mixed;
+
+    constructor(parent: mixed) {
+        $.parent = parent;
+        $.done = false;
+        $.err = "";
+        $.deadline = 0;
+        $.values = {};
+        $.children = [];
+    }
+
+    public isDone(): bool {
+        if $.done { return true; }
+        if $.deadline > 0 && time_now() >= $.deadline {
+            $.cancel("deadline exceeded");
+            return true;
+        }
+        const p = $.parent;
+        if p is Context && p.isDone() {
+            $.cancel(p.err);
+            return true;
+        }
+        return false;
+    }
+
+    public err(): string {
+        if $.isDone() { return $.err; }
+        return "";
+    }
+
+    public value(key: string): mixed {
+        if map_has($.values, key) { return $.values[key]; }
+        const p = $.parent;
+        if p is Context { return p.value(key); }
+        return null;
+    }
+
+    public withValue(key: string, val: mixed): Context {
+        const child = new Context($);
+        child.values[key] = val;
+        $.children = list_push($.children, child);
+        return child;
+    }
+
+    public deadline(): int {
+        if $.deadline > 0 { return $.deadline; }
+        const p = $.parent;
+        if p is Context { return p.deadline(); }
+        return 0;
+    }
+
+    public cancel(reason: string): void {
+        if $.done { return; }
+        $.done = true;
+        $.err = reason;
+        // Propagate to children.
+        let i = 0;
+        while i < len($.children) {
+            $.children[i].cancel(reason);
+            i = i + 1;
+        }
+    }
+}
+
+// A background context with no parent — the root of a context tree.
+export fn background(): Context {
+    return new Context(null);
+}
+
+export fn withCancel(parent: Context): Context {
+    const ctx = new Context(parent);
+    return ctx;
+}
+
+export fn withTimeout(parent: Context, ms: int): Context {
+    const ctx = new Context(parent);
+    ctx.deadline = time_now() + ms;
+    return ctx;
+}
+
+export fn withDeadline(parent: Context, deadlineMs: int): Context {
+    const ctx = new Context(parent);
+    ctx.deadline = deadlineMs;
+    return ctx;
+}
+
+export fn withValue(parent: Context, key: string, val: mixed): Context {
+    return parent.withValue(key, val);
+}
