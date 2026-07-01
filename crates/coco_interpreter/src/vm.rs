@@ -1575,6 +1575,12 @@ impl Vm {
     {
         match (a, b) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
+            // Bitwise on bools (per grammar: "bitwise on bools"): treat as 0/1
+            // and return a Bool so word-form operators like `xor` stay logical.
+            (Value::Bool(a), Value::Bool(b)) => {
+                let result = op(BigInt::from(a as u8), BigInt::from(b as u8));
+                Ok(Value::Bool(result != BigInt::from(0)))
+            }
             _ => Err(VmError::new("bitwise operations require integers")),
         }
     }
@@ -1598,6 +1604,17 @@ impl Vm {
             (Value::Map(map), Value::String(key)) => {
                 Ok(map.data.get(key).cloned().unwrap_or(Value::Null))
             }
+            // Map indexed by int: yields the key at that position. This lets the
+            // index-based `for k in map` loop reuse the same machinery as lists,
+            // producing map keys in insertion order.
+            (Value::Map(map), Value::Int(i)) => {
+                let idx = i.to_usize().unwrap_or(usize::MAX);
+                map.data
+                    .keys()
+                    .nth(idx)
+                    .map(|k| Value::String(k.clone()))
+                    .ok_or_else(|| VmError::new("index out of bounds"))
+            }
             _ => Err(VmError::new("invalid index operation")),
         }
     }
@@ -1607,6 +1624,11 @@ impl Vm {
             Value::List(list) if prop == "length" => Ok(Value::Int(BigInt::from(list.data.len()))),
             Value::String(s) if prop == "length" => Ok(Value::Int(BigInt::from(s.len()))),
             Value::Map(map) => {
+                // `length` builtin: number of entries. Falls back to a user's
+                // own "length" key only if present, so we check the data first.
+                if prop == "length" && !map.data.contains_key("length") {
+                    return Ok(Value::Int(BigInt::from(map.data.len())));
+                }
                 // Direct property access
                 if let Some(val) = map.data.get(prop) {
                     return Ok(val.clone());

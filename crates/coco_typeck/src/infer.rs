@@ -55,8 +55,10 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
         Expr::Parallel(_) => Ty::Unknown,
         Expr::Template(_) => Ty::String,
         Expr::Lazy(inner) => {
-            let _ = infer_expr(inner, env);
-            Ty::Unknown // deferred — wraps in Task<T> when Ty::Task is added
+            // `lazy expr` defers evaluation and produces a Task<T> that
+            // resolves to the inner expression's type when awaited.
+            let inner_ty = infer_expr(inner, env);
+            Ty::Task(Box::new(inner_ty))
         }
     }
 }

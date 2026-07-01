@@ -10,4 +10,11 @@ coco_syntax = { path = "../coco_syntax" }
 coco_parser = { path = "../coco_parser" }
 coco_span = { path = "../coco_span" }
 coco_gc = { path = "../coco_gc" }
-inkwell = { workspace = true }
+inkwell = { workspace = true, optional = true }
+
+[features]
+default = []
+# LLVM native code generation. Requires system LLVM 18 (LLVM_SYS_180_PREFIX).
+# When disabled, the crate compiles to an empty stub so `cargo build --workspace`
+# works without LLVM installed.
+native = ["inkwell"]

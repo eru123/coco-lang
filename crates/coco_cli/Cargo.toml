@@ -27,4 +27,4 @@ num-traits = { workspace = true }
 
 [features]
 default = []
-native = ["coco_codegen", "inkwell"]
+native = ["coco_codegen", "coco_codegen/native", "inkwell"]

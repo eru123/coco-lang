@@ -82,8 +82,31 @@ fn logical_and() {
     assert!(matches!(run_src("true && false"), Value::Bool(false)));
 }
 #[test]
+fn logical_and_truthy() {
+    // Regression: the truthy path of `&&` left the left operand on the stack,
+    // causing "true is not callable" when used in a call argument.
+    assert!(matches!(run_src("true && true"), Value::Bool(true)));
+}
+#[test]
+fn logical_and_word_form() {
+    assert!(matches!(run_src("true and true"), Value::Bool(true)));
+    assert!(matches!(run_src("true and false"), Value::Bool(false)));
+}
+#[test]
 fn logical_or() {
     assert!(matches!(run_src("false || true"), Value::Bool(true)));
+}
+#[test]
+fn logical_xor_bool() {
+    // Per grammar, `xor` (word-form of `^`) operates on bools as logical XOR.
+    assert!(matches!(run_src("true xor false"), Value::Bool(true)));
+    assert!(matches!(run_src("true xor true"), Value::Bool(false)));
+    assert!(matches!(run_src("false xor false"), Value::Bool(false)));
+}
+#[test]
+fn bitwise_xor_int() {
+    // `^`/`xor` on ints remains bitwise.
+    assert!(matches!(run_src("5 ^ 3"), Value::Int(n) if n == BigInt::from(6)));
 }
 #[test]
 fn unary_neg() {
@@ -164,6 +187,16 @@ fn for_loop() {
     ));
 }
 #[test]
+fn for_in_map() {
+    // Regression: `for k in map` failed because maps had no `length` member and
+    // could not be indexed by int. Maps now expose `.length` and int-indexing
+    // yields the key at that position.
+    assert!(matches!(
+        run_src("fn main() { const m = {\"a\": 1, \"b\": 2}; let count = 0; for k in m { count += m[k]; } return count; }"),
+        Value::Int(n) if n == BigInt::from(3)
+    ));
+}
+#[test]
 fn loop_break() {
     assert!(matches!(
         run_src("fn main() { let x = 0; loop { x += 1; if x == 3 { break; } } return x; }"),
@@ -186,6 +219,25 @@ fn recursion() {
     assert!(matches!(
         run_src("fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fn main() { return fib(10); }"),
         Value::Int(n) if n == BigInt::from(55)
+    ));
+}
+#[test]
+fn nested_function_declaration() {
+    // Regression: nested `fn` declarations inside another function body were
+    // skipped by the compiler, so calling them yielded "null is not callable".
+    assert!(matches!(
+        run_src("fn main() { fn helper() { return 42; } return helper(); }"),
+        Value::Int(n) if n == BigInt::from(42)
+    ));
+}
+#[test]
+fn nested_function_with_let_binding() {
+    // Regression: a spurious OP_POP after STORE_LOCAL corrupted the caller's
+    // stack, so binding the result of a nested-function call failed with
+    // "local N out of bounds".
+    assert!(matches!(
+        run_src("fn main() { fn helper() { return 7; } let r = helper(); return r; }"),
+        Value::Int(n) if n == BigInt::from(7)
     ));
 }
 #[test]

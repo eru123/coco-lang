@@ -3,18 +3,25 @@
 //! Walks the typed AST and emits LLVM IR, then compiles to a native binary
 //! via the system linker. The generated code links against `libcoco_rt` which
 //! provides the GC heap, value boxing, and builtins.
+//!
+//! This crate requires system LLVM 18 (via `inkwell`/`llvm-sys`). To avoid
+//! forcing an LLVM install on every workspace build, the LLVM-dependent code
+//! is gated behind the `native` feature. Without it, the crate compiles to an
+//! empty stub; enable `native` (or the `native` feature on `coco_cli`) to use it.
 
-use coco_syntax::*;
-use inkwell::builder::Builder;
-use inkwell::context::Context;
-use inkwell::execution_engine::{ExecutionEngine, JitFunction};
-use inkwell::module::Module;
-use inkwell::types::{BasicType, BasicTypeEnum, FunctionType, StructType};
-use inkwell::values::{
-    BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue,
-};
-use inkwell::{AddressSpace, OptimizationLevel};
-use std::collections::HashMap;
+#[cfg(feature = "native")]
+mod native {
+    use coco_syntax::*;
+    use inkwell::builder::Builder;
+    use inkwell::context::Context;
+    use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+    use inkwell::module::Module;
+    use inkwell::types::{BasicType, BasicTypeEnum, FunctionType, StructType};
+    use inkwell::values::{
+        BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue, StructValue,
+    };
+    use inkwell::{AddressSpace, OptimizationLevel};
+    use std::collections::HashMap;
 
 /// The LLVM code generator.
 pub struct Codegen<'ctx> {
@@ -535,3 +542,11 @@ impl<'ctx> Codegen<'ctx> {
             .map_err(|e| e.to_string())
     }
 }
+} // end mod native
+
+#[cfg(feature = "native")]
+pub use native::Codegen;
+
+// Without the `native` feature, this crate has no public API. Callers (coco_cli)
+// only reference `Codegen` under their own `#[cfg(feature = "native")]` guard,
+// so an empty stub here lets `cargo build --workspace` succeed without LLVM.

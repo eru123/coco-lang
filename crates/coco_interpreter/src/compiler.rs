@@ -22,7 +22,10 @@ use crate::ir::{
     OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
     OP_STORE_MEMBER, OP_SUB, OP_SUPER_METHOD, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
-    OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF, OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE,
+    OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF,
+    // OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE are dispatched by the VM but
+    // not yet emitted by the compiler; import them here when compile_for /
+    // compile_pipe / scope-close are wired to emit them.
 };
 use crate::value::Value;
 use coco_parser::Parser;
@@ -303,10 +306,16 @@ impl Compiler {
 
     fn compile_item(&mut self, item: &Item) -> CResult<()> {
         match item {
-            Item::FnDecl(_fn_decl) => {
-                // Already declared in first pass; skip re-compilation here
-                // unless we want to support redefinition. For now, first pass
-                // handles it.
+            Item::FnDecl(fn_decl) => {
+                // Top-level functions are declared in the first pass of
+                // `compile_script`, so skip them here to avoid double-compiling.
+                // Nested function declarations (encountered while compiling a
+                // function body, where `in_function` is true) were NOT covered
+                // by the first pass and must be declared now so they bind to a
+                // local closure and become callable.
+                if self.in_function {
+                    self.declare_function(fn_decl)?;
+                }
                 Ok(())
             }
             Item::LetDecl(let_decl) => self.compile_let(let_decl),
@@ -1033,6 +1042,9 @@ impl Compiler {
                 self.compile_expr(&bin.left)?;
                 let end_label = self.new_label();
                 self.emit_jump(OP_POP_JUMP_IF_FALSE, end_label);
+                // Left was truthy: discard it (POP_JUMP_IF_FALSE only pops on the
+                // false branch) and evaluate the right operand as the result.
+                self.emit_op(OP_POP);
                 self.compile_expr(&bin.right)?;
                 self.place_label(end_label);
                 return Ok(());
@@ -1934,9 +1946,12 @@ impl Compiler {
         self.emit_op_u16(OP_MAKE_CLOSURE, const_idx);
 
         if self.in_function {
+            // Nested function: bind the closure as a local variable. Both
+            // OP_MAKE_CLOSURE (push) and OP_STORE_LOCAL (pop) are balanced, so
+            // no extra OP_POP is needed — the closure value is consumed by the
+            // store. (An earlier spurious POP here corrupted the caller's stack.)
             let slot = self.add_local(&name);
             self.emit_op_u16(OP_STORE_LOCAL, slot as u16);
-            self.emit_op(OP_POP);
         } else {
             let name_idx = self.name_constant(&name);
             self.emit_op_u16(OP_DEFINE_GLOBAL, name_idx);
