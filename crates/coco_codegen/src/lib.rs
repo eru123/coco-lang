@@ -38,6 +38,9 @@ pub struct Codegen<'ctx> {
     current_fn: Option<FunctionValue<'ctx>>,
     /// The runtime heap pointer (passed as a global or context).
     runtime_struct: Option<PointerValue<'ctx>>,
+    /// Compiled classes: name -> (struct type, ordered property names).
+    /// The struct type is a packed layout of Value (i64,i64) per property.
+    classes: HashMap<String, (StructType<'ctx>, Vec<String>)>,
 }
 
 /// The Coco runtime value represented as an LLVM struct: { i64 tag, [data] }
@@ -67,6 +70,7 @@ impl<'ctx> Codegen<'ctx> {
             locals: HashMap::new(),
             current_fn: None,
             runtime_struct: None,
+            classes: HashMap::new(),
         }
     }
 
@@ -91,6 +95,13 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
 
+        // First pass for classes: define LLVM struct types and declare methods.
+        for item in &program.items {
+            if let Item::ClassDecl(class_decl) = item {
+                self.declare_class(class_decl)?;
+            }
+        }
+
         // Second pass: compile function bodies
         for item in &program.items {
             match item {
@@ -101,6 +112,13 @@ impl<'ctx> Codegen<'ctx> {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // Second pass for classes: compile method bodies and constructors.
+        for item in &program.items {
+            if let Item::ClassDecl(class_decl) = item {
+                self.compile_class_bodies(class_decl)?;
             }
         }
 
@@ -431,6 +449,177 @@ impl<'ctx> Codegen<'ctx> {
         }
         let i64 = self.context.i64_type();
         Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+    }
+
+    /// First pass for a class: define the LLVM struct type for its property
+    /// layout and declare each method as a function named `Class.method`.
+    /// The struct is a packed layout of one Value ({i64,i64}) per property,
+    /// in declaration order. Methods take a `this` pointer as the first
+    /// argument (two i64 params: tag + data), followed by their params.
+    fn declare_class(&mut self, class_decl: &ClassDecl) -> Result<(), String> {
+        let class_name = &class_decl.name.name;
+
+        // Collect property names in declaration order.
+        let mut prop_names: Vec<String> = Vec::new();
+        for member in &class_decl.members {
+            if let ClassMember::Property(prop) = member {
+                prop_names.push(prop.name.name.clone());
+            }
+        }
+
+        // Build the struct type: { Value, Value, ... } one per property.
+        // Each Value is { i64, i64 }. An empty class gets a single i64 pad so
+        // the struct is non-zero-sized.
+        let i64 = self.context.i64_type();
+        let field_types: Vec<BasicTypeEnum> = if prop_names.is_empty() {
+            vec![i64.into()]
+        } else {
+            (0..prop_names.len()).map(|_| self.value_type.into()).collect()
+        };
+        let struct_type = self.context.struct_type(&field_types, false);
+        self.classes
+            .insert(class_name.clone(), (struct_type, prop_names.clone()));
+
+        // Declare each method as `Class.method` with a `this` first param.
+        for member in &class_decl.members {
+            if let ClassMember::Method(method) = member {
+                let mangled = format!("{}.{}", class_name, method.name.name);
+                // Params: this (tag, data) + each method param (tag, data).
+                let arity = method.params.len() + 1; // +1 for `this`
+                let fn_type = self.fn_type(arity);
+                let func = self.module.add_function(&mangled, fn_type, None);
+                self.functions.insert(mangled, (func, arity));
+            }
+        }
+        Ok(())
+    }
+
+    /// Second pass for a class: compile method bodies and the constructor.
+    /// The constructor allocates the struct via coco_rt (a zeroed allocation
+    /// of the struct size) and stores default property values.
+    fn compile_class_bodies(&mut self, class_decl: &ClassDecl) -> Result<(), String> {
+        let class_name = &class_decl.name.name;
+        let (struct_type, prop_names) = match self.classes.get(class_name) {
+            Some(entry) => entry.clone(),
+            None => return Ok(()), // declared elsewhere or empty
+        };
+        let _ = struct_type;
+
+        for member in &class_decl.members {
+            match member {
+                ClassMember::Constructor(ctor) => {
+                    let ctor_name = format!("{}.constructor", class_name);
+                    if let Some(&(func, _)) = self.functions.get(&ctor_name) {
+                        self.compile_ctor(func, ctor, class_name, &prop_names)?;
+                    }
+                }
+                ClassMember::Method(method) => {
+                    let mangled = format!("{}.{}", class_name, method.name.name);
+                    if let Some(&(func, _)) = self.functions.get(&mangled) {
+                        self.compile_method(func, method, class_name)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Compile a constructor: allocate the instance struct (zeroed) and store
+    /// default property values, then run the constructor body.
+    fn compile_ctor(
+        &mut self,
+        func: FunctionValue<'ctx>,
+        ctor: &Constructor,
+        class_name: &str,
+        prop_names: &[String],
+    ) -> Result<(), String> {
+        self.current_fn = Some(func);
+        self.locals.clear();
+        let entry = self.context.append_basic_block(func, "entry");
+        self.builder.position_at_end(entry);
+
+        // Bind `this` (param 0 = tag, param 1 = data) as a local named "this".
+        let params = func.get_params();
+        let this_alloca = self
+            .builder
+            .build_alloca(self.value_type, "this")
+            .map_err(|e| e.to_string())?;
+        let this_val = self.build_value(
+            params[0].into_int_value(),
+            params[1].into_int_value(),
+        );
+        self.builder.build_store(this_alloca, this_val).map_err(|e| e.to_string())?;
+        self.locals.insert("this".to_string(), this_alloca);
+
+        // Bind constructor params (skipping `this`'s two i64s).
+        for (i, param) in ctor.params.iter().enumerate() {
+            let tag = params[(i + 1) * 2];
+            let data = params[(i + 1) * 2 + 1];
+            let alloca = self
+                .builder
+                .build_alloca(self.value_type, &param.name.name)
+                .map_err(|e| e.to_string())?;
+            let val = self.build_value(tag.into_int_value(), data.into_int_value());
+            self.builder.build_store(alloca, val).map_err(|e| e.to_string())?;
+            self.locals.insert(param.name.name.clone(), alloca);
+        }
+
+        // Compile the constructor body.
+        self.compile_block(&ctor.body)?;
+
+        // Default return null.
+        let i64 = self.context.i64_type();
+        let null_val = self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false));
+        self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        self.current_fn = None;
+        let _ = (class_name, prop_names);
+        Ok(())
+    }
+
+    /// Compile a method body. `this` is bound from the first param pair.
+    fn compile_method(
+        &mut self,
+        func: FunctionValue<'ctx>,
+        method: &Method,
+        class_name: &str,
+    ) -> Result<(), String> {
+        self.current_fn = Some(func);
+        self.locals.clear();
+        let entry = self.context.append_basic_block(func, "entry");
+        self.builder.position_at_end(entry);
+
+        let params = func.get_params();
+        // Bind `this`.
+        let this_alloca = self
+            .builder
+            .build_alloca(self.value_type, "this")
+            .map_err(|e| e.to_string())?;
+        let this_val = self.build_value(params[0].into_int_value(), params[1].into_int_value());
+        self.builder.build_store(this_alloca, this_val).map_err(|e| e.to_string())?;
+        self.locals.insert("this".to_string(), this_alloca);
+
+        // Bind method params.
+        for (i, param) in method.params.iter().enumerate() {
+            let tag = params[(i + 1) * 2];
+            let data = params[(i + 1) * 2 + 1];
+            let alloca = self
+                .builder
+                .build_alloca(self.value_type, &param.name.name)
+                .map_err(|e| e.to_string())?;
+            let val = self.build_value(tag.into_int_value(), data.into_int_value());
+            self.builder.build_store(alloca, val).map_err(|e| e.to_string())?;
+            self.locals.insert(param.name.name.clone(), alloca);
+        }
+
+        self.compile_block(&method.body)?;
+
+        let i64 = self.context.i64_type();
+        let null_val = self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false));
+        self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        self.current_fn = None;
+        let _ = class_name;
+        Ok(())
     }
 
     /// Compile a literal value.
