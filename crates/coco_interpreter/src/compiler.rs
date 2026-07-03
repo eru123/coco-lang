@@ -370,16 +370,30 @@ impl Compiler {
         let mut parser = Parser::new(&src);
         let module = parser.parse_program();
 
-        // Compile items — exported items become globals, others are skipped.
+        // Compile ALL top-level items in the module so that private helper
+        // functions/consts are defined and callable from exported functions.
+        // (The import statement selects which names the importer binds, but
+        // the module's own code needs all its definitions to run.) Exported
+        // and non-exported fns are both declared; consts/classes compiled via
+        // compile_item. This is a first+second pass combined: declare fns
+        // first so forward references work, then compile non-fn items.
+        for item in &module.items {
+            let fd = match item {
+                Item::FnDecl(f) => Some(f),
+                Item::Export(e) => match &*e.item {
+                    Item::FnDecl(f) => Some(f),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(fn_decl) = fd {
+                self.declare_function(fn_decl)?;
+            }
+        }
         for item in &module.items {
             match item {
-                Item::Export(export) => {
-                    // Compile the exported item — it will register as a global.
-                    self.compile_item(&export.item)?;
-                }
-                // Non-exported items are skipped in module context for VM
-                // (they're private helpers not visible to importers).
-                _ => {}
+                Item::FnDecl(_) | Item::Export(_) => { /* already declared */ }
+                _ => self.compile_item(item)?,
             }
         }
         Ok(())

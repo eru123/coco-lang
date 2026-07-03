@@ -8,6 +8,19 @@ use crate::value::{value_eq, AtomicInner, ChannelInner, Value};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
+
+/// Allocate a Coco list value backed by Arc<CoW<Vec<Value>>>.
+/// (The `heap` arg is unused now that lists are Arc-backed, but kept for
+/// call-site compatibility with the old Gc-based allocation.)
+fn arc_list(items: Vec<Value>, _heap: &mut coco_gc::Heap) -> Value {
+    Value::List(std::sync::Arc::new(coco_gc::CoW::new(items)))
+}
+
+/// Allocate a Coco map value backed by Arc<CoW<HashMap<String, Value>>>.
+fn arc_map(map: HashMap<String, Value>, _heap: &mut coco_gc::Heap) -> Value {
+    Value::Map(std::sync::Arc::new(coco_gc::CoW::new(map)))
+}
+
 // ============================================================================
 // TCP connection registry
 // ============================================================================
@@ -468,9 +481,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
                     for entry in entries.flatten() {
                         names.push(Value::String(entry.file_name().to_string_lossy().to_string()));
                     }
-                    let cow = coco_gc::CoW::new(names);
-                    let (id, ptr) = heap.allocate(cow);
-                    Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+                    Ok(arc_list(names, heap))
                 }
                 Err(e) => Err(Signal::Error(RuntimeError::new(format!("fs_readDir: {}", e)))),
             }
@@ -509,12 +520,12 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
                     map.insert("isFile".to_string(), Value::Bool(meta.is_file()));
                     map.insert("isDir".to_string(), Value::Bool(meta.is_dir()));
                     map.insert("size".to_string(), Value::Int(BigInt::from(meta.len())));
-                     { let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr))) }
+                     { Ok(arc_map(map, heap)) }
                 }
                 Err(_) => {
                     let mut map = HashMap::new();
                     map.insert("exists".to_string(), Value::Bool(false));
-                     { let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr))) }
+                     { Ok(arc_map(map, heap)) }
                 }
             }
         }
@@ -558,7 +569,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let mut map = HashMap::new();
             map.insert("handle".to_string(), Value::Int(BigInt::from(client_handle)));
             map.insert("address".to_string(), Value::String(addr.to_string()));
-             { let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr))) }
+             { Ok(arc_map(map, heap)) }
         }
         "tcp_read" => {
             if args.len() != 2 {
@@ -637,7 +648,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_split: arg 1 must be string"))) };
             let delim = match &args[1] { Value::String(d) => d.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_split: arg 2 must be string"))) };
             let parts: Vec<Value> = s.split(&delim).map(|p| Value::String(p.to_string())).collect();
-            let cow = coco_gc::CoW::new(parts); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(parts, heap))
         }
         "str_replace" => {
             if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("str_replace(str, from, to) expects 3 args"))); }
@@ -690,7 +701,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
         // ---- Process / CLI ----
         "process_args" => {
             let args: Vec<Value> = std::env::args().map(|a| Value::String(a)).collect();
-            let cow = coco_gc::CoW::new(args); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(args, heap))
         }
         "process_env" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("process_env(key) expects 1 arg"))); }
@@ -739,7 +750,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let mut map = HashMap::new();
             map.insert("message".to_string(), Value::String(msg));
             map.insert("__error__".to_string(), Value::Bool(true));
-            let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_map(map, heap))
         }
 
         // ---- Encoding ----
@@ -815,7 +826,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let max = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1024), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects int max_bytes"))) };
             with_udp_socket(handle, |s| {
                 let mut buf = vec![0u8; max];
-                match s.recv_from(&mut buf) { Ok((n, addr)) => { let mut map = HashMap::new(); map.insert("data".to_string(), Value::String(String::from_utf8_lossy(&buf[..n]).to_string())); map.insert("address".to_string(), Value::String(addr.to_string())); let cow = coco_gc::CoW::new(map); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr))) }, Err(e) => Err(Signal::Error(RuntimeError::new(format!("udp_recv: {}", e)))) }
+                match s.recv_from(&mut buf) { Ok((n, addr)) => { let mut map = HashMap::new(); map.insert("data".to_string(), Value::String(String::from_utf8_lossy(&buf[..n]).to_string())); map.insert("address".to_string(), Value::String(addr.to_string())); Ok(arc_map(map, heap)) }, Err(e) => Err(Signal::Error(RuntimeError::new(format!("udp_recv: {}", e)))) }
             })
         }
         "udp_close" => {
@@ -845,7 +856,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_push expects a list"))) };
             let mut items: Vec<Value> = list.data.iter().cloned().collect();
             items.push(args[1].clone());
-            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(items, heap))
         }
         "list_pop" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("list_pop(list) expects 1 arg"))); }
@@ -856,8 +867,8 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             // Return a tuple-like map with the popped value and the new list
             let mut map = HashMap::new();
             map.insert("value".to_string(), popped);
-            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); map.insert("list".to_string(), Value::List(coco_gc::Gc::new(heap, id, ptr)));
-            let cow2 = coco_gc::CoW::new(map); let (id2, ptr2) = heap.allocate(cow2); Ok(Value::Map(coco_gc::Gc::new(heap, id2, ptr2)))
+            map.insert("list".to_string(), arc_list(items, heap));
+            let cow2 = coco_gc::CoW::new(map); Ok(arc_map(cow2.data.clone(), heap))
         }
         "list_insert" => {
             if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("list_insert(list, index, value) expects 3 args"))); }
@@ -866,7 +877,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let mut items: Vec<Value> = list.data.iter().cloned().collect();
             let idx = idx.min(items.len());
             items.insert(idx, args[2].clone());
-            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(items, heap))
         }
         "list_remove" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("list_remove(list, index) expects 2 args"))); }
@@ -875,7 +886,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             if idx >= list.data.len() { return Ok(args[0].clone()); }
             let mut items: Vec<Value> = list.data.iter().cloned().collect();
             items.remove(idx);
-            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(items, heap))
         }
         "list_join" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("list_join(list, sep) expects 2 args"))); }
@@ -892,7 +903,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let key = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
             let mut data: HashMap<String, Value> = map.data.iter().map(|(k,v)| (k.clone(), v.clone())).collect();
             data.insert(key, args[2].clone());
-            let cow = coco_gc::CoW::new(data); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_map(data, heap))
         }
         "map_get" => {
             if args.len() < 2 || args.len() > 3 { return Err(Signal::Error(RuntimeError::new("map_get(map, key, default?) expects 2-3 args"))); }
@@ -912,19 +923,19 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let key = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
             let mut data: HashMap<String, Value> = map.data.iter().map(|(k,v)| (k.clone(), v.clone())).collect();
             data.remove(&key);
-            let cow = coco_gc::CoW::new(data); let (id, ptr) = heap.allocate(cow); Ok(Value::Map(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_map(data, heap))
         }
         "map_keys" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("map_keys(map) expects 1 arg"))); }
             let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_keys expects a map"))) };
             let keys: Vec<Value> = map.data.keys().map(|k| Value::String(k.clone())).collect();
-            let cow = coco_gc::CoW::new(keys); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(keys, heap))
         }
         "map_values" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("map_values(map) expects 1 arg"))); }
             let map = match &args[0] { Value::Map(m) => m, _ => return Err(Signal::Error(RuntimeError::new("map_values expects a map"))) };
             let vals: Vec<Value> = map.data.values().cloned().collect();
-            let cow = coco_gc::CoW::new(vals); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(vals, heap))
         }
 
         // ---- More utilities ----
@@ -974,7 +985,7 @@ pub fn call_builtin(name: &str, args: &[Value], heap: &mut coco_gc::Heap) -> Res
             let mut i = start;
             if step > 0 { while i < end { items.push(Value::Int(BigInt::from(i))); i += step; } }
             else { while i > end { items.push(Value::Int(BigInt::from(i))); i += step; } }
-            let cow = coco_gc::CoW::new(items); let (id, ptr) = heap.allocate(cow); Ok(Value::List(coco_gc::Gc::new(heap, id, ptr)))
+            Ok(arc_list(items, heap))
         }
 
         // ---- Hashing ----
@@ -1298,26 +1309,20 @@ fn json_parse_object(s: &str, heap: &mut coco_gc::Heap) -> Value {
             }
         }
     }
-    let cow = coco_gc::CoW::new(map);
-    let (id, ptr) = heap.allocate(cow);
-    Value::Map(coco_gc::Gc::new(heap, id, ptr))
+    arc_map(map, heap)
 }
 
 fn json_parse_array(s: &str, heap: &mut coco_gc::Heap) -> Value {
     let inner = &s[1..s.len() - 1];
     if inner.trim().is_empty() {
-        let cow = coco_gc::CoW::new(Vec::new());
-        let (id, ptr) = heap.allocate(cow);
-        return Value::List(coco_gc::Gc::new(heap, id, ptr));
+        return arc_list(Vec::new(), heap);
     }
     let parts = json_split_top_level(inner, b',');
     let mut items = Vec::with_capacity(parts.len());
     for part in parts {
         items.push(json_to_coco(part, heap));
     }
-    let cow = coco_gc::CoW::new(items);
-    let (id, ptr) = heap.allocate(cow);
-    Value::List(coco_gc::Gc::new(heap, id, ptr))
+    arc_list(items, heap)
 }
 
 fn json_parse_string(s: &str) -> Value {

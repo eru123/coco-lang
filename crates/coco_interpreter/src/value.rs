@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use coco_gc::{CoW, Gc, GcRef};
+use coco_gc::{CoW, GcRef};
 use num_bigint::BigInt;
 
 use crate::ir::FnObj;
@@ -63,8 +63,8 @@ pub enum Value {
     String(String),
     Bool(bool),
     Null,
-    List(Gc<CoW<Vec<Value>>>),
-    Map(Gc<CoW<HashMap<String, Value>>>),
+    List(Arc<CoW<Vec<Value>>>),
+    Map(Arc<CoW<HashMap<String, Value>>>),
     BuiltinFn(String),
     FnObj(FnObj),
     /// Handle to an async task managed by the scheduler.
@@ -176,15 +176,14 @@ impl Value {
         }
     }
 
-    /// Returns the heap `GcRef` if this value is a GC-managed heap object
-    /// (currently `List` and `Map`), else `None`. Used by the tracing GC to
-    /// discover roots and to walk the object graph.
+    /// Returns the heap `GcRef` if this value is a GC-managed heap object,
+    /// else `None`. List and Map are now `Arc`-backed (self-managing, not in
+    /// the GC Heap), so they return `None` — the tracing GC does not walk
+    /// them. This is sound because `Arc` refcounting reclaims them when no
+    /// references remain (cycles require `Weak`, which Coco values don't form
+    /// across List/Map).
     pub fn gc_ref(&self) -> Option<GcRef> {
-        match self {
-            Value::List(g) => Some(g.id()),
-            Value::Map(g) => Some(g.id()),
-            _ => None,
-        }
+        None
     }
 
 }

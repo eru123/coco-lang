@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use coco_gc::{CoW, Gc, Heap};
+use coco_gc::{CoW, Heap};
 use num_traits::ToPrimitive;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -27,18 +27,14 @@ fn alloc_db_handle() -> usize {
     NEXT_DB_HANDLE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
 
-/// Allocate a `Value::Map` on the heap from a HashMap.
-fn alloc_map(heap: &mut Heap, map: HashMap<String, Value>) -> Value {
-    let cow = CoW::new(map);
-    let (id, ptr) = heap.allocate(cow);
-    Value::Map(Gc::new(heap, id, ptr))
+/// Allocate a `Value::Map` (Arc-backed; the heap arg is unused now).
+fn alloc_map(_heap: &mut Heap, map: HashMap<String, Value>) -> Value {
+    Value::Map(std::sync::Arc::new(CoW::new(map)))
 }
 
-/// Allocate a `Value::List` on the heap from a Vec.
-fn alloc_list(heap: &mut Heap, items: Vec<Value>) -> Value {
-    let cow = CoW::new(items);
-    let (id, ptr) = heap.allocate(cow);
-    Value::List(Gc::new(heap, id, ptr))
+/// Allocate a `Value::List` (Arc-backed; the heap arg is unused now).
+fn alloc_list(_heap: &mut Heap, items: Vec<Value>) -> Value {
+    Value::List(std::sync::Arc::new(CoW::new(items)))
 }
 
 /// Open (or create) a SQLite database file. Returns a handle int.

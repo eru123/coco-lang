@@ -1,7 +1,7 @@
 // std/random — Random number generation utilities.
 // Built on the `random` builtin (random() -> float 0..1, random(max) -> int 0..max).
 
-export fn int(min: int, max: int): int {
+export fn intRange(min: int, max: int): int {
     // Inclusive range [min, max].
     if max < min { return min; }
     const span = max - min + 1;

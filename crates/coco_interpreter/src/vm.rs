@@ -12,9 +12,9 @@
 //! Execution is a single `match`-based dispatch loop over bytecode opcodes.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+// use std::sync::Arc;
 
-use coco_gc::{CoW, Gc, GcRef, Heap};
+use coco_gc::{CoW, GcRef, Heap};
 use num_bigint::BigInt;
 
 use crate::builtins::call_builtin;
@@ -1418,6 +1418,25 @@ impl Vm {
             self.globals
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
         }
+        // Register every remaining builtin as a global so stdlib modules (and
+        // user code) can call them directly by name. Each is handled by
+        // `call_builtin`; this exposes the name so bare calls resolve.
+        for name in [
+            "abs", "assert", "atomic_add", "atomic_cas", "atomic_load", "atomic_store",
+            "atomic_sub", "bool", "ceil", "chan", "chan_close", "chan_recv", "chan_send",
+            "error", "float", "floor", "fs_exists", "fs_mkdir", "fs_remove", "fs_stat",
+            "hash", "hex_decode", "hex_encode", "int", "json_parse", "json_stringify",
+            "list_insert", "list_join", "list_pop", "list_push", "list_remove",
+            "map_delete", "map_get", "map_has", "map_keys", "map_set", "map_values",
+            "max", "min", "pow", "process_args", "process_cwd", "process_env", "process_exit",
+            "range", "regex_match", "regex_replace", "round", "sha256", "sqrt",
+            "str_charAt", "str_contains", "str_endsWith", "str_indexOf", "str_repeat",
+            "str_replace", "str_split", "str_startsWith", "str_substring", "str_toLower",
+            "str_toUpper", "str_trim", "udp_bind", "udp_close", "udp_recv", "udp_send",
+        ] {
+            self.globals
+                .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
+        }
     }
 
     // ========================================================================
@@ -1425,15 +1444,12 @@ impl Vm {
     // ========================================================================
 
     fn alloc_list(&mut self, items: Vec<Value>) -> Value {
-        let cow = CoW::new(items);
-        let (id, ptr) = self.heap.allocate(cow);
-        Value::List(Gc::new(&self.heap, id, ptr))
+        // Arc-backed: the value owns its data and outlives the VM/Heap.
+        Value::List(std::sync::Arc::new(CoW::new(items)))
     }
 
     fn alloc_map(&mut self, items: HashMap<String, Value>) -> Value {
-        let cow = CoW::new(items);
-        let (id, ptr) = self.heap.allocate(cow);
-        Value::Map(Gc::new(&self.heap, id, ptr))
+        Value::Map(std::sync::Arc::new(CoW::new(items)))
     }
 
     /// Run a tracing GC cycle.
