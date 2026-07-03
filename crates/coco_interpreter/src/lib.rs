@@ -19,6 +19,7 @@ pub mod serialize;
 pub mod stack;
 pub mod task;
 pub mod value;
+pub mod verify;
 pub mod vm;
 
 // ============================================================================

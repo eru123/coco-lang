@@ -115,6 +115,12 @@ pub fn serialize_chunk(chunk: &Chunk) -> Result<Vec<u8>, String> {
 }
 
 /// Deserialize a `.cb` artifact back into a `Chunk`.
+///
+/// After decoding the bytes, the chunk is passed through `verify_chunk` to
+/// check that the bytecode is safe to execute (valid opcodes, in-range
+/// constant indices, jumps landing on instruction boundaries). This makes
+/// `deserialize_chunk` the security boundary between an untrusted `.cb` file
+/// and the VM, which trusts the chunk.
 pub fn deserialize_chunk(bytes: &[u8]) -> Result<Chunk, DeserializeError> {
     let mut r = Reader::new(bytes);
     let magic = r.take(4)?;
@@ -129,7 +135,10 @@ pub fn deserialize_chunk(bytes: &[u8]) -> Result<Chunk, DeserializeError> {
             version, FORMAT_VERSION
         )));
     }
-    read_chunk_body(&mut r)
+    let chunk = read_chunk_body(&mut r)?;
+    crate::verify::verify_chunk(&chunk)
+        .map_err(|e| DeserializeError::new(format!("bytecode verification failed: {}", e)))?;
+    Ok(chunk)
 }
 
 // --- Chunk body (shared by top-level and nested FnObj chunks) --------------
