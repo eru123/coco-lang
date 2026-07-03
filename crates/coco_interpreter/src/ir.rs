@@ -705,7 +705,9 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize, out: &mut String) -
 
 fn values_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::Int(a), Value::Int(b)) => a == b,
+        // Integers: dedup across Int64/Int representations so the constant
+        // pool doesn't hold both Int64(1) and Int(BigInt::from(1)).
+        (x, y) if x.is_int() && y.is_int() => crate::value::value_eq(x, y),
         (Value::Float(a), Value::Float(b)) => a == b,
         (Value::String(a), Value::String(b)) => a == b,
         (Value::Bool(a), Value::Bool(b)) => a == b,

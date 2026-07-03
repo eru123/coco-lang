@@ -19,6 +19,47 @@ fn arc_map(map: HashMap<String, Value>) -> Value {
     Value::Map(std::sync::Arc::new(coco_gc::CoW::new(map)))
 }
 
+/// Wrap a BigInt result into `Int64` if it fits in i64, else keep as `Int`.
+/// Mirrors `Vm::normalize_int` so builtins keep the i64 fast path sticky.
+fn normalize_bigint(n: BigInt) -> Value {
+    use num_traits::ToPrimitive;
+    if let Some(i) = n.to_i64() {
+        Value::Int64(i)
+    } else {
+        Value::Int(n)
+    }
+}
+
+/// Compare two numeric `Value`s (ints of either representation, or floats)
+/// for ordering. Returns `None` if either is non-numeric or types mismatch
+/// in a way that can't be compared. Used by `min`/`max`.
+fn cmp_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    use num_traits::ToPrimitive;
+    match (a, b) {
+        // Both ints: compare via i64 when both fit, else BigInt.
+        (x, y) if x.is_int() && y.is_int() => {
+            match (x.as_i64(), y.as_i64()) {
+                (Some(xv), Some(yv)) => Some(xv.cmp(&yv)),
+                _ => {
+                    let xa = x.to_bigint()?;
+                    let yb = y.to_bigint()?;
+                    Some(xa.cmp(&yb))
+                }
+            }
+        }
+        (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
+        // Mixed int/float: compare as f64 (may lose precision for huge ints,
+        // but matches the pre-existing min/max semantics).
+        (x, Value::Float(y)) if x.is_int() => {
+            Some(x.to_bigint()?.to_f64()?.partial_cmp(y)?)
+        }
+        (Value::Float(x), y) if y.is_int() => {
+            Some(x.partial_cmp(&y.to_bigint()?.to_f64()?)?)
+        }
+        _ => None,
+    }
+}
+
 // ============================================================================
 // TCP connection registry
 // ============================================================================
@@ -143,9 +184,9 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("len() expects 1 argument")));
             }
             match &args[0] {
-                Value::String(s) => Ok(Value::Int(BigInt::from(s.len()))),
-                Value::List(l) => Ok(Value::Int(BigInt::from(l.data.len()))),
-                Value::Map(m) => Ok(Value::Int(BigInt::from(m.data.len()))),
+                Value::String(s) => Ok(Value::int_from_i64(s.len() as i64)),
+                Value::List(l) => Ok(Value::int_from_i64(l.data.len() as i64)),
+                Value::Map(m) => Ok(Value::int_from_i64(m.data.len() as i64)),
                 _ => Err(Signal::Error(RuntimeError::new(
                     "len() expects a string, list, or map",
                 ))),
@@ -182,8 +223,9 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                     Ok(n) => Ok(Value::Int(n)),
                     Err(_) => Ok(Value::Null),
                 },
+                Value::Int64(n) => Ok(Value::Int64(*n)),
                 Value::Int(n) => Ok(Value::Int(n.clone())),
-                Value::Float(f) => Ok(Value::Int(BigInt::from(*f as i64))),
+                Value::Float(f) => Ok(Value::int_from_i64(*f as i64)),
                 _ => Ok(Value::Null),
             }
         }
@@ -198,6 +240,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                     Ok(f) => Ok(Value::Float(f)),
                     Err(_) => Ok(Value::Null),
                 },
+                Value::Int64(n) => Ok(Value::Float(*n as f64)),
                 Value::Int(n) => {
                     use num_traits::ToPrimitive;
                     Ok(Value::Float(n.to_f64().unwrap_or(0.0)))
@@ -227,7 +270,18 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("abs() expects 1 argument")));
             }
             match &args[0] {
-                Value::Int(n) => Ok(Value::Int(if *n >= BigInt::from(0) { n.clone() } else { -n.clone() })),
+                Value::Int64(n) => {
+                    // i64::MIN abs overflows; escalate to BigInt for that one case.
+                    use num_traits::Signed;
+                    match n.checked_abs() {
+                        Some(a) => Ok(Value::Int64(a)),
+                        None => Ok(normalize_bigint((-BigInt::from(*n)).abs())),
+                    }
+                }
+                Value::Int(n) => {
+                    use num_traits::Signed;
+                    Ok(normalize_bigint(n.abs()))
+                }
                 Value::Float(f) => Ok(Value::Float(f.abs())),
                 _ => Err(Signal::Error(RuntimeError::new("abs() expects a number"))),
             }
@@ -238,18 +292,10 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
             let mut best = &args[0];
             for arg in &args[1..] {
-                match (best, arg) {
-                    (Value::Int(a), Value::Int(b)) if a > b => best = arg,
-                    (Value::Float(a), Value::Float(b)) if a > b => best = arg,
-                    (Value::Int(a), Value::Float(b)) => {
-                        use num_traits::ToPrimitive;
-                        if a.to_f64().unwrap_or(f64::INFINITY) > *b { best = arg; }
+                if let Some(ord) = cmp_values(best, arg) {
+                    if ord == std::cmp::Ordering::Greater {
+                        best = arg;
                     }
-                    (Value::Float(a), Value::Int(b)) => {
-                        use num_traits::ToPrimitive;
-                        if *a > b.to_f64().unwrap_or(f64::NEG_INFINITY) { best = arg; }
-                    }
-                    _ => {}
                 }
             }
             Ok(best.clone())
@@ -260,18 +306,10 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
             let mut best = &args[0];
             for arg in &args[1..] {
-                match (best, arg) {
-                    (Value::Int(a), Value::Int(b)) if a < b => best = arg,
-                    (Value::Float(a), Value::Float(b)) if a < b => best = arg,
-                    (Value::Int(a), Value::Float(b)) => {
-                        use num_traits::ToPrimitive;
-                        if a.to_f64().unwrap_or(f64::NEG_INFINITY) < *b { best = arg; }
+                if let Some(ord) = cmp_values(best, arg) {
+                    if ord == std::cmp::Ordering::Less {
+                        best = arg;
                     }
-                    (Value::Float(a), Value::Int(b)) => {
-                        use num_traits::ToPrimitive;
-                        if *a < b.to_f64().unwrap_or(f64::INFINITY) { best = arg; }
-                    }
-                    _ => {}
                 }
             }
             Ok(best.clone())
@@ -281,7 +319,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("floor() expects 1 argument")));
             }
             match &args[0] {
-                Value::Float(f) => Ok(Value::Int(BigInt::from(f.floor() as i64))),
+                Value::Float(f) => Ok(Value::int_from_i64(f.floor() as i64)),
+                Value::Int64(n) => Ok(Value::Int64(*n)),
                 Value::Int(n) => Ok(Value::Int(n.clone())),
                 _ => Err(Signal::Error(RuntimeError::new("floor() expects a number"))),
             }
@@ -291,7 +330,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("ceil() expects 1 argument")));
             }
             match &args[0] {
-                Value::Float(f) => Ok(Value::Int(BigInt::from(f.ceil() as i64))),
+                Value::Float(f) => Ok(Value::int_from_i64(f.ceil() as i64)),
+                Value::Int64(n) => Ok(Value::Int64(*n)),
                 Value::Int(n) => Ok(Value::Int(n.clone())),
                 _ => Err(Signal::Error(RuntimeError::new("ceil() expects a number"))),
             }
@@ -301,7 +341,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("round() expects 1 argument")));
             }
             match &args[0] {
-                Value::Float(f) => Ok(Value::Int(BigInt::from(f.round() as i64))),
+                Value::Float(f) => Ok(Value::int_from_i64(f.round() as i64)),
+                Value::Int64(n) => Ok(Value::Int64(*n)),
                 Value::Int(n) => Ok(Value::Int(n.clone())),
                 _ => Err(Signal::Error(RuntimeError::new("round() expects a number"))),
             }
@@ -312,6 +353,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             }
             match &args[0] {
                 Value::Float(f) => Ok(Value::Float(f.sqrt())),
+                Value::Int64(n) => Ok(Value::Float((*n as f64).sqrt())),
                 Value::Int(n) => {
                     use num_traits::ToPrimitive;
                     Ok(Value::Float(n.to_f64().unwrap_or(0.0).sqrt()))
@@ -324,22 +366,26 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("pow() expects 2 arguments")));
             }
             match (&args[0], &args[1]) {
-                (Value::Int(a), Value::Int(b)) => {
+                (a, b) if a.is_int() && b.is_int() => {
                     use num_traits::ToPrimitive;
-                    if let Some(exp) = b.to_u32() {
-                        Ok(Value::Int(a.pow(exp)))
+                    let exp = b.to_bigint().unwrap();
+                    if let Some(exp_u32) = exp.to_u32() {
+                        let base = a.to_bigint().unwrap();
+                        // normalize back to Int64 if it fits
+                        let r = base.pow(exp_u32);
+                        Ok(if let Some(i) = r.to_i64() { Value::Int64(i) } else { Value::Int(r) })
                     } else {
                         Err(Signal::Error(RuntimeError::new("exponent too large")))
                     }
                 }
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.powf(*b))),
-                (Value::Int(a), Value::Float(b)) => {
+                (a, Value::Float(b)) if a.is_int() => {
                     use num_traits::ToPrimitive;
-                    Ok(Value::Float(a.to_f64().unwrap_or(0.0).powf(*b)))
+                    Ok(Value::Float(a.to_bigint().unwrap().to_f64().unwrap_or(0.0).powf(*b)))
                 }
-                (Value::Float(a), Value::Int(b)) => {
+                (Value::Float(a), b) if b.is_int() => {
                     use num_traits::ToPrimitive;
-                    if let Some(exp) = b.to_i32() {
+                    if let Some(exp) = b.to_bigint().unwrap().to_i32() {
                         Ok(Value::Float(a.powi(exp)))
                     } else {
                         Err(Signal::Error(RuntimeError::new("exponent too large")))
@@ -358,6 +404,14 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             } else if args.len() == 1 {
                 // random(max) returns int 0..max
                 match &args[0] {
+                    Value::Int64(max) => {
+                        use std::collections::hash_map::RandomState;
+                        use std::hash::{BuildHasher, Hasher};
+                        let h = RandomState::new().build_hasher().finish();
+                        let max_u64 = (*max as u64).max(1);
+                        let rem = if max_u64 > 0 { h % max_u64 } else { 0 };
+                        Ok(Value::int_from_i64(rem as i64))
+                    }
                     Value::Int(max) => {
                         use std::collections::hash_map::RandomState;
                         use std::hash::{BuildHasher, Hasher};
@@ -365,7 +419,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                         let h = RandomState::new().build_hasher().finish();
                         let max_u64 = max.to_u64().unwrap_or(u64::MAX);
                         let rem = if max_u64 > 0 { h % max_u64 } else { 0 };
-                        Ok(Value::Int(BigInt::from(rem)))
+                        Ok(Value::int_from_i64(rem as i64))
                     }
                     _ => Err(Signal::Error(RuntimeError::new(
                         "random() with 1 argument expects an integer max",
@@ -384,7 +438,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("typeOf() expects 1 argument")));
             }
             let type_name = match &args[0] {
-                Value::Int(_) => "int",
+                Value::Int64(_) | Value::Int(_) => "int",
                 Value::Float(_) => "float",
                 Value::String(_) => "string",
                 Value::Bool(_) => "bool",
@@ -516,7 +570,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                     map.insert("exists".to_string(), Value::Bool(true));
                     map.insert("isFile".to_string(), Value::Bool(meta.is_file()));
                     map.insert("isDir".to_string(), Value::Bool(meta.is_dir()));
-                    map.insert("size".to_string(), Value::Int(BigInt::from(meta.len())));
+                    map.insert("size".to_string(), Value::int_from_i64(meta.len() as i64));
                      { Ok(arc_map(map)) }
                 }
                 Err(_) => {
@@ -532,12 +586,12 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 1 {
                 return Err(Signal::Error(RuntimeError::new("tcp_listen() expects 1 argument (port)")));
             }
-            let port = match &args[0] { Value::Int(n) => n.to_u16().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_listen() expects an integer port"))) };
+            let port = match &args[0] { Value::Int(n) => n.to_u16().unwrap_or(0), Value::Int64(n) => (*n as u16), _ => return Err(Signal::Error(RuntimeError::new("tcp_listen() expects an integer port"))) };
             match TcpListener::bind(format!("0.0.0.0:{}", port)) {
                 Ok(listener) => {
                     let handle = alloc_tcp_handle();
                     register_tcp(handle, TcpResource::Listener(listener));
-                    Ok(Value::Int(BigInt::from(handle)))
+                    Ok(Value::int_from_i64(handle as i64))
                 }
                 Err(e) => Err(Signal::Error(RuntimeError::new(format!("tcp_listen: {}", e)))),
             }
@@ -546,7 +600,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 1 {
                 return Err(Signal::Error(RuntimeError::new("tcp_accept() expects 1 argument (server_handle)")));
             }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_accept() expects an integer handle"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_accept() expects an integer handle"))) };
             // Accept under the listener lock
             let (stream, addr) = {
                 let reg = TCP_REGISTRY.lock().unwrap();
@@ -564,7 +618,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             let client_handle = alloc_tcp_handle();
             register_tcp(client_handle, TcpResource::Stream(stream));
             let mut map = HashMap::new();
-            map.insert("handle".to_string(), Value::Int(BigInt::from(client_handle)));
+            map.insert("handle".to_string(), Value::int_from_i64(client_handle as i64));
             map.insert("address".to_string(), Value::String(addr.to_string()));
              { Ok(arc_map(map)) }
         }
@@ -572,8 +626,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 2 {
                 return Err(Signal::Error(RuntimeError::new("tcp_read() expects 2 arguments (handle, max_bytes)")));
             }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_read() expects an integer handle"))) };
-            let max_bytes = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1024), _ => return Err(Signal::Error(RuntimeError::new("tcp_read() expects an integer max_bytes"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_read() expects an integer handle"))) };
+            let max_bytes = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1024), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_read() expects an integer max_bytes"))) };
             with_tcp_stream(handle, |s| {
                 let mut buf = vec![0u8; max_bytes];
                 match s.read(&mut buf) {
@@ -590,7 +644,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 2 {
                 return Err(Signal::Error(RuntimeError::new("tcp_write() expects 2 arguments (handle, data)")));
             }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_write() expects an integer handle"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_write() expects an integer handle"))) };
             let data = match &args[1] { Value::String(s) => s.clone(), _ => format!("{}", args[1]) };
             with_tcp_stream(handle, |s| {
                 match s.write_all(data.as_bytes()) {
@@ -603,7 +657,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 1 {
                 return Err(Signal::Error(RuntimeError::new("tcp_close() expects 1 argument (handle)")));
             }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_close() expects an integer handle"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_close() expects an integer handle"))) };
             // Just remove from registry — the Drop impl handles closing.
             take_tcp(handle);
             Ok(Value::Null)
@@ -613,12 +667,12 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 return Err(Signal::Error(RuntimeError::new("tcp_connect() expects 2 arguments (host, port)")));
             }
             let host = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("tcp_connect() expects a string host"))) };
-            let port = match &args[1] { Value::Int(n) => n.to_u16().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_connect() expects an integer port"))) };
+            let port = match &args[1] { Value::Int(n) => n.to_u16().unwrap_or(0), Value::Int64(n) => (*n as u16), _ => return Err(Signal::Error(RuntimeError::new("tcp_connect() expects an integer port"))) };
             match TcpStream::connect(format!("{}:{}", host, port)) {
                 Ok(stream) => {
                     let handle = alloc_tcp_handle();
                     register_tcp(handle, TcpResource::Stream(stream));
-                    Ok(Value::Int(BigInt::from(handle)))
+                    Ok(Value::int_from_i64(handle as i64))
                 }
                 Err(e) => Err(Signal::Error(RuntimeError::new(format!("tcp_connect: {}", e)))),
             }
@@ -661,8 +715,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         "str_substring" => {
             if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("str_substring(str, start, end) expects 3 args"))); }
             let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 1 must be string"))) };
-            let start = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 2 must be int"))) };
-            let end = match &args[2] { Value::Int(n) => n.to_usize().unwrap_or(s.len()), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 3 must be int"))) };
+            let start = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 2 must be int"))) };
+            let end = match &args[2] { Value::Int(n) => n.to_usize().unwrap_or(s.len()), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("str_substring: arg 3 must be int"))) };
             let chars: Vec<char> = s.chars().collect();
             let end = end.min(chars.len());
             if start > end { return Ok(Value::String(String::new())); }
@@ -672,7 +726,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_indexOf(str, search) expects 2 args"))); }
             let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_indexOf: arg 1 must be string"))) };
             let search = match &args[1] { Value::String(f) => f.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_indexOf: arg 2 must be string"))) };
-            match s.find(&search) { Some(i) => Ok(Value::Int(BigInt::from(i))), None => Ok(Value::Int(BigInt::from(-1))) }
+            match s.find(&search) { Some(i) => Ok(Value::int_from_i64(i as i64)), None => Ok(Value::int_from_i64(-1 as i64)) }
         }
         "str_toUpper" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("str_toUpper(str) expects 1 arg"))); }
@@ -706,7 +760,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             match std::env::var(&key) { Ok(v) => Ok(Value::String(v)), Err(_) => Ok(Value::Null) }
         }
         "process_exit" => {
-            let code = if args.is_empty() { 0 } else { match &args[0] { Value::Int(n) => n.to_i32().unwrap_or(0), _ => 0 } };
+            let code = if args.is_empty() { 0 } else { match &args[0] { Value::Int(n) => n.to_i32().unwrap_or(0), Value::Int64(n) => (*n as i32), _ => 0 } };
             std::process::exit(code);
         }
         "process_cwd" => {
@@ -716,13 +770,13 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         // ---- Time ----
         "time_now" => {
             match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-                Ok(d) => Ok(Value::Int(BigInt::from(d.as_millis() as i64))),
-                Err(_) => Ok(Value::Int(BigInt::from(0))),
+                Ok(d) => Ok(Value::int_from_i64(d.as_millis() as i64 as i64)),
+                Err(_) => Ok(Value::int_from_i64(0 as i64)),
             }
         }
         "time_sleep" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("time_sleep(ms) expects 1 arg"))); }
-            let ms = match &args[0] { Value::Int(n) => n.to_u64().unwrap_or(0), Value::Float(f) => (*f * 1000.0) as u64, _ => return Err(Signal::Error(RuntimeError::new("time_sleep expects a number (milliseconds)"))) };
+            let ms = match &args[0] { Value::Int(n) => n.to_u64().unwrap_or(0), Value::Int64(n) => (*n as u64), Value::Float(f) => (*f * 1000.0) as u64, _ => return Err(Signal::Error(RuntimeError::new("time_sleep expects a number (milliseconds)"))) };
             std::thread::sleep(std::time::Duration::from_millis(ms));
             Ok(Value::Null)
         }
@@ -730,11 +784,11 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         // ---- Type casts ----
         "int" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("int(x) expects 1 arg"))); }
-            match &args[0] { Value::Int(n) => Ok(Value::Int(n.clone())), Value::Float(f) => Ok(Value::Int(BigInt::from(*f as i64))), Value::String(s) => match s.parse::<BigInt>() { Ok(n) => Ok(Value::Int(n)), Err(_) => Err(Signal::Error(RuntimeError::new(format!("cannot convert '{}' to int", s)))) }, Value::Bool(b) => Ok(Value::Int(BigInt::from(if *b { 1 } else { 0 }))), _ => Err(Signal::Error(RuntimeError::new("int() cannot convert this value"))) }
+            match &args[0] { Value::Int64(n) => Ok(Value::Int64(*n)), Value::Int(n) => Ok(Value::Int(n.clone())), Value::Float(f) => Ok(Value::int_from_i64(*f as i64)), Value::String(s) => match s.parse::<BigInt>() { Ok(n) => Ok(Value::Int(n)), Err(_) => Err(Signal::Error(RuntimeError::new(format!("cannot convert '{}' to int", s)))) }, Value::Bool(b) => Ok(Value::int_from_i64(if *b { 1 } else { 0 })), _ => Err(Signal::Error(RuntimeError::new("int() cannot convert this value"))) }
         }
         "float" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("float(x) expects 1 arg"))); }
-            match &args[0] { Value::Float(f) => Ok(Value::Float(*f)), Value::Int(n) => { use num_traits::ToPrimitive; Ok(Value::Float(n.to_f64().unwrap_or(0.0))) }, Value::String(s) => match s.parse::<f64>() { Ok(f) => Ok(Value::Float(f)), Err(_) => Err(Signal::Error(RuntimeError::new(format!("cannot convert '{}' to float", s)))) }, Value::Bool(b) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })), _ => Err(Signal::Error(RuntimeError::new("float() cannot convert this value"))) }
+            match &args[0] { Value::Float(f) => Ok(Value::Float(*f)), Value::Int64(n) => Ok(Value::Float(*n as f64)), Value::Int(n) => { use num_traits::ToPrimitive; Ok(Value::Float(n.to_f64().unwrap_or(0.0))) }, Value::String(s) => match s.parse::<f64>() { Ok(f) => Ok(Value::Float(f)), Err(_) => Err(Signal::Error(RuntimeError::new(format!("cannot convert '{}' to float", s)))) }, Value::Bool(b) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })), _ => Err(Signal::Error(RuntimeError::new("float() cannot convert this value"))) }
         }
         "bool" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("bool(x) expects 1 arg"))); }
@@ -777,7 +831,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         // ---- Extended socket ops ----
         "tcp_readLine" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("tcp_readLine(handle) expects 1 arg"))); }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_readLine expects an int handle"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_readLine expects an int handle"))) };
             with_tcp_stream(handle, |s| {
                 let mut buf = Vec::new();
                 let mut byte = [0u8; 1];
@@ -789,8 +843,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         }
         "tcp_setTimeout" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("tcp_setTimeout(handle, ms) expects 2 args"))); }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_setTimeout expects an int handle"))) };
-            let ms = match &args[1] { Value::Int(n) => n.to_u64().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("tcp_setTimeout expects int milliseconds"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("tcp_setTimeout expects an int handle"))) };
+            let ms = match &args[1] { Value::Int(n) => n.to_u64().unwrap_or(0), Value::Int64(n) => (*n as u64), _ => return Err(Signal::Error(RuntimeError::new("tcp_setTimeout expects int milliseconds"))) };
             with_tcp_stream(handle, |s| {
                 s.set_read_timeout(Some(std::time::Duration::from_millis(ms))).map_err(|e| Signal::Error(RuntimeError::new(format!("tcp_setTimeout: {}", e))))?;
                 Ok(Value::Null)
@@ -800,17 +854,17 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         // ---- UDP socket ops ----
         "udp_bind" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("udp_bind(port) expects 1 arg"))); }
-            let port = match &args[0] { Value::Int(n) => n.to_u16().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_bind expects an int port"))) };
+            let port = match &args[0] { Value::Int(n) => n.to_u16().unwrap_or(0), Value::Int64(n) => (*n as u16), _ => return Err(Signal::Error(RuntimeError::new("udp_bind expects an int port"))) };
             match std::net::UdpSocket::bind(format!("0.0.0.0:{}", port)) {
-                Ok(socket) => { let h = alloc_tcp_handle(); register_tcp(h, TcpResource::Udp(socket)); Ok(Value::Int(BigInt::from(h))) }
+                Ok(socket) => { let h = alloc_tcp_handle(); register_tcp(h, TcpResource::Udp(socket)); Ok(Value::int_from_i64(h as i64)) }
                 Err(e) => Err(Signal::Error(RuntimeError::new(format!("udp_bind: {}", e)))),
             }
         }
         "udp_send" => {
             if args.len() != 4 { return Err(Signal::Error(RuntimeError::new("udp_send(handle, host, port, data) expects 4 args"))); }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects an int handle"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects an int handle"))) };
             let host = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects a string host"))) };
-            let port = match &args[2] { Value::Int(n) => n.to_u16().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects an int port"))) };
+            let port = match &args[2] { Value::Int(n) => n.to_u16().unwrap_or(0), Value::Int64(n) => (*n as u16), _ => return Err(Signal::Error(RuntimeError::new("udp_send expects an int port"))) };
             let data = match &args[3] { Value::String(s) => s.clone(), _ => format!("{}", args[3]) };
             with_udp_socket(handle, |s| {
                 s.send_to(data.as_bytes(), format!("{}:{}", host, port)).map_err(|e| Signal::Error(RuntimeError::new(format!("udp_send: {}", e))))?;
@@ -819,8 +873,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         }
         "udp_recv" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("udp_recv(handle, max_bytes) expects 2 args"))); }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects an int handle"))) };
-            let max = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1024), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects int max_bytes"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects an int handle"))) };
+            let max = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1024), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("udp_recv expects int max_bytes"))) };
             with_udp_socket(handle, |s| {
                 let mut buf = vec![0u8; max];
                 match s.recv_from(&mut buf) { Ok((n, addr)) => { let mut map = HashMap::new(); map.insert("data".to_string(), Value::String(String::from_utf8_lossy(&buf[..n]).to_string())); map.insert("address".to_string(), Value::String(addr.to_string())); Ok(arc_map(map)) }, Err(e) => Err(Signal::Error(RuntimeError::new(format!("udp_recv: {}", e)))) }
@@ -828,7 +882,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         }
         "udp_close" => {
             if args.len() != 1 { return Err(Signal::Error(RuntimeError::new("udp_close(handle) expects 1 arg"))); }
-            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("udp_close expects an int handle"))) };
+            let handle = match &args[0] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("udp_close expects an int handle"))) };
             take_tcp(handle); Ok(Value::Null)
         }
 
@@ -870,7 +924,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         "list_insert" => {
             if args.len() != 3 { return Err(Signal::Error(RuntimeError::new("list_insert(list, index, value) expects 3 args"))); }
             let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_insert expects a list"))) };
-            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("list_insert expects an int index"))) };
+            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("list_insert expects an int index"))) };
             let mut items: Vec<Value> = list.data.iter().cloned().collect();
             let idx = idx.min(items.len());
             items.insert(idx, args[2].clone());
@@ -879,7 +933,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         "list_remove" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("list_remove(list, index) expects 2 args"))); }
             let list = match &args[0] { Value::List(l) => l, _ => return Err(Signal::Error(RuntimeError::new("list_remove expects a list"))) };
-            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("list_remove expects an int index"))) };
+            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("list_remove expects an int index"))) };
             if idx >= list.data.len() { return Ok(args[0].clone()); }
             let mut items: Vec<Value> = list.data.iter().cloned().collect();
             items.remove(idx);
@@ -945,14 +999,14 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         "str_charAt" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_charAt(str, index) expects 2 args"))); }
             let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_charAt expects a string"))) };
-            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("str_charAt expects an int index"))) };
+            let idx = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("str_charAt expects an int index"))) };
             let chars: Vec<char> = s.chars().collect();
             Ok(if idx < chars.len() { Value::String(chars[idx].to_string()) } else { Value::Null })
         }
         "str_repeat" => {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("str_repeat(str, count) expects 2 args"))); }
             let s = match &args[0] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("str_repeat expects a string"))) };
-            let n = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1), _ => return Err(Signal::Error(RuntimeError::new("str_repeat expects an int count"))) };
+            let n = match &args[1] { Value::Int(n) => n.to_usize().unwrap_or(1), Value::Int64(n) => (*n as usize), _ => return Err(Signal::Error(RuntimeError::new("str_repeat expects an int count"))) };
             Ok(Value::String(s.repeat(n)))
         }
         "assert" => {
@@ -967,7 +1021,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             if args.len() != 2 { return Err(Signal::Error(RuntimeError::new("typeIs(value, typeName) expects 2 args"))); }
             let type_name = match &args[1] { Value::String(s) => s.clone(), _ => return Err(Signal::Error(RuntimeError::new("typeIs expects a string type name"))) };
             let matches = match (&args[0], type_name.as_str()) {
-                (Value::Int(_), "int") | (Value::Float(_), "float") | (Value::String(_), "string") | (Value::Bool(_), "bool") | (Value::Null, "null") | (Value::List(_), "list") | (Value::Map(_), "map") | (Value::FnObj(_), "function") | (Value::BuiltinFn(_), "builtin") | (Value::TaskHandle(_), "task") | (Value::Ok(_), "result") | (Value::Err(_), "result") | (Value::Channel(_), "channel") | (Value::Atomic(_), "atomic") => true,
+                (Value::Int64(_), "int") | (Value::Int(_), "int") | (Value::Float(_), "float") | (Value::String(_), "string") | (Value::Bool(_), "bool") | (Value::Null, "null") | (Value::List(_), "list") | (Value::Map(_), "map") | (Value::FnObj(_), "function") | (Value::BuiltinFn(_), "builtin") | (Value::TaskHandle(_), "task") | (Value::Ok(_), "result") | (Value::Err(_), "result") | (Value::Channel(_), "channel") | (Value::Atomic(_), "atomic") => true,
                 _ => false,
             };
             Ok(Value::Bool(matches))
@@ -980,8 +1034,8 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             let step = if args.len() >= 3 { match &args[2] { Value::Int(n) => n.to_i64().unwrap_or(1), _ => return Err(Signal::Error(RuntimeError::new("range step must be int"))) } } else { 1 };
             let mut items: Vec<Value> = Vec::new();
             let mut i = start;
-            if step > 0 { while i < end { items.push(Value::Int(BigInt::from(i))); i += step; } }
-            else { while i > end { items.push(Value::Int(BigInt::from(i))); i += step; } }
+            if step > 0 { while i < end { items.push(Value::int_from_i64(i as i64)); i += step; } }
+            else { while i > end { items.push(Value::int_from_i64(i as i64)); i += step; } }
             Ok(arc_list(items))
         }
 
@@ -991,6 +1045,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();
             match &args[0] {
+                Value::Int64(n) => n.hash(&mut h),
                 Value::Int(n) => n.hash(&mut h),
                 Value::Float(f) => f.to_bits().hash(&mut h),
                 Value::String(s) => s.hash(&mut h),
@@ -998,7 +1053,7 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 Value::Null => 0u8.hash(&mut h),
                 _ => format!("{:?}", args[0]).hash(&mut h),
             }
-            Ok(Value::Int(BigInt::from(h.finish())))
+            Ok(Value::int_from_i64(h.finish() as i64))
         }
 
         // ---- SHA256 hashing ----
@@ -1182,8 +1237,11 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
             })?;
             match (&inner.value, &args[1]) {
-                (Value::Int(a), Value::Int(b)) => {
-                    inner.value = Value::Int(a + b);
+                (a, b) if a.is_int() && b.is_int() => {
+                    let ba = a.to_bigint().unwrap();
+                    let bb = b.to_bigint().unwrap();
+                    let r = ba + bb;
+                    inner.value = normalize_bigint(r);
                 }
                 (Value::Float(a), Value::Float(b)) => {
                     inner.value = Value::Float(a + b);
@@ -1214,8 +1272,11 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
                 Signal::Error(RuntimeError::new(format!("atomic lock poisoned: {}", e)))
             })?;
             match (&inner.value, &args[1]) {
-                (Value::Int(a), Value::Int(b)) => {
-                    inner.value = Value::Int(a - b);
+                (a, b) if a.is_int() && b.is_int() => {
+                    let ba = a.to_bigint().unwrap();
+                    let bb = b.to_bigint().unwrap();
+                    let r = ba - bb;
+                    inner.value = normalize_bigint(r);
                 }
                 (Value::Float(a), Value::Float(b)) => {
                     inner.value = Value::Float(a - b);
@@ -1374,7 +1435,7 @@ fn json_parse_bool(s: &str) -> Value {
 fn json_parse_number(s: &str) -> Value {
     let trimmed = s.trim();
     if let Ok(n) = trimmed.parse::<i64>() {
-        Value::Int(BigInt::from(n))
+        Value::int_from_i64(n as i64)
     } else if let Ok(f) = trimmed.parse::<f64>() {
         Value::Float(f)
     } else {

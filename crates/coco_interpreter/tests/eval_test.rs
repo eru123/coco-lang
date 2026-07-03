@@ -24,7 +24,7 @@ fn run_src(src: &str) -> Value {
 
 #[test]
 fn int_literal() {
-    assert!(matches!(run_src("42"), Value::Int(n) if n == BigInt::from(42)));
+    assert_eq!(run_src("42").as_i64(), Some(42));
 }
 #[test]
 fn float_literal() {
@@ -35,7 +35,7 @@ fn float_literal() {
 }
 #[test]
 fn string_literal() {
-    assert!(matches!(run_src("\"hello\""), Value::String(ref s) if s == "hello"));
+    assert!(matches!(run_src("\"hello\""), Value::String(s) if s == "hello"));
 }
 #[test]
 fn bool_literal() {
@@ -47,27 +47,27 @@ fn null_literal() {
 }
 #[test]
 fn addition() {
-    assert!(matches!(run_src("1 + 2"), Value::Int(n) if n == BigInt::from(3)));
+    assert_eq!(run_src("1 + 2").as_i64(), Some(3));
 }
 #[test]
 fn subtraction() {
-    assert!(matches!(run_src("10 - 3"), Value::Int(n) if n == BigInt::from(7)));
+    assert_eq!(run_src("10 - 3").as_i64(), Some(7));
 }
 #[test]
 fn multiplication() {
-    assert!(matches!(run_src("4 * 5"), Value::Int(n) if n == BigInt::from(20)));
+    assert_eq!(run_src("4 * 5").as_i64(), Some(20));
 }
 #[test]
 fn division() {
-    assert!(matches!(run_src("10 / 3"), Value::Int(n) if n == BigInt::from(3)));
+    assert_eq!(run_src("10 / 3").as_i64(), Some(3));
 }
 #[test]
 fn modulo() {
-    assert!(matches!(run_src("10 % 3"), Value::Int(n) if n == BigInt::from(1)));
+    assert_eq!(run_src("10 % 3").as_i64(), Some(1));
 }
 #[test]
 fn power() {
-    assert!(matches!(run_src("2 ** 10"), Value::Int(n) if n == BigInt::from(1024)));
+    assert_eq!(run_src("2 ** 10").as_i64(), Some(1024));
 }
 #[test]
 fn comparison() {
@@ -106,11 +106,11 @@ fn logical_xor_bool() {
 #[test]
 fn bitwise_xor_int() {
     // `^`/`xor` on ints remains bitwise.
-    assert!(matches!(run_src("5 ^ 3"), Value::Int(n) if n == BigInt::from(6)));
+    assert_eq!(run_src("5 ^ 3").as_i64(), Some(6));
 }
 #[test]
 fn unary_neg() {
-    assert!(matches!(run_src("-5"), Value::Int(n) if n == BigInt::from(-5)));
+    assert_eq!(run_src("-5").as_i64(), Some(-5));
 }
 #[test]
 fn deep_equals_builtin() {
@@ -138,120 +138,87 @@ fn string_concat() {
 }
 #[test]
 fn precedence() {
-    assert!(matches!(run_src("2 + 3 * 4"), Value::Int(n) if n == BigInt::from(14)));
+    assert_eq!(run_src("2 + 3 * 4").as_i64(), Some(14));
 }
 #[test]
 fn grouping() {
-    assert!(matches!(run_src("(2 + 3) * 4"), Value::Int(n) if n == BigInt::from(20)));
+    assert_eq!(run_src("(2 + 3) * 4").as_i64(), Some(20));
 }
 #[test]
 fn let_binding() {
-    assert!(matches!(run_src("fn main() { let x = 42; return x; }"), Value::Int(n) if n == BigInt::from(42)));
+    assert_eq!(run_src("fn main() { let x = 42; return x; }").as_i64(), Some(42));
 }
 #[test]
 fn const_binding() {
-    assert!(matches!(run_src("fn main() { const y = 99; return y; }"), Value::Int(n) if n == BigInt::from(99)));
+    assert_eq!(run_src("fn main() { const y = 99; return y; }").as_i64(), Some(99));
 }
 #[test]
 fn reassignment() {
-    assert!(matches!(run_src("fn main() { let x = 1; x = 2; return x; }"), Value::Int(n) if n == BigInt::from(2)));
+    assert_eq!(run_src("fn main() { let x = 1; x = 2; return x; }").as_i64(), Some(2));
 }
 #[test]
 fn add_assign() {
-    assert!(matches!(run_src("fn main() { let x = 10; x += 5; return x; }"), Value::Int(n) if n == BigInt::from(15)));
+    assert_eq!(run_src("fn main() { let x = 10; x += 5; return x; }").as_i64(), Some(15));
 }
 #[test]
 fn sub_assign() {
-    assert!(matches!(run_src("fn main() { let x = 10; x -= 3; return x; }"), Value::Int(n) if n == BigInt::from(7)));
+    assert_eq!(run_src("fn main() { let x = 10; x -= 3; return x; }").as_i64(), Some(7));
 }
 #[test]
 fn if_true() {
-    assert!(matches!(
-        run_src("fn main() { let x = 0; if true { x = 1; } return x; }"),
-        Value::Int(n) if n == BigInt::from(1)
-    ));
+    assert_eq!(run_src("fn main() { let x = 0; if true { x = 1; } return x; }").as_i64(), Some(1));
 }
 #[test]
 fn if_false() {
-    assert!(matches!(
-        run_src("fn main() { let x = 0; if false { x = 1; } return x; }"),
-        Value::Int(n) if n == BigInt::from(0)
-    ));
+    assert_eq!(run_src("fn main() { let x = 0; if false { x = 1; } return x; }").as_i64(), Some(0));
 }
 #[test]
 fn if_else() {
-    assert!(matches!(
-        run_src("fn main() { let x = 0; if false { x = 1; } else { x = 2; } return x; }"),
-        Value::Int(n) if n == BigInt::from(2)
-    ));
+    assert_eq!(run_src("fn main() { let x = 0; if false { x = 1; } else { x = 2; } return x; }").as_i64(), Some(2));
 }
 #[test]
 fn while_loop() {
-    assert!(matches!(
-        run_src("fn main() { let x = 0; while x < 5 { x += 1; } return x; }"),
-        Value::Int(n) if n == BigInt::from(5)
-    ));
+    assert_eq!(run_src("fn main() { let x = 0; while x < 5 { x += 1; } return x; }").as_i64(), Some(5));
 }
 #[test]
 fn for_loop() {
-    assert!(matches!(
-        run_src("fn main() { let s = 0; for n in [1, 2, 3] { s += n; } return s; }"),
-        Value::Int(n) if n == BigInt::from(6)
-    ));
+    assert_eq!(run_src("fn main() { let s = 0; for n in [1, 2, 3] { s += n; } return s; }").as_i64(), Some(6));
 }
 #[test]
 fn for_in_map() {
     // Regression: `for k in map` failed because maps had no `length` member and
     // could not be indexed by int. Maps now expose `.length` and int-indexing
     // yields the key at that position.
-    assert!(matches!(
-        run_src("fn main() { const m = {\"a\": 1, \"b\": 2}; let count = 0; for k in m { count += m[k]; } return count; }"),
-        Value::Int(n) if n == BigInt::from(3)
-    ));
+    assert_eq!(run_src("fn main() { const m = {\"a\": 1, \"b\": 2}; let count = 0; for k in m { count += m[k]; } return count; }").as_i64(), Some(3));
 }
 #[test]
 fn loop_break() {
-    assert!(matches!(
-        run_src("fn main() { let x = 0; loop { x += 1; if x == 3 { break; } } return x; }"),
-        Value::Int(n) if n == BigInt::from(3)
-    ));
+    assert_eq!(run_src("fn main() { let x = 0; loop { x += 1; if x == 3 { break; } } return x; }").as_i64(), Some(3));
 }
 #[test]
 fn function_call() {
-    assert!(matches!(
-        run_src("fn add(a, b) { return a + b; } fn main() { return add(2, 3); }"),
-        Value::Int(n) if n == BigInt::from(5)
-    ));
+    assert_eq!(run_src("fn add(a, b) { return a + b; } fn main() { return add(2, 3); }").as_i64(), Some(5));
 }
 #[test]
 fn arrow_expr_body_returns_value() {
-    assert!(matches!(run_src("fn main() { const x = () => 1; return x(); }"), Value::Int(n) if n == BigInt::from(1)));
+    assert_eq!(run_src("fn main() { const x = () => 1; return x(); }").as_i64(), Some(1));
 }
 #[test]
 fn recursion() {
-    assert!(matches!(
-        run_src("fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fn main() { return fib(10); }"),
-        Value::Int(n) if n == BigInt::from(55)
-    ));
+    assert_eq!(run_src("fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fn main() { return fib(10); }").as_i64(), Some(55));
 }
 #[test]
 fn nested_function_declaration() {
     // Regression: nested `fn` declarations inside another function body were
     // skipped by the compiler, so calling them yielded "null is not callable".
-    assert!(matches!(
-        run_src("fn main() { fn helper() { return 42; } return helper(); }"),
-        Value::Int(n) if n == BigInt::from(42)
-    ));
+    assert_eq!(run_src("fn main() { fn helper() { return 42; } return helper(); }").as_i64(), Some(42));
 }
 #[test]
 fn nested_function_with_let_binding() {
     // Regression: a spurious OP_POP after STORE_LOCAL corrupted the caller's
     // stack, so binding the result of a nested-function call failed with
     // "local N out of bounds".
-    assert!(matches!(
-        run_src("fn main() { fn helper() { return 7; } let r = helper(); return r; }"),
-        Value::Int(n) if n == BigInt::from(7)
-    ));
+    assert_eq!(run_src("fn main() { fn helper() { return 7; } let r = helper(); return r; }").as_i64(), Some(7));
 }
 #[test]
 fn list_literal() {
@@ -262,17 +229,11 @@ fn list_literal() {
 }
 #[test]
 fn list_index() {
-    assert!(matches!(
-        run_src("fn main() { const a = [10, 20, 30]; return a[1]; }"),
-        Value::Int(n) if n == BigInt::from(20)
-    ));
+    assert_eq!(run_src("fn main() { const a = [10, 20, 30]; return a[1]; }").as_i64(), Some(20));
 }
 #[test]
 fn list_length() {
-    assert!(matches!(
-        run_src("fn main() { const a = [1, 2, 3, 4]; return a.length; }"),
-        Value::Int(n) if n == BigInt::from(4)
-    ));
+    assert_eq!(run_src("fn main() { const a = [1, 2, 3, 4]; return a.length; }").as_i64(), Some(4));
 }
 #[test]
 fn map_literal() {
@@ -283,8 +244,5 @@ fn map_literal() {
 }
 #[test]
 fn map_index() {
-    assert!(matches!(
-        run_src("fn main() { const m = {\"a\": 100}; return m[\"a\"]; }"),
-        Value::Int(n) if n == BigInt::from(100)
-    ));
+    assert_eq!(run_src("fn main() { const m = {\"a\": 100}; return m[\"a\"]; }").as_i64(), Some(100));
 }

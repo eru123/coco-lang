@@ -51,6 +51,13 @@ impl AtomicInner {
 
 /// Runtime values in the Coco interpreter.
 ///
+/// Integers use an adaptive representation: small values that fit in `i64`
+/// are stored as `Int64(i64)` (no heap allocation), and only overflow
+/// escalates to `Int(BigInt)`. The two variants are semantically identical —
+/// `value_eq`, `typeof`, `is_truthy`, and arithmetic all treat `Int64(1)` and
+/// `Int(BigInt::from(1))` as the same value. Use the `int_from_i64` /
+/// `as_i64` / `to_bigint` helpers to move between representations.
+///
 /// List and Map are heap-allocated with copy-on-write semantics.
 /// Primitive types are stack-allocated.
 ///
@@ -58,6 +65,9 @@ impl AtomicInner {
 /// use `Value::FnObj` (compiled bytecode) executed by the VM.
 #[derive(Clone)]
 pub enum Value {
+    /// A small integer that fits in `i64` — the fast path, no allocation.
+    Int64(i64),
+    /// A big integer that overflowed `i64` range.
     Int(BigInt),
     Float(f64),
     String(String),
@@ -82,6 +92,7 @@ pub enum Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Value::Int64(n) => write!(f, "{}", n),
             Value::Int(n) => write!(f, "{}", n),
             Value::Float(n) => write!(f, "{}", n),
             Value::String(s) => write!(f, "{}", s),
@@ -127,6 +138,7 @@ impl fmt::Display for Value {
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Value::Int64(n) => write!(f, "Int({})", n),
             Value::Int(n) => write!(f, "Int({})", n),
             Value::Float(n) => write!(f, "Float({})", n),
             Value::String(s) => write!(f, "String({:?})", s),
@@ -157,7 +169,8 @@ impl Value {
         match self {
             Value::Bool(b) => *b,
             Value::Null => false,
-            Value::Int(n) => !n.iter_u32_digits().all(|d| d == 0) && *n != BigInt::from(0),
+            Value::Int64(n) => *n != 0,
+            Value::Int(n) => *n != BigInt::from(0),
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.data.is_empty(),
@@ -166,14 +179,44 @@ impl Value {
             Value::Ok(_) => true,
             Value::Channel(_) => true,
             Value::Atomic(_) => true,
-            Value::Err(v) => match v.as_ref() {
-                Value::Null => false,
-                Value::Bool(b) => *b,
-                Value::Int(n) => !n.iter_u32_digits().all(|d| d == 0) && *n != BigInt::from(0),
-                Value::String(s) => !s.is_empty(),
-                _ => true,
-            },
+            Value::Err(v) => v.as_ref().is_truthy(),
         }
+    }
+
+    /// Construct an integer value from an `i64`, using the fast `Int64`
+    /// variant (no allocation). Use this for all literal/constant integer
+    /// construction; escalation to `Int(BigInt)` happens automatically in
+    /// arithmetic on overflow.
+    pub fn int_from_i64(n: i64) -> Value {
+        Value::Int64(n)
+    }
+
+    /// If this is an integer that fits in `i64`, return it. Returns `None`
+    /// for `Int(BigInt)` values that exceed `i64` range, and for non-integers.
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::Int64(n) => Some(*n),
+            Value::Int(n) => {
+                use num_traits::ToPrimitive;
+                n.to_i64()
+            }
+            _ => None,
+        }
+    }
+
+    /// If this is an integer (either representation), return it as an owned
+    /// `BigInt`. Returns `None` for non-integers.
+    pub fn to_bigint(&self) -> Option<BigInt> {
+        match self {
+            Value::Int64(n) => Some(BigInt::from(*n)),
+            Value::Int(n) => Some(n.clone()),
+            _ => None,
+        }
+    }
+
+    /// Whether this value is an integer of either representation.
+    pub fn is_int(&self) -> bool {
+        matches!(self, Value::Int64(_) | Value::Int(_))
     }
 
 }
@@ -189,6 +232,14 @@ impl Value {
 /// to `toString` (which is order-dependent for maps and conflates types).
 pub fn value_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
+        // Integers: Int64 and Int are the same value type. Compare via i64
+        // when both fit (fast, no allocation), else fall back to BigInt.
+        (Value::Int64(a), Value::Int64(b)) => a == b,
+        (Value::Int64(a), Value::Int(b)) | (Value::Int(b), Value::Int64(a)) => {
+            // The BigInt side must fit in i64 and equal the Int64 side.
+            use num_traits::ToPrimitive;
+            b.to_i64().map_or(false, |bi| bi == *a)
+        }
         (Value::Int(a), Value::Int(b)) => a == b,
         (Value::Float(a), Value::Float(b)) => a == b,
         (Value::String(a), Value::String(b)) => a == b,

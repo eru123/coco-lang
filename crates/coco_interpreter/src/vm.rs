@@ -529,9 +529,11 @@ impl Vm {
             }
             OP_BIT_NOT => {
                 let val = self.pop();
-                match val {
-                    Value::Int(n) => self.push(Value::Int(!n)),
-                    _ => return Err(VmError::new("bitwise NOT requires integer")),
+                if val.is_int() {
+                    let n = val.to_bigint().unwrap();
+                    self.push(Self::normalize_int(!n));
+                } else {
+                    return Err(VmError::new("bitwise NOT requires integer"));
                 }
             }
 
@@ -979,13 +981,14 @@ impl Vm {
                 let idx_val = self.pop();
                 let map_val = self.pop();
                 match (&map_val, &idx_val) {
-                    (Value::Map(map), Value::Int(i)) => {
+                    (Value::Map(map), idx) if idx.is_int() => {
                         use num_traits::ToPrimitive;
-                        let idx = i.to_usize().unwrap_or(usize::MAX);
+                        let i = idx.as_i64().or_else(|| idx.to_bigint()?.to_i64());
+                        let idx_usize = i.and_then(|n| if n >= 0 { Some(n as usize) } else { None }).unwrap_or(usize::MAX);
                         let keys: Vec<&String> = map.data.keys().collect();
-                        if idx < keys.len() {
-                            self.push(Value::String(keys[idx].clone()));
-                            self.push(Value::Int(BigInt::from(idx + 1)));
+                        if idx_usize < keys.len() {
+                            self.push(Value::String(keys[idx_usize].clone()));
+                            self.push(Value::int_from_i64((idx_usize + 1) as i64));
                             self.push(map_val);
                             self.push(Value::Bool(true));
                         } else {
@@ -1456,70 +1459,149 @@ impl Vm {
     // Arithmetic implementations (static so they can be used in closures)
     // ========================================================================
 
-    /// Convert a BigInt to f64, returning an error if overflow.
-    fn int_to_f64(n: &BigInt) -> VmResult<f64> {
+    /// Convert an integer `Value` (either `Int64` or `Int`) to `f64`,
+    /// returning an error if a BigInt is too large.
+    fn int_to_f64(v: &Value) -> VmResult<f64> {
         use num_traits::ToPrimitive;
-        n.to_f64()
-            .ok_or_else(|| VmError::new("integer too large to convert to float"))
+        match v {
+            Value::Int64(n) => Ok(*n as f64),
+            Value::Int(n) => n
+                .to_f64()
+                .ok_or_else(|| VmError::new("integer too large to convert to float")),
+            _ => Err(VmError::new("not an integer")),
+        }
+    }
+
+    /// Apply a checked i64 binary op with BigInt fallback. Both operands must
+    /// be integers (Int64 or Int). The fast path uses `i64::checked_*` and
+    /// returns `Int64` when both operands and the result fit in i64; any
+    /// overflow (or a BigInt operand) escalates to full BigInt arithmetic and
+    /// returns `Int` (or `Int64` if the BigInt result happens to fit back in
+    /// i64 — see `normalize_int`).
+    fn int_binop<F, G>(a: &Value, b: &Value, i64_op: F, bigint_op: G) -> VmResult<Value>
+    where
+        F: Fn(i64, i64) -> Option<i64>,
+        G: Fn(&BigInt, &BigInt) -> BigInt,
+    {
+        // Fast path: both fit in i64 and the op doesn't overflow.
+        if let (Some(x), Some(y)) = (a.as_i64(), b.as_i64()) {
+            if let Some(r) = i64_op(x, y) {
+                return Ok(Value::Int64(r));
+            }
+        }
+        // Slow path: escalate to BigInt.
+        let ba = a.to_bigint().ok_or_else(|| VmError::new("not an integer"))?;
+        let bb = b.to_bigint().ok_or_else(|| VmError::new("not an integer"))?;
+        Ok(Self::normalize_int(bigint_op(&ba, &bb)))
+    }
+
+    /// Wrap a BigInt result back into `Int64` if it fits, else keep it as
+    /// `Int`. This keeps the fast-path representation sticky: an operation
+    /// that overflowed to BigInt but whose result later fits again (e.g. after
+    /// subtraction) returns to the cheap `Int64` form.
+    fn normalize_int(n: BigInt) -> Value {
+        use num_traits::ToPrimitive;
+        if let Some(i) = n.to_i64() {
+            // to_i64 returns Some only when the value fits in i64 exactly.
+            Value::Int64(i)
+        } else {
+            Value::Int(n)
+        }
     }
 
     fn vm_add(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? + b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + Self::int_to_f64(&b)?)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (x, y) if x.is_int() && y.is_int() => {
+                Self::int_binop(&x, &y, i64::checked_add, |a, b| a + b)
+            }
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? + match y {
+                Value::Float(b) => b,
+                _ => return Err(VmError::new("invalid operands for +")),
+            })),
+            (Value::Float(a), y) if y.is_int() => {
+                Ok(Value::Float(a + Self::int_to_f64(&y)?))
+            }
             _ => Err(VmError::new("invalid operands for +")),
         }
     }
 
     fn vm_sub(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
+            (x, y) if x.is_int() && y.is_int() => {
+                Self::int_binop(&x, &y, i64::checked_sub, |a, b| a - b)
+            }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? - b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - Self::int_to_f64(&b)?)),
+            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? - match y {
+                Value::Float(b) => b,
+                _ => return Err(VmError::new("invalid operands for -")),
+            })),
+            (Value::Float(a), y) if y.is_int() => {
+                Ok(Value::Float(a - Self::int_to_f64(&y)?))
+            }
             _ => Err(VmError::new("invalid operands for -")),
         }
     }
 
     fn vm_mul(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
+            (x, y) if x.is_int() && y.is_int() => {
+                Self::int_binop(&x, &y, i64::checked_mul, |a, b| a * b)
+            }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? * b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * Self::int_to_f64(&b)?)),
+            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? * match y {
+                Value::Float(b) => b,
+                _ => return Err(VmError::new("invalid operands for *")),
+            })),
+            (Value::Float(a), y) if y.is_int() => {
+                Ok(Value::Float(a * Self::int_to_f64(&y)?))
+            }
             _ => Err(VmError::new("invalid operands for *")),
         }
     }
 
     fn vm_div(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => {
-                if b == BigInt::from(0) {
+            (x, y) if x.is_int() && y.is_int() => {
+                // Division by zero check (covers both Int64(0) and Int(BigInt 0)).
+                if y.to_bigint().map_or(false, |bb| bb == BigInt::from(0)) {
                     return Err(VmError::new("division by zero"));
                 }
-                Ok(Value::Int(a / b))
+                // i64 checked div returns None on overflow (i64::MIN / -1);
+                // the BigInt fallback handles that exactly.
+                Self::int_binop(&x, &y, |a, b| if b != 0 { a.checked_div(b) } else { None }, |a, b| a / b)
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? / b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / Self::int_to_f64(&b)?)),
+            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? / match y {
+                Value::Float(b) => b,
+                _ => return Err(VmError::new("invalid operands for /")),
+            })),
+            (Value::Float(a), y) if y.is_int() => {
+                Ok(Value::Float(a / Self::int_to_f64(&y)?))
+            }
             _ => Err(VmError::new("invalid operands for /")),
         }
     }
 
     fn vm_mod(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => {
-                if b == BigInt::from(0) {
-                    return Err(VmError::new("modulo by zero"));
+            (x, y) if x.is_int() && y.is_int() => {
+                if y.as_i64() == Some(0) {
+                    if y.to_bigint().map_or(false, |bb| bb == BigInt::from(0)) {
+                        return Err(VmError::new("modulo by zero"));
+                    }
                 }
-                Ok(Value::Int(a % b))
+                Self::int_binop(&x, &y, |a, b| if b != 0 { Some(a % b) } else { None }, |a, b| a % b)
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)? % b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % Self::int_to_f64(&b)?)),
+            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? % match y {
+                Value::Float(b) => b,
+                _ => return Err(VmError::new("invalid operands for %")),
+            })),
+            (Value::Float(a), y) if y.is_int() => {
+                Ok(Value::Float(a % Self::int_to_f64(&y)?))
+            }
             _ => Err(VmError::new("invalid operands for %")),
         }
     }
@@ -1527,20 +1609,28 @@ impl Vm {
     fn vm_pow(a: Value, b: Value) -> VmResult<Value> {
         use num_traits::ToPrimitive;
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => {
-                if let Some(exp) = b.to_u32() {
-                    Ok(Value::Int(a.pow(exp)))
-                } else if let Some(exp) = b.to_i32() {
-                    // Negative exponent → float result
-                    Ok(Value::Float(Self::int_to_f64(&a)?.powi(exp)))
+            (x, y) if x.is_int() && y.is_int() => {
+                // Exponent must be a non-negative u32 for BigInt pow, or a
+                // negative i32 (→ float result). Base may be i64 or BigInt.
+                let exp_i64 = y.as_i64();
+                if let Some(exp) = exp_i64.and_then(|e| e.to_u32()) {
+                    // Non-negative exponent: integer result.
+                    let base = x.to_bigint().ok_or_else(|| VmError::new("not an integer"))?;
+                    Ok(Self::normalize_int(base.pow(exp)))
+                } else if let Some(exp) = exp_i64.and_then(|e| e.to_i32()) {
+                    // Negative exponent → float result.
+                    Ok(Value::Float(Self::int_to_f64(&x)?.powi(exp)))
                 } else {
                     Err(VmError::new("exponent too large"))
                 }
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.powf(b))),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(Self::int_to_f64(&a)?.powf(b))),
-            (Value::Float(a), Value::Int(b)) => {
-                if let Some(exp) = b.to_i32() {
+            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)?.powf(match y {
+                Value::Float(b) => b,
+                _ => return Err(VmError::new("invalid operands for **")),
+            }))),
+            (Value::Float(a), y) if y.is_int() => {
+                if let Some(exp) = y.as_i64().and_then(|e| e.to_i32()) {
                     Ok(Value::Float(a.powi(exp)))
                 } else {
                     Err(VmError::new("exponent too large"))
@@ -1558,7 +1648,12 @@ impl Vm {
 
     fn vm_neg(val: Value) -> VmResult<Value> {
         match val {
-            Value::Int(n) => Ok(Value::Int(-n)),
+            // i64::MIN negates to a value outside i64 range → escalate.
+            Value::Int64(n) => match n.checked_neg() {
+                Some(r) => Ok(Value::Int64(r)),
+                None => Ok(Self::normalize_int(-BigInt::from(n))),
+            },
+            Value::Int(n) => Ok(Self::normalize_int(-n)),
             Value::Float(f) => Ok(Value::Float(-f)),
             _ => Err(VmError::new("cannot negate non-number")),
         }
@@ -1567,39 +1662,39 @@ impl Vm {
     fn vm_add_f(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
-            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + Self::int_to_f64(&y)?)),
-            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? + y)),
+            (Value::Float(x), y) if y.is_int() => Ok(Value::Float(x + Self::int_to_f64(&y)?)),
+            (x, Value::Float(y)) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? + y)),
             _ => Err(VmError::new("ADD_F requires float operands")),
         }
     }
     fn vm_sub_f(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x - y)),
-            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x - Self::int_to_f64(&y)?)),
-            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? - y)),
+            (Value::Float(x), y) if y.is_int() => Ok(Value::Float(x - Self::int_to_f64(&y)?)),
+            (x, Value::Float(y)) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? - y)),
             _ => Err(VmError::new("SUB_F requires float operands")),
         }
     }
     fn vm_mul_f(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x * y)),
-            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x * Self::int_to_f64(&y)?)),
-            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? * y)),
+            (Value::Float(x), y) if y.is_int() => Ok(Value::Float(x * Self::int_to_f64(&y)?)),
+            (x, Value::Float(y)) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? * y)),
             _ => Err(VmError::new("MUL_F requires float operands")),
         }
     }
     fn vm_div_f(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x / y)),
-            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x / Self::int_to_f64(&y)?)),
-            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(Self::int_to_f64(&x)? / y)),
+            (Value::Float(x), y) if y.is_int() => Ok(Value::Float(x / Self::int_to_f64(&y)?)),
+            (x, Value::Float(y)) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? / y)),
             _ => Err(VmError::new("DIV_F requires float operands")),
         }
     }
 
     fn vm_type_is(val: &Value, type_name: &str) -> bool {
         match type_name {
-            "int" => matches!(val, Value::Int(_)),
+            "int" => matches!(val, Value::Int64(_) | Value::Int(_)),
             "float" => matches!(val, Value::Float(_)),
             "string" => matches!(val, Value::String(_)),
             "bool" => matches!(val, Value::Bool(_)),
@@ -1616,7 +1711,7 @@ impl Vm {
 
     fn vm_typeof(val: &Value) -> String {
         match val {
-            Value::Int(_) => "int",
+            Value::Int64(_) | Value::Int(_) => "int",
             Value::Float(_) => "float",
             Value::String(_) => "string",
             Value::Bool(_) => "bool",
@@ -1635,15 +1730,25 @@ impl Vm {
 
     fn vm_cmp(a: Value, b: Value, pred: impl Fn(std::cmp::Ordering) -> bool) -> VmResult<Value> {
         let ord = match (&a, &b) {
-            (Value::Int(a), Value::Int(b)) => a.cmp(b),
+            (x, y) if x.is_int() && y.is_int() => {
+                // Compare via i64 when both fit, else via BigInt.
+                match (x.as_i64(), y.as_i64()) {
+                    (Some(xv), Some(yv)) => xv.cmp(&yv),
+                    _ => {
+                        let xa = x.to_bigint().unwrap();
+                        let yb = y.to_bigint().unwrap();
+                        xa.cmp(&yb)
+                    }
+                }
+            }
             (Value::Float(a), Value::Float(b)) => {
                 a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
             }
-            (Value::Int(a), Value::Float(b)) => Self::int_to_f64(a)?
+            (x, Value::Float(b)) if x.is_int() => Self::int_to_f64(x)?
                 .partial_cmp(b)
                 .unwrap_or(std::cmp::Ordering::Equal),
-            (Value::Float(a), Value::Int(b)) => a
-                .partial_cmp(&Self::int_to_f64(b)?)
+            (Value::Float(a), y) if y.is_int() => a
+                .partial_cmp(&Self::int_to_f64(y)?)
                 .unwrap_or(std::cmp::Ordering::Equal),
             (Value::String(a), Value::String(b)) => a.cmp(b),
             _ => return Err(VmError::new("cannot compare these values")),
@@ -1656,7 +1761,11 @@ impl Vm {
         F: FnOnce(BigInt, BigInt) -> BigInt,
     {
         match (a, b) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(op(a, b))),
+            (x, y) if x.is_int() && y.is_int() => {
+                let ba = x.to_bigint().unwrap();
+                let bb = y.to_bigint().unwrap();
+                Ok(Self::normalize_int(op(ba, bb)))
+            }
             // Bitwise on bools (per grammar: "bitwise on bools"): treat as 0/1
             // and return a Bool so word-form operators like `xor` stay logical.
             (Value::Bool(a), Value::Bool(b)) => {
@@ -1670,16 +1779,18 @@ impl Vm {
     fn vm_index(collection: Value, index: Value) -> VmResult<Value> {
         use num_traits::ToPrimitive;
         match (&collection, &index) {
-            (Value::List(list), Value::Int(i)) => {
-                let idx = if *i < BigInt::from(0) {
-                    let len = list.data.len() as i64;
-                    let offset = i.to_i64().unwrap_or(0);
-                    (len + offset).max(0) as usize
-                } else {
-                    i.to_usize().unwrap_or(usize::MAX)
+            (Value::List(list), idx) if idx.is_int() => {
+                // Negative indices wrap from the end (Python-style).
+                let i = idx.as_i64().or_else(|| idx.to_bigint()?.to_i64());
+                let len = list.data.len() as i64;
+                let idx_usize = match i {
+                    Some(n) if n >= 0 => n as usize,
+                    Some(n) => (len + n).max(0) as usize,
+                    // BigInt too large for i64: out of bounds.
+                    None => usize::MAX,
                 };
                 list.data
-                    .get(idx)
+                    .get(idx_usize)
                     .cloned()
                     .ok_or_else(|| VmError::new("index out of bounds"))
             }
@@ -1689,11 +1800,12 @@ impl Vm {
             // Map indexed by int: yields the key at that position. This lets the
             // index-based `for k in map` loop reuse the same machinery as lists,
             // producing map keys in insertion order.
-            (Value::Map(map), Value::Int(i)) => {
-                let idx = i.to_usize().unwrap_or(usize::MAX);
+            (Value::Map(map), idx) if idx.is_int() => {
+                let i = idx.as_i64().or_else(|| idx.to_bigint()?.to_usize().map(|_| 0i64));
+                let idx_usize = i.and_then(|n| if n >= 0 { Some(n as usize) } else { None }).unwrap_or(usize::MAX);
                 map.data
                     .keys()
-                    .nth(idx)
+                    .nth(idx_usize)
                     .map(|k| Value::String(k.clone()))
                     .ok_or_else(|| VmError::new("index out of bounds"))
             }
@@ -1703,13 +1815,13 @@ impl Vm {
 
     fn vm_member(&self, obj: Value, prop: &str) -> VmResult<Value> {
         match &obj {
-            Value::List(list) if prop == "length" => Ok(Value::Int(BigInt::from(list.data.len()))),
-            Value::String(s) if prop == "length" => Ok(Value::Int(BigInt::from(s.len()))),
+            Value::List(list) if prop == "length" => Ok(Value::int_from_i64(list.data.len() as i64)),
+            Value::String(s) if prop == "length" => Ok(Value::int_from_i64(s.len() as i64)),
             Value::Map(map) => {
                 // `length` builtin: number of entries. Falls back to a user's
                 // own "length" key only if present, so we check the data first.
                 if prop == "length" && !map.data.contains_key("length") {
-                    return Ok(Value::Int(BigInt::from(map.data.len())));
+                    return Ok(Value::int_from_i64(map.data.len() as i64));
                 }
                 // Direct property access
                 if let Some(val) = map.data.get(prop) {
@@ -1816,20 +1928,20 @@ mod tests {
     #[test]
     fn test_vm_int_literal() {
         let result = run_src("fn main() { return 42; }").unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(42)));
+        assert_eq!(result.as_i64(), Some(42));
     }
 
     #[test]
     fn test_vm_addition() {
         let result = run_src("fn main() { return 1 + 2; }").unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(3)));
+        assert_eq!(result.as_i64(), Some(3));
     }
 
     #[test]
     fn test_vm_variables() {
         let result =
             run_src("fn main() { let x = 10; let y = 20; return x + y; }").unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(30)));
+        assert_eq!(result.as_i64(), Some(30));
     }
 
     #[test]
@@ -1838,7 +1950,7 @@ mod tests {
             "fn main() { let x = 0; if true { x = 1; } return x; }",
         )
         .unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(1)));
+        assert_eq!(result.as_i64(), Some(1));
     }
 
     #[test]
@@ -1847,7 +1959,7 @@ mod tests {
             "fn main() { let x = 0; if false { x = 1; } return x; }",
         )
         .unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(0)));
+        assert_eq!(result.as_i64(), Some(0));
     }
 
     #[test]
@@ -1856,7 +1968,7 @@ mod tests {
             "fn main() { let x = 0; while x < 5 { x += 1; } return x; }",
         )
         .unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(5)));
+        assert_eq!(result.as_i64(), Some(5));
     }
 
     #[test]
@@ -1865,7 +1977,7 @@ mod tests {
             "fn add(a, b) { return a + b; } fn main() { return add(2, 3); }",
         )
         .unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(5)));
+        assert_eq!(result.as_i64(), Some(5));
     }
 
     #[test]
@@ -1874,7 +1986,7 @@ mod tests {
             "fn fib(n) { if n <= 1 { return n; } return fib(n - 1) + fib(n - 2); } fn main() { return fib(10); }",
         )
         .unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(55)));
+        assert_eq!(result.as_i64(), Some(55));
     }
 
     #[test]
@@ -1891,19 +2003,19 @@ mod tests {
     fn test_vm_ternary() {
         let result =
             run_src("fn main() { let x = true ? 1 : 2; return x; }").unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(1)));
+        assert_eq!(result.as_i64(), Some(1));
     }
 
     #[test]
     fn test_vm_null_coalesce() {
         let result =
             run_src("fn main() { let x = null ?? 42; return x; }").unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(42)));
+        assert_eq!(result.as_i64(), Some(42));
     }
 
     #[test]
     fn test_vm_list_literal() {
         let result = run_src("fn main() { let a = [1, 2, 3]; return a.length; }").unwrap();
-        assert!(matches!(&result, Value::Int(n) if *n == BigInt::from(3)));
+        assert_eq!(result.as_i64(), Some(3));
     }
 }

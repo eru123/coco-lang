@@ -54,7 +54,7 @@ pub fn db_open(args: &[Value]) -> Result<Value, Signal> {
     })?;
     let handle = alloc_db_handle();
     DB_REGISTRY.lock().unwrap().insert(handle, conn);
-    Ok(Value::Int(num_bigint::BigInt::from(handle)))
+    Ok(Value::int_from_i64(handle as i64))
 }
 
 /// Execute a statement that returns no rows (INSERT/UPDATE/DELETE/DDL).
@@ -66,7 +66,7 @@ pub fn db_exec(args: &[Value]) -> Result<Value, Signal> {
         )));
     }
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
         _ => return Err(Signal::Error(RuntimeError::new("db_exec: handle must be int"))),
     };
     let sql = match &args[1] {
@@ -82,7 +82,7 @@ pub fn db_exec(args: &[Value]) -> Result<Value, Signal> {
     let affected = conn
         .execute(&sql, rusqlite::params_from_iter(params.iter()))
         .map_err(|e| Signal::Error(RuntimeError::new(format!("db_exec failed: {}", e))))?;
-    Ok(Value::Int(num_bigint::BigInt::from(affected)))
+    Ok(Value::int_from_i64(affected as i64))
 }
 
 /// Run a SELECT and return rows as a `Value::List` of `Value::Map`
@@ -94,7 +94,7 @@ pub fn db_query(args: &[Value]) -> Result<Value, Signal> {
         )));
     }
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
         _ => return Err(Signal::Error(RuntimeError::new("db_query: handle must be int"))),
     };
     let sql = match &args[1] {
@@ -126,7 +126,7 @@ pub fn db_query(args: &[Value]) -> Result<Value, Signal> {
             for i in 0..col_count {
                 let val = match row.get_ref(i) {
                     Ok(ValueRef::Null) => Value::Null,
-                    Ok(ValueRef::Integer(n)) => Value::Int(num_bigint::BigInt::from(n)),
+                    Ok(ValueRef::Integer(n)) => Value::int_from_i64(n as i64),
                     Ok(ValueRef::Real(f)) => Value::Float(f),
                     Ok(ValueRef::Text(bytes)) => {
                         Value::String(String::from_utf8_lossy(bytes).to_string())
@@ -165,7 +165,7 @@ pub fn db_close(args: &[Value]) -> Result<Value, Signal> {
         )));
     }
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
         _ => return Err(Signal::Error(RuntimeError::new("db_close: handle must be int"))),
     };
     let mut reg = DB_REGISTRY.lock().unwrap();
@@ -188,6 +188,7 @@ fn params_from_value(arg: Option<&Value>) -> Vec<rusqlite::types::Value> {
 fn value_to_sql(v: &Value) -> rusqlite::types::Value {
     use num_traits::ToPrimitive;
     match v {
+        Value::Int64(n) => rusqlite::types::Value::Integer(*n),
         Value::Int(n) => rusqlite::types::Value::Integer(n.to_i64().unwrap_or(0)),
         Value::Float(f) => rusqlite::types::Value::Real(*f),
         Value::String(s) => rusqlite::types::Value::Text(s.clone()),

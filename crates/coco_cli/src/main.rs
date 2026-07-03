@@ -456,8 +456,8 @@ fn run_chunk(chunk: &coco_interpreter::ir::Chunk, debug: bool) {
     vm.set_debug(debug);
     match vm.run(chunk) {
         Ok(val) => {
-            if let coco_interpreter::Value::Int(code) = val {
-                std::process::exit(code.to_i32().unwrap_or(1));
+            if let Some(code) = val.as_i64() {
+                std::process::exit(code as i32);
             }
         }
         Err(e) => {
@@ -618,10 +618,11 @@ num-traits = "0.2"
     };
     let mut vm = coco_interpreter::vm::Vm::new();
     match vm.run(&chunk) {
-        Ok(coco_interpreter::Value::Int(code)) => {
-            std::process::exit(num_traits::ToPrimitive::to_i32(&code).unwrap_or(1));
+        Ok(val) => {
+            if let Some(code) = val.as_i64() {
+                std::process::exit(code as i32);
+            }
         }
-        Ok(_) => {}
         Err(e) => {
             eprintln!("VM error: {e}");
             std::process::exit(1);

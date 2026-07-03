@@ -183,6 +183,21 @@ fn read_chunk_body(r: &mut Reader) -> Result<Chunk, DeserializeError> {
 
 fn serialize_value(value: &Value, out: &mut Vec<u8>) -> Result<(), String> {
     match value {
+        // Int64 serializes through the same TAG_INT BigInt wire format (promoted
+        // to BigInt first), so the on-disk format stays compatible and the
+        // deserializer needs no separate tag. The result deserializes as
+        // `Value::Int` (BigInt); the VM's `normalize_int` re-wraps to Int64
+        // at runtime when the value fits.
+        Value::Int64(n) => {
+            out.push(TAG_INT);
+            let big = BigInt::from(*n);
+            let (neg, limbs) = bigint_to_le_limbs(&big);
+            out.push(if neg { 1 } else { 0 });
+            write_u32(out, limbs.len() as u32);
+            for limb in &limbs {
+                out.extend_from_slice(&limb.to_le_bytes());
+            }
+        }
         Value::Int(n) => {
             out.push(TAG_INT);
             // Sign-magnitude with u32 limbs, little-endian per limb.

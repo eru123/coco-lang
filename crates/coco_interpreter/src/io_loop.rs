@@ -55,7 +55,7 @@ pub fn io_wait(args: &[Value]) -> Result<Value, Signal> {
     }
     use num_traits::ToPrimitive;
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
         _ => return Err(Signal::Error(RuntimeError::new("io_wait: handle must be int"))),
     };
     let want_read = match &args[1] {
@@ -64,6 +64,7 @@ pub fn io_wait(args: &[Value]) -> Result<Value, Signal> {
     };
     let timeout_ms = match args.get(2) {
         Some(Value::Int(n)) => n.to_u64().unwrap_or(0),
+        Some(Value::Int64(n)) => *n as u64,
         Some(Value::Null) | None => 0,
         _ => 0,
     };
