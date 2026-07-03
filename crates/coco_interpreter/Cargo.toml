@@ -14,5 +14,10 @@ num-bigint = { workspace = true }
 num-traits = { workspace = true }
 regex = { workspace = true }
 sha2 = { workspace = true }
-rusqlite = { workspace = true }
-mio = { workspace = true }
+rusqlite = { workspace = true, optional = true }
+mio = { workspace = true, optional = true }
+
+[features]
+default = ["db", "async-io"]
+db = ["dep:rusqlite"]
+async-io = ["dep:mio"]

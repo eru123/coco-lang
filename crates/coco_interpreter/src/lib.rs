@@ -8,8 +8,10 @@
 
 pub mod builtins;
 pub mod compiler;
+#[cfg(feature = "db")]
 pub mod db;
 pub mod error;
+#[cfg(feature = "async-io")]
 pub mod io_loop;
 pub mod ir;
 pub mod parallel;
@@ -49,6 +51,7 @@ pub fn get_stdlib_source(module: &str) -> Option<&'static str> {
         "std/context" => Some(include_str!("stdlib/context.co")),
         "std/xml" => Some(include_str!("stdlib/xml.co")),
         "std/yaml" => Some(include_str!("stdlib/yaml.co")),
+        #[cfg(feature = "db")]
         "std/db" => Some(include_str!("stdlib/db.co")),
         _ => None,
     }

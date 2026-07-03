@@ -1403,6 +1403,7 @@ impl Vm {
             Value::BuiltinFn("unwrap".to_string()),
         );
         // Database builtins (std/db).
+        #[cfg(feature = "db")]
         for name in ["db_open", "db_exec", "db_query", "db_close"] {
             self.globals
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
@@ -1413,6 +1414,7 @@ impl Vm {
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
         }
         // Async I/O event loop primitive (mio-backed fd readiness).
+        #[cfg(feature = "async-io")]
         self.globals
             .insert("io_wait".to_string(), Value::BuiltinFn("io_wait".to_string()));
         // TCP builtins (used by std/net and the HTTP server).

@@ -484,12 +484,17 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         }
 
         // ---- Database builtins (std/db, backed by SQLite) ----
+        #[cfg(feature = "db")]
         "db_open" => crate::db::db_open(args),
+        #[cfg(feature = "db")]
         "db_exec" => crate::db::db_exec(args),
+        #[cfg(feature = "db")]
         "db_query" => crate::db::db_query(args),
+        #[cfg(feature = "db")]
         "db_close" => crate::db::db_close(args),
 
         // ---- Async I/O event loop (mio-backed fd readiness) ----
+        #[cfg(feature = "async-io")]
         "io_wait" => crate::io_loop::io_wait(args),
 
         // ---- Filesystem builtins ----

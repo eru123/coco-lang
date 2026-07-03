@@ -591,7 +591,10 @@ name = "coco_embedded"
 path = "src/main.rs"
 
 [dependencies]
-coco_interpreter = {{ path = {:?} }}
+# default-features = false keeps the embedded binary slim (no SQLite/mio
+# unless the program uses db/io_wait builtins). Re-enable with features =
+# ["db", "async-io"] if needed.
+coco_interpreter = {{ path = {:?}, default-features = false }}
 num-traits = "0.2"
 "#,
         interpreter_path.display().to_string()
