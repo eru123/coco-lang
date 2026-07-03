@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use coco_gc::{CoW, GcRef};
+use coco_gc::CoW;
 use num_bigint::BigInt;
 
 use crate::ir::FnObj;
@@ -174,16 +174,6 @@ impl Value {
                 _ => true,
             },
         }
-    }
-
-    /// Returns the heap `GcRef` if this value is a GC-managed heap object,
-    /// else `None`. List and Map are now `Arc`-backed (self-managing, not in
-    /// the GC Heap), so they return `None` — the tracing GC does not walk
-    /// them. This is sound because `Arc` refcounting reclaims them when no
-    /// references remain (cycles require `Weak`, which Coco values don't form
-    /// across List/Map).
-    pub fn gc_ref(&self) -> Option<GcRef> {
-        None
     }
 
 }

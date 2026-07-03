@@ -2,10 +2,10 @@
 //!
 //! Each `run` clause is a `FnObj` (plus args) executed on its own OS thread
 //! via `std::thread::scope`. Each worker builds a fresh `Vm` seeded with the
-//! parent's globals (shared read-only — `Value` is `Send + Sync`) and its own
-//! `Heap`, runs the function via `Vm::call_function`, and returns the result.
-//! The block joins all workers before continuing and yields the last run's
-//! result (matching the existing sequential semantics).
+//! parent's globals (shared read-only — `Value` is `Send + Sync`), runs the
+//! function via `Vm::call_function`, and returns the result. The block joins
+//! all workers before continuing and yields the last run's result (matching
+//! the existing sequential semantics).
 
 use std::collections::HashMap;
 use std::thread;
@@ -23,7 +23,7 @@ pub struct ParallelRun {
 /// Execute `runs` concurrently on OS threads, joining before return.
 ///
 /// `parent_globals` is shared read-only across workers so they can resolve
-/// free names. Each worker gets its own `Heap` and stack.
+/// free names. Each worker gets its own stack.
 ///
 /// Returns the result of the *last* run (matching the existing `parallel`
 /// semantics where the final expression's value is the block's value), or

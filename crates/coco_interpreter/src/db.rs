@@ -3,12 +3,12 @@
 //! Exposes `db_open`, `db_exec`, `db_query`, `db_close` as builtins. Open
 //! connections are tracked in a global registry keyed by integer handle (the
 //! same pattern as the TCP registry), so `.co` code passes around plain ints.
-//! `db_query` builds proper `Value::List<Value::Map>` results via the heap.
+//! `db_query` builds `Value::List<Value::Map>` results (Arc-backed).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use coco_gc::{CoW, Heap};
+use coco_gc::CoW;
 use num_traits::ToPrimitive;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -27,13 +27,13 @@ fn alloc_db_handle() -> usize {
     NEXT_DB_HANDLE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
 
-/// Allocate a `Value::Map` (Arc-backed; the heap arg is unused now).
-fn alloc_map(_heap: &mut Heap, map: HashMap<String, Value>) -> Value {
+/// Allocate a `Value::Map` (Arc-backed).
+fn alloc_map(map: HashMap<String, Value>) -> Value {
     Value::Map(std::sync::Arc::new(CoW::new(map)))
 }
 
-/// Allocate a `Value::List` (Arc-backed; the heap arg is unused now).
-fn alloc_list(_heap: &mut Heap, items: Vec<Value>) -> Value {
+/// Allocate a `Value::List` (Arc-backed).
+fn alloc_list(items: Vec<Value>) -> Value {
     Value::List(std::sync::Arc::new(CoW::new(items)))
 }
 
@@ -86,8 +86,8 @@ pub fn db_exec(args: &[Value]) -> Result<Value, Signal> {
 }
 
 /// Run a SELECT and return rows as a `Value::List` of `Value::Map`
-/// (column name -> value). Needs the heap to allocate the result objects.
-pub fn db_query(args: &[Value], heap: &mut Heap) -> Result<Value, Signal> {
+/// (column name -> value).
+pub fn db_query(args: &[Value]) -> Result<Value, Signal> {
     if args.len() < 2 || args.len() > 3 {
         return Err(Signal::Error(RuntimeError::new(
             "db_query(handle, sql, [params]) expects 2 or 3 arguments",
@@ -116,8 +116,9 @@ pub fn db_query(args: &[Value], heap: &mut Heap) -> Result<Value, Signal> {
         .collect();
 
     // We must collect all rows before allocating (the borrow on `stmt` and
-    // `conn` is released by query_map iteration, but we can't borrow `heap`
-    // while holding the DB_REGISTRY lock's connection ref — collect first).
+    // `conn` is released by query_map iteration, but we can't allocate the
+    // result Values while holding the DB_REGISTRY lock's connection ref —
+    // collect first).
     let mut collected: Vec<HashMap<String, Value>> = Vec::new();
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params.iter()), |row| {
@@ -148,12 +149,12 @@ pub fn db_query(args: &[Value], heap: &mut Heap) -> Result<Value, Signal> {
     drop(stmt);
     drop(reg);
 
-    // Now allocate the result list of maps on the heap.
+    // Now allocate the result list of maps.
     let mut row_values: Vec<Value> = Vec::with_capacity(collected.len());
     for map in collected {
-        row_values.push(alloc_map(heap, map));
+        row_values.push(alloc_map(map));
     }
-    Ok(alloc_list(heap, row_values))
+    Ok(alloc_list(row_values))
 }
 
 /// Close a database connection.

@@ -1,22 +1,18 @@
-//! Copy-on-Write wrapper for GC-managed data.
+//! Copy-on-Write wrapper used as the payload of `Arc<CoW<T>>` values.
 //!
-//! `CoW<T>` wraps a heap-allocated `T`. Sharing is governed solely by the
-//! `Heap`'s refcount (bumped by `Gc<T>::clone`, decremented by `Gc<T>`'s
-//! `Drop`) — `CoW` itself no longer tracks a separate refcount. Callers that
-//! need copy-on-write semantics should check `Heap::refcount(id)` before
-//! mutating shared data.
-//!
-//! Historical note: an earlier design gave `CoW` its own `Cell<usize>`
-//! refcount and a `get_mut` that copied when shared. That count was never
-//! kept in sync with the `Heap`'s count and `get_mut` was never called, so
-//! the two diverged. The refcount is now unified on the `Heap` exclusively.
+//! `CoW<T>` is a plain `{ data: T }` wrapper. Copy-on-write and lifetime are
+//! governed entirely by the enclosing `std::sync::Arc` (refcounting), so `CoW`
+//! itself carries no refcount or GC state. The VM's `Value::List` and
+//! `Value::Map` store `Arc<CoW<Vec<Value>>>` / `Arc<CoW<HashMap<...>>>`; a
+//! clone of the `Value` bumps the `Arc`'s refcount, and mutation goes through
+//! `Arc::make_mut` which copies only when the refcount is > 1.
 
-use std::any::Any;
 use std::fmt;
 
-use crate::heap::GcObj;
-
-/// A CoW wrapper stored inside a `Gc<T>`. The actual data lives on the heap.
+/// A transparent wrapper around `T`, used inside `Arc<CoW<T>>`.
+///
+/// The `data` field is public because every access site reads or writes it
+/// directly (e.g. `list.data.push(...)`).
 pub struct CoW<T: Clone + 'static> {
     pub data: T,
 }
@@ -28,9 +24,8 @@ impl<T: Clone + 'static> CoW<T> {
 
     /// Get mutable access to the inner data.
     ///
-    /// This does **not** perform copy-on-write automatically. The caller is
-    /// responsible for checking `Heap::refcount(id)` first if shared mutation
-    /// must be avoided, since `CoW` no longer holds its own refcount.
+    /// Callers that need copy-on-write semantics should go through the
+    /// enclosing `Arc` (`Arc::make_mut`), not this method.
     pub fn get_mut(&mut self) -> &mut T {
         &mut self.data
     }
@@ -45,18 +40,5 @@ impl<T: Clone + fmt::Debug + 'static> fmt::Debug for CoW<T> {
 impl<T: Clone + fmt::Display + 'static> fmt::Display for CoW<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.data, f)
-    }
-}
-
-// GcObj impl for CoW<T> — works for any Clone + Debug + 'static T.
-impl<T: Clone + fmt::Debug + 'static> GcObj for CoW<T> {
-    fn size(&self) -> usize {
-        std::mem::size_of::<Self>()
-    }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 }

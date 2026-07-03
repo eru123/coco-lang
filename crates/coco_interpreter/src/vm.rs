@@ -6,15 +6,17 @@
 //! - A value stack (`Vec<Value>`) for operands and intermediate results
 //! - A call frame stack for function calls
 //! - A global store (`HashMap<String, Value>`) for top-level bindings
-//! - A GC `Heap` for CoW collections
 //! - A handler stack for try/catch
+//!
+//! Heap collections (`Value::List`/`Value::Map`) are `Arc<CoW<...>>` and
+//! managed by refcounting — there is no tracing garbage collector.
 //!
 //! Execution is a single `match`-based dispatch loop over bytecode opcodes.
 
 use std::collections::HashMap;
 // use std::sync::Arc;
 
-use coco_gc::{CoW, GcRef, Heap};
+use coco_gc::CoW;
 use num_bigint::BigInt;
 
 use crate::builtins::call_builtin;
@@ -75,8 +77,6 @@ pub struct Vm {
     frames: Vec<CallFrame>,
     /// Global variable bindings.
     globals: HashMap<String, Value>,
-    /// GC heap.
-    heap: Heap,
     /// Async task scheduler for cooperative multitasking.
     scheduler: TaskScheduler,
     /// Exception handler stack: (handler_ip, stack_depth).
@@ -98,7 +98,6 @@ impl Vm {
             stack: Vec::new(),
             frames: Vec::new(),
             globals: HashMap::new(),
-            heap: Heap::new(),
             scheduler: TaskScheduler::new(),
             handlers: Vec::new(),
             debug: false,
@@ -1056,7 +1055,7 @@ impl Vm {
                 Ok(task_id)
             }
             Value::BuiltinFn(name) => {
-                let result = call_builtin(&name, &args, &mut self.heap)
+                let result = call_builtin(&name, &args)
                     .map_err(|e| VmError::new(format!("builtin error: {:?}", e)))?;
                 let task_id = self.scheduler.spawn(Value::Null, 0, 0, vec![result.clone()]);
                 self.scheduler.complete(task_id, result);
@@ -1123,7 +1122,7 @@ impl Vm {
                 // Collect args
                 let args: Vec<Value> = self.stack.drain(fn_idx + 1..).collect();
                 self.stack.pop(); // pop the BuiltinFn itself
-                let result = call_builtin(&name, &args, &mut self.heap)
+                let result = call_builtin(&name, &args)
                     .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
                 self.push(result);
             }
@@ -1186,7 +1185,7 @@ impl Vm {
                 }
             }
             Value::BuiltinFn(name) => {
-                let result = call_builtin(&name, &args, &mut self.heap)
+                let result = call_builtin(&name, &args)
                     .map_err(|s| VmError::new(format!("builtin error: {:?}", s)))?;
                 self.push(result);
             }
@@ -1440,71 +1439,17 @@ impl Vm {
     }
 
     // ========================================================================
-    // GC helpers
+    // Allocation helpers
     // ========================================================================
 
     fn alloc_list(&mut self, items: Vec<Value>) -> Value {
-        // Arc-backed: the value owns its data and outlives the VM/Heap.
+        // Arc-backed: the value owns its data; reclaimed by refcounting when
+        // the last reference drops.
         Value::List(std::sync::Arc::new(CoW::new(items)))
     }
 
     fn alloc_map(&mut self, items: HashMap<String, Value>) -> Value {
         Value::Map(std::sync::Arc::new(CoW::new(items)))
-    }
-
-    /// Run a tracing GC cycle.
-    ///
-    /// Roots are the operand stack, globals, the `$` (this) stack, and the
-    /// scheduler's task stacks. The tracer downcasts each heap object to its
-    /// `CoW<Vec<Value>>` / `CoW<HashMap<String, Value>>` form and collects the
-    /// `GcRef`s of any nested heap objects, so cycles unreachable from the
-    /// roots are reclaimed.
-    pub fn gc_collect(&mut self) {
-        // Gather roots: every GcRef reachable from live Values.
-        let mut roots: Vec<GcRef> = Vec::new();
-        for v in &self.stack {
-            if let Some(id) = v.gc_ref() {
-                roots.push(id);
-            }
-        }
-        for v in self.globals.values() {
-            if let Some(id) = v.gc_ref() {
-                roots.push(id);
-            }
-        }
-        for v in &self.this_stack {
-            if let Some(id) = v.gc_ref() {
-                roots.push(id);
-            }
-        }
-        // Task stacks hold live Values awaiting resumption.
-        for task in self.scheduler.tasks() {
-            for v in &task.stack {
-                if let Some(id) = v.gc_ref() {
-                    roots.push(id);
-                }
-            }
-        }
-
-        // Tracer: given an object's &dyn Any, return child GcRefs.
-        // Lists hold Vec<Value>; Maps hold HashMap<String, Value>.
-        self.heap.collect_tracing(&roots, |any| {
-            let mut children = Vec::new();
-            if let Some(list) = any.downcast_ref::<CoW<Vec<Value>>>() {
-                for v in &list.data {
-                    if let Some(id) = v.gc_ref() {
-                        children.push(id);
-                    }
-                }
-            } else if let Some(map) = any.downcast_ref::<CoW<HashMap<String, Value>>>() {
-                for v in map.data.values() {
-                    if let Some(id) = v.gc_ref() {
-                        children.push(id);
-                    }
-                }
-            }
-            children
-        });
     }
 
     // ========================================================================
