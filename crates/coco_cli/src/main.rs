@@ -444,7 +444,10 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
     if native {
         #[cfg(feature = "native")]
         {
-        // AOT native compilation via LLVM
+        // AOT native compilation via LLVM.
+        // Reference coco_rt so it's built (its staticlib libcoco_rt.a is
+        // linked by locate_coco_rt + cc below to resolve coco_rt_alloc).
+        let _rt = std::marker::PhantomData::<coco_rt::CocoValue>;
         let context = inkwell::context::Context::create();
         let mut codegen = coco_codegen::Codegen::new(&context, &resolved.file_stem()
             .unwrap_or_default()

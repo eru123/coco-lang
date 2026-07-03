@@ -20,6 +20,7 @@ coco_interpreter = { workspace = true }
 coco_typeck = { workspace = true }
 coco_safety = { workspace = true }
 coco_codegen = { path = "../coco_codegen", optional = true }
+coco_rt = { path = "../coco_rt", optional = true }
 inkwell = { workspace = true, optional = true }
 clap = { workspace = true }
 num-bigint = { workspace = true }
@@ -27,4 +28,4 @@ num-traits = { workspace = true }
 
 [features]
 default = []
-native = ["coco_codegen", "coco_codegen/native", "inkwell"]
+native = ["coco_codegen", "coco_codegen/native", "coco_rt", "inkwell"]
