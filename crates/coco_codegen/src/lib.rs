@@ -79,7 +79,9 @@ impl<'ctx> Codegen<'ctx> {
         // Declare runtime functions
         self.declare_runtime();
 
-        // First pass: declare all functions
+        // First pass: declare all functions. The Coco `main` is declared as
+        // `coco_main` so it doesn't collide with the C `main` entry point
+        // added by generate_entry (which returns i64, not the Value struct).
         for item in &program.items {
             let fd: Option<&FnDecl> = match item {
                 Item::FnDecl(f) => Some(f),
@@ -87,11 +89,14 @@ impl<'ctx> Codegen<'ctx> {
                 _ => None,
             };
             if let Some(fd) = fd {
-                let name = &fd.name.name;
+                let mut name = fd.name.name.clone();
+                if name == "main" {
+                    name = "coco_main".to_string();
+                }
                 let arity = fd.params.len();
                 let fn_type = self.fn_type(arity);
-                let func = self.module.add_function(name, fn_type, None);
-                self.functions.insert(name.clone(), (func, arity));
+                let func = self.module.add_function(&name, fn_type, None);
+                self.functions.insert(name, (func, arity));
             }
         }
 
@@ -155,10 +160,13 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Compile a function declaration body.
     fn compile_fn_decl(&mut self, fn_decl: &FnDecl) -> Result<(), String> {
-        let name = &fn_decl.name.name;
+        let mut name = fn_decl.name.name.clone();
+        if name == "main" {
+            name = "coco_main".to_string();
+        }
         let func = self
             .functions
-            .get(name)
+            .get(&name)
             .ok_or_else(|| format!("function '{}' not declared", name))?
             .0;
         self.current_fn = Some(func);
@@ -235,6 +243,11 @@ impl<'ctx> Codegen<'ctx> {
             Stmt::While(while_stmt) => {
                 self.compile_while(while_stmt)?;
             }
+            Stmt::Item(item) => match &**item {
+                Item::LetDecl(let_decl) => self.compile_let_decl(let_decl)?,
+                Item::ConstDecl(const_decl) => self.compile_const_decl(const_decl)?,
+                _ => {}
+            },
             _ => {
                 // Other statement types not yet compiled
             }
@@ -242,21 +255,40 @@ impl<'ctx> Codegen<'ctx> {
         Ok(())
     }
 
-    /// Compile a let declaration.
-    fn compile_let_decl(&mut self, _let_decl: &LetDecl) -> Result<(), String> {
-        // For now, skip let declarations at top level
+    /// Compile a let declaration: evaluate the value (if any) and bind the
+    /// name to a local alloca.
+    fn compile_let_decl(&mut self, let_decl: &LetDecl) -> Result<(), String> {
+        let val = if let Some(ref expr) = let_decl.value {
+            self.compile_expr(expr)?
+        } else {
+            let i64 = self.context.i64_type();
+            self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false))
+        };
+        let alloca = self
+            .builder
+            .build_alloca(self.value_type, &let_decl.name.name)
+            .map_err(|e| e.to_string())?;
+        self.builder.build_store(alloca, val).map_err(|e| e.to_string())?;
+        self.locals.insert(let_decl.name.name.clone(), alloca);
         Ok(())
     }
 
-    /// Compile a const declaration.
-    fn compile_const_decl(&mut self, _const_decl: &ConstDecl) -> Result<(), String> {
+    /// Compile a const declaration: same as let but the value is required.
+    fn compile_const_decl(&mut self, const_decl: &ConstDecl) -> Result<(), String> {
+        let val = self.compile_expr(&const_decl.value)?;
+        let alloca = self
+            .builder
+            .build_alloca(self.value_type, &const_decl.name.name)
+            .map_err(|e| e.to_string())?;
+        self.builder.build_store(alloca, val).map_err(|e| e.to_string())?;
+        self.locals.insert(const_decl.name.name.clone(), alloca);
         Ok(())
     }
 
     /// Compile an if statement: condition ? then : else.
     fn compile_if(&mut self, if_stmt: &IfStmt) -> Result<(), String> {
         let cond_val = self.compile_expr(&if_stmt.condition)?;
-        let cond = self.extract_tag(&cond_val);
+        let cond = self.extract_data(&cond_val);  // bool truthiness is in data (0/1), not tag
         let is_true = self.builder.build_int_compare(
             inkwell::IntPredicate::NE,
             cond,
@@ -273,17 +305,53 @@ impl<'ctx> Codegen<'ctx> {
         // Then block
         self.builder.position_at_end(then_block);
         self.compile_block(&if_stmt.then_block)?;
-        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        // Only branch to merge if the then-body didn't already return/break.
+        if !self.block_terminated() {
+            self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        }
 
         // Else block
         self.builder.position_at_end(else_block);
         if let Some(ref else_block) = if_stmt.else_block {
             self.compile_block(else_block)?;
         }
-        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        if !self.block_terminated() {
+            self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        }
 
         self.builder.position_at_end(merge_block);
         Ok(())
+    }
+
+    /// Returns true if the current insert block already has a terminator
+    /// (return/branch), so we must not emit another one.
+    fn block_terminated(&self) -> bool {
+        self.builder
+            .get_insert_block()
+            .and_then(|b| b.get_terminator())
+            .is_some()
+    }
+
+    /// Compile a signed-int comparison into a Bool Value (data = 0/1).
+    fn compile_icmp(
+        &self,
+        left: StructValue<'ctx>,
+        right: StructValue<'ctx>,
+        pred: inkwell::IntPredicate,
+        name: &str,
+    ) -> Result<StructValue<'ctx>, String> {
+        let i64 = self.context.i64_type();
+        let l_data = self.extract_data(&left);
+        let r_data = self.extract_data(&right);
+        let cmp = self
+            .builder
+            .build_int_compare(pred, l_data, r_data, name)
+            .map_err(|e| e.to_string())?;
+        let result = self
+            .builder
+            .build_int_z_extend(cmp, i64, &format!("{}ext", name))
+            .map_err(|e| e.to_string())?;
+        Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
     }
 
     /// Compile a while loop.
@@ -296,7 +364,7 @@ impl<'ctx> Codegen<'ctx> {
 
         self.builder.position_at_end(cond_block);
         let cond_val = self.compile_expr(&while_stmt.condition)?;
-        let cond = self.extract_tag(&cond_val);
+        let cond = self.extract_data(&cond_val);  // bool truthiness is in data (0/1), not tag
         let is_true = self.builder.build_int_compare(
             inkwell::IntPredicate::NE,
             cond,
@@ -307,7 +375,10 @@ impl<'ctx> Codegen<'ctx> {
 
         self.builder.position_at_end(body_block);
         self.compile_block(&while_stmt.body)?;
-        self.builder.build_unconditional_branch(cond_block).map_err(|e| e.to_string())?;
+        // Only loop back if the body didn't return/break.
+        if !self.block_terminated() {
+            self.builder.build_unconditional_branch(cond_block).map_err(|e| e.to_string())?;
+        }
 
         self.builder.position_at_end(end_block);
         Ok(())
@@ -385,7 +456,7 @@ impl<'ctx> Codegen<'ctx> {
     /// Compile a ternary expression (cond ? then : else).
     fn compile_ternary(&mut self, tern: &TernaryExpr) -> Result<StructValue<'ctx>, String> {
         let cond_val = self.compile_expr(&tern.condition)?;
-        let cond = self.extract_tag(&cond_val);
+        let cond = self.extract_data(&cond_val);  // bool truthiness is in data (0/1), not tag
         let is_true = self.builder.build_int_compare(
             inkwell::IntPredicate::NE, cond,
             self.context.i64_type().const_int(0, false), "terncond",
@@ -757,14 +828,24 @@ impl<'ctx> Codegen<'ctx> {
                     .map_err(|e| e.to_string())?;
                 Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
             }
-            BinaryOp::Lt => {
+            BinaryOp::Lt => self.compile_icmp(left, right, inkwell::IntPredicate::SLT, "lt"),
+            BinaryOp::Gt => self.compile_icmp(left, right, inkwell::IntPredicate::SGT, "gt"),
+            BinaryOp::Le => self.compile_icmp(left, right, inkwell::IntPredicate::SLE, "le"),
+            BinaryOp::Ge => self.compile_icmp(left, right, inkwell::IntPredicate::SGE, "ge"),
+            BinaryOp::Ne => {
+                let l_tag = self.extract_tag(&left);
+                let r_tag = self.extract_tag(&right);
                 let l_data = self.extract_data(&left);
                 let r_data = self.extract_data(&right);
-                let cmp = self.builder.build_int_compare(
-                    inkwell::IntPredicate::SLT, l_data, r_data, "lt"
+                let tag_eq = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ, l_tag, r_tag, "tageq",
                 ).map_err(|e| e.to_string())?;
-                let result = self.builder.build_int_z_extend(cmp, i64, "ltext")
-                    .map_err(|e| e.to_string())?;
+                let data_eq = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ, l_data, r_data, "dataeq",
+                ).map_err(|e| e.to_string())?;
+                let eq = self.builder.build_and(tag_eq, data_eq, "eq").map_err(|e| e.to_string())?;
+                let ne = self.builder.build_not(eq, "ne").map_err(|e| e.to_string())?;
+                let result = self.builder.build_int_z_extend(ne, i64, "neext").map_err(|e| e.to_string())?;
                 Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
             }
             _ => {
@@ -777,8 +858,11 @@ impl<'ctx> Codegen<'ctx> {
     /// Compile a function call.
     fn compile_call(&mut self, call: &CallExpr) -> Result<StructValue<'ctx>, String> {
         if let Expr::Ident(ident) = &call.callee {
-            let name = &ident.name;
-            if let Some(&(func, arity)) = self.functions.get(name) {
+            let mut name = ident.name.clone();
+            if name == "main" {
+                name = "coco_main".to_string();
+            }
+            if let Some(&(func, arity)) = self.functions.get(&name) {
                 let mut args: Vec<inkwell::values::BasicMetadataValueEnum> = Vec::new();
                 for arg in &call.args {
                     let val = self.compile_expr(&arg.value)?;
@@ -810,7 +894,7 @@ impl<'ctx> Codegen<'ctx> {
         // Call the Coco main() if it exists, and return its value's data field
         // as the process exit code. main() returns a {i64 tag, i64 data} struct;
         // for an int return, data holds the integer. If there's no main, exit 0.
-        if let Some(&(func, _)) = self.functions.get("main") {
+        if let Some(&(func, _)) = self.functions.get("coco_main") {
             let ret = self
                 .builder
                 .build_call(func, &[], "call_main")
