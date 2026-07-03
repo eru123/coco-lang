@@ -452,41 +452,41 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
         let mut codegen = coco_codegen::Codegen::new(&context, &resolved.file_stem()
             .unwrap_or_default()
             .to_string_lossy());
-        match codegen.generate(&program) {
-            Ok(()) => {
-                let obj_path = resolved.with_extension("o");
-                match codegen.compile_to_object(&obj_path.to_string_lossy()) {
-                    Ok(()) => {
-                        // Link: cc obj.o -o binary, linking the coco_rt
-                        // static runtime (provides coco_rt_alloc) produced by
-                        // the coco_rt crate's staticlib output.
-                        let bin_path = resolved.with_extension("");
-                        let rt_archive = locate_coco_rt();
-                        let mut cmd = std::process::Command::new("cc");
-                        cmd.arg(&obj_path);
-                        if let Some(rt) = &rt_archive {
-                            cmd.arg(rt);
-                        }
-                        cmd.arg("-o").arg(&bin_path);
-                        let status = cmd.status();
-                        match status {
-                            Ok(s) if s.success() => {
-                                println!("Compiled {} -> {}", resolved.display(), bin_path.display());
-                                let _ = std::fs::remove_file(&obj_path);
-                            }
-                            _ => eprintln!("Linking failed"),
-                        }
-                    }
-                    Err(e) => eprintln!("LLVM codegen error: {}", e),
-                }
+        let obj_path = resolved.with_extension("o");
+        let result = (|| -> Result<(), String> {
+            codegen.generate(&program)?;
+            codegen.compile_to_object(&obj_path.to_string_lossy())?;
+            // Link: cc obj.o -o binary, linking the coco_rt static runtime
+            // (provides coco_rt_alloc) produced by the coco_rt crate's
+            // staticlib output.
+            let bin_path = resolved.with_extension("");
+            let rt_archive = locate_coco_rt();
+            let mut cmd = std::process::Command::new("cc");
+            cmd.arg(&obj_path);
+            if let Some(rt) = &rt_archive {
+                cmd.arg(rt);
             }
-            Err(e) => eprintln!("Codegen error: {}", e),
+            cmd.arg("-o").arg(&bin_path);
+            let status = cmd.status().map_err(|e| format!("failed to run linker: {}", e))?;
+            if !status.success() {
+                return Err("linking failed".to_string());
+            }
+            println!("Compiled {} -> {}", resolved.display(), bin_path.display());
+            let _ = std::fs::remove_file(&obj_path);
+            Ok(())
+        })();
+        if let Err(e) = result {
+            // Clean up any partial object file on failure.
+            let _ = std::fs::remove_file(&obj_path);
+            eprintln!("Codegen error: {}", e);
+            std::process::exit(1);
         }
         } // end #[cfg(feature = "native")]
         #[cfg(not(feature = "native"))]
         {
             eprintln!("Native compilation requires LLVM — rebuild with: cargo build --features native");
             eprintln!("Set LLVM_SYS_180_PREFIX=/usr/lib/llvm-18 and ensure Polly is available.");
+            std::process::exit(1);
         }
         return;
     }

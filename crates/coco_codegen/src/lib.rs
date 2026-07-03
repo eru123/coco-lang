@@ -15,6 +15,7 @@ mod native {
     use inkwell::builder::Builder;
     use inkwell::context::Context;
     use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+    use inkwell::basic_block::BasicBlock;
     use inkwell::module::Module;
     use inkwell::types::{BasicType, BasicTypeEnum, FunctionType, StructType};
     use inkwell::values::{
@@ -41,6 +42,10 @@ pub struct Codegen<'ctx> {
     /// Compiled classes: name -> (struct type, ordered property names).
     /// The struct type is a packed layout of Value (i64,i64) per property.
     classes: HashMap<String, (StructType<'ctx>, Vec<String>)>,
+    /// Loop context stack for `break`/`continue`: each entry is
+    /// `(continue_target, break_target)`. Pushed on loop entry, popped on
+    /// exit. Empty outside a loop, so `break`/`continue` error there.
+    loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
 }
 
 /// The Coco runtime value represented as an LLVM struct: { i64 tag, [data] }
@@ -71,6 +76,7 @@ impl<'ctx> Codegen<'ctx> {
             current_fn: None,
             runtime_struct: None,
             classes: HashMap::new(),
+            loop_stack: Vec::new(),
         }
     }
 
@@ -107,16 +113,47 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
 
-        // Second pass: compile function bodies
+        // Second pass: compile function bodies. Pure declarations (imports,
+        // type aliases, interfaces, traits, enums, top-level const/let) need
+        // no codegen and are intentionally skipped; executable top-level items
+        // (bare expressions/statements) are not supported at module scope and
+        // must live inside a function.
         for item in &program.items {
             match item {
                 Item::FnDecl(fn_decl) => self.compile_fn_decl(fn_decl)?,
-                Item::Export(export) => {
-                    if let Item::FnDecl(fd) = &*export.item {
-                        self.compile_fn_decl(fd)?;
+                Item::Export(export) => match &*export.item {
+                    Item::FnDecl(fd) => self.compile_fn_decl(fd)?,
+                    Item::ClassDecl(_) => { /* handled in the class pass below */ }
+                    // Exported declarations (const/let/type/import/...) emit no code.
+                    Item::ConstDecl(_)
+                    | Item::LetDecl(_)
+                    | Item::TypeAlias(_)
+                    | Item::Import(_)
+                    | Item::InterfaceDecl(_)
+                    | Item::TraitDecl(_)
+                    | Item::EnumDecl(_) => {}
+                    other => {
+                        return Err(format!(
+                            "unsupported top-level export in native codegen: {}",
+                            item_kind(other)
+                        ))
                     }
+                },
+                // Pure declarations — no codegen.
+                Item::ConstDecl(_)
+                | Item::LetDecl(_)
+                | Item::TypeAlias(_)
+                | Item::Import(_)
+                | Item::InterfaceDecl(_)
+                | Item::TraitDecl(_)
+                | Item::EnumDecl(_) => {}
+                Item::ClassDecl(_) => { /* handled in the class pass below */ }
+                other => {
+                    return Err(format!(
+                        "unsupported top-level item in native codegen: {}",
+                        item_kind(other)
+                    ))
                 }
-                _ => {}
             }
         }
 
@@ -243,13 +280,23 @@ impl<'ctx> Codegen<'ctx> {
             Stmt::While(while_stmt) => {
                 self.compile_while(while_stmt)?;
             }
+            Stmt::Loop(loop_stmt) => self.compile_loop(loop_stmt)?,
+            Stmt::DoWhile(dw) => self.compile_do_while(dw)?,
+            Stmt::For(for_stmt) => self.compile_for(for_stmt)?,
+            Stmt::Break(_) => self.compile_break()?,
+            Stmt::Continue(_) => self.compile_continue()?,
             Stmt::Item(item) => match &**item {
                 Item::LetDecl(let_decl) => self.compile_let_decl(let_decl)?,
                 Item::ConstDecl(const_decl) => self.compile_const_decl(const_decl)?,
+                // Other nested items (nested fn, import, ...) are declarations
+                // that need no statement-level codegen here.
                 _ => {}
             },
-            _ => {
-                // Other statement types not yet compiled
+            other => {
+                return Err(format!(
+                    "unsupported statement in native codegen: {}",
+                    stmt_kind(other)
+                ))
             }
         }
         Ok(())
@@ -285,10 +332,36 @@ impl<'ctx> Codegen<'ctx> {
         Ok(())
     }
 
-    /// Compile an if statement: condition ? then : else.
+    /// Compile an if/else-if/else statement. Each branch that falls through
+    /// joins a shared merge block; branches that return/break don't.
     fn compile_if(&mut self, if_stmt: &IfStmt) -> Result<(), String> {
-        let cond_val = self.compile_expr(&if_stmt.condition)?;
-        let cond = self.extract_data(&cond_val);  // bool truthiness is in data (0/1), not tag
+        let merge_block = self.context.append_basic_block(self.current_fn.unwrap(), "ifmerge");
+        self.compile_if_branch(
+            &if_stmt.condition,
+            &if_stmt.then_block,
+            &if_stmt.else_ifs,
+            &if_stmt.else_block,
+            merge_block,
+        )?;
+        // Position at the merge block. (It may be unreachable if every branch
+        // returned; LLVM allows an unreachable block with no predecessors.)
+        self.builder.position_at_end(merge_block);
+        Ok(())
+    }
+
+    /// Compile one `if`/`else if` branch: `cond ? then_block : <rest>`.
+    /// `rest` is the remaining else-if chain (recursed) plus the final else
+    /// block. Falling-through branches jump to `merge_block`.
+    fn compile_if_branch(
+        &mut self,
+        cond: &Expr,
+        then_block: &Block,
+        else_ifs: &[ElseIf],
+        else_block: &Option<Block>,
+        merge_block: BasicBlock<'ctx>,
+    ) -> Result<(), String> {
+        let cond_val = self.compile_expr(cond)?;
+        let cond = self.extract_data(&cond_val); // bool truthiness is in data (0/1), not tag
         let is_true = self.builder.build_int_compare(
             inkwell::IntPredicate::NE,
             cond,
@@ -296,30 +369,30 @@ impl<'ctx> Codegen<'ctx> {
             "ifcond",
         ).map_err(|e| e.to_string())?;
 
-        let then_block = self.context.append_basic_block(self.current_fn.unwrap(), "then");
-        let else_block = self.context.append_basic_block(self.current_fn.unwrap(), "else");
-        let merge_block = self.context.append_basic_block(self.current_fn.unwrap(), "ifmerge");
+        let then_bb = self.context.append_basic_block(self.current_fn.unwrap(), "then");
+        let else_bb = self.context.append_basic_block(self.current_fn.unwrap(), "else");
+        self.builder.build_conditional_branch(is_true, then_bb, else_bb).map_err(|e| e.to_string())?;
 
-        self.builder.build_conditional_branch(is_true, then_block, else_block).map_err(|e| e.to_string())?;
-
-        // Then block
-        self.builder.position_at_end(then_block);
-        self.compile_block(&if_stmt.then_block)?;
-        // Only branch to merge if the then-body didn't already return/break.
+        // Then block.
+        self.builder.position_at_end(then_bb);
+        self.compile_block(then_block)?;
         if !self.block_terminated() {
             self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
         }
 
-        // Else block
-        self.builder.position_at_end(else_block);
-        if let Some(ref else_block) = if_stmt.else_block {
-            self.compile_block(else_block)?;
-        }
-        if !self.block_terminated() {
+        // Else block: recurse into the next else-if, or compile the final else,
+        // or fall straight through to merge if there's neither.
+        self.builder.position_at_end(else_bb);
+        if let Some((next, rest)) = else_ifs.split_first() {
+            self.compile_if_branch(&next.condition, &next.block, rest, else_block, merge_block)?;
+        } else if let Some(eb) = else_block {
+            self.compile_block(eb)?;
+            if !self.block_terminated() {
+                self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+            }
+        } else {
             self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
         }
-
-        self.builder.position_at_end(merge_block);
         Ok(())
     }
 
@@ -354,7 +427,8 @@ impl<'ctx> Codegen<'ctx> {
         Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
     }
 
-    /// Compile a while loop.
+    /// Compile a while loop. `continue` jumps to the condition block (so the
+    /// condition is re-evaluated); `break` jumps to the end block.
     fn compile_while(&mut self, while_stmt: &WhileStmt) -> Result<(), String> {
         let cond_block = self.context.append_basic_block(self.current_fn.unwrap(), "whilecond");
         let body_block = self.context.append_basic_block(self.current_fn.unwrap(), "whilebody");
@@ -374,13 +448,185 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.build_conditional_branch(is_true, body_block, end_block).map_err(|e| e.to_string())?;
 
         self.builder.position_at_end(body_block);
+        // `continue` re-checks the condition; `break` exits.
+        self.loop_stack.push((cond_block, end_block));
         self.compile_block(&while_stmt.body)?;
-        // Only loop back if the body didn't return/break.
+        self.loop_stack.pop();
+        // Only loop back if the body didn't already return/break.
         if !self.block_terminated() {
             self.builder.build_unconditional_branch(cond_block).map_err(|e| e.to_string())?;
         }
 
         self.builder.position_at_end(end_block);
+        Ok(())
+    }
+
+    /// Compile an infinite `loop { body }`. `continue` jumps to the body
+    /// (there is no condition); `break` jumps to the end block.
+    fn compile_loop(&mut self, loop_stmt: &LoopStmt) -> Result<(), String> {
+        let body_block = self.context.append_basic_block(self.current_fn.unwrap(), "loopbody");
+        let end_block = self.context.append_basic_block(self.current_fn.unwrap(), "loopend");
+
+        self.builder.build_unconditional_branch(body_block).map_err(|e| e.to_string())?;
+
+        self.builder.position_at_end(body_block);
+        self.loop_stack.push((body_block, end_block));
+        self.compile_block(&loop_stmt.body)?;
+        self.loop_stack.pop();
+        // An unterminated `loop` body loops forever.
+        if !self.block_terminated() {
+            self.builder.build_unconditional_branch(body_block).map_err(|e| e.to_string())?;
+        }
+
+        self.builder.position_at_end(end_block);
+        Ok(())
+    }
+
+    /// Compile a `do { body } while (cond)`. The body runs at least once;
+    /// `continue` jumps to the body (the trailing condition still runs
+    /// afterwards), `break` jumps to the end.
+    fn compile_do_while(&mut self, dw: &DoWhileStmt) -> Result<(), String> {
+        let body_block = self.context.append_basic_block(self.current_fn.unwrap(), "dowhilebody");
+        let cond_block = self.context.append_basic_block(self.current_fn.unwrap(), "dowhilecond");
+        let end_block = self.context.append_basic_block(self.current_fn.unwrap(), "dowhileend");
+
+        self.builder.build_unconditional_branch(body_block).map_err(|e| e.to_string())?;
+
+        self.builder.position_at_end(body_block);
+        // `continue` re-enters the body (cond still runs after); `break` exits.
+        self.loop_stack.push((body_block, end_block));
+        self.compile_block(&dw.body)?;
+        self.loop_stack.pop();
+        if !self.block_terminated() {
+            self.builder.build_unconditional_branch(cond_block).map_err(|e| e.to_string())?;
+        }
+
+        self.builder.position_at_end(cond_block);
+        let cond_val = self.compile_expr(&dw.condition)?;
+        let cond = self.extract_data(&cond_val);
+        let is_true = self.builder.build_int_compare(
+            inkwell::IntPredicate::NE,
+            cond,
+            self.context.i64_type().const_int(0, false),
+            "dowhilecond",
+        ).map_err(|e| e.to_string())?;
+        self.builder.build_conditional_branch(is_true, body_block, end_block).map_err(|e| e.to_string())?;
+
+        self.builder.position_at_end(end_block);
+        Ok(())
+    }
+
+    /// Compile a `for x in iterable { body }`. Only **range** iterables
+    /// (`a..b`, `a..=b`) are supported natively — they lower to an integer
+    /// counter loop with no runtime list allocation. Other iterables (lists,
+    /// maps, strings) need runtime support not yet present and error clearly.
+    /// `continue` jumps to the increment/condition check; `break` exits.
+    fn compile_for(&mut self, for_stmt: &ForStmt) -> Result<(), String> {
+        // Recognise `EXPR .. EXPR` / `EXPR ..= EXPR` directly in the AST so we
+        // never materialise a runtime range/list.
+        let (start_expr, end_expr, inclusive) = match &for_stmt.iterable {
+            Expr::Binary(bin) => match bin.op {
+                BinaryOp::Range => (&bin.left, &bin.right, false),
+                BinaryOp::RangeInclusive => (&bin.left, &bin.right, true),
+                _ => return Err(
+                    "for-in over non-range iterables is not supported in native codegen yet \
+                     (needs runtime list support)"
+                        .to_string(),
+                ),
+            },
+            _ => return Err(
+                "for-in over non-range iterables is not supported in native codegen yet \
+                 (needs runtime list support)"
+                    .to_string(),
+            ),
+        };
+
+        let fn_val = self.current_fn.unwrap();
+        let i64 = self.context.i64_type();
+
+        // Evaluate the range bounds once, before the loop.
+        let start_val = self.compile_expr(start_expr)?;
+        let end_val = self.compile_expr(end_expr)?;
+        let start_data = self.extract_data(&start_val);
+        let end_data = self.extract_data(&end_val);
+
+        // Hidden counter alloca, initialised to `start`.
+        let counter = self.builder.build_alloca(i64, "foridx").map_err(|e| e.to_string())?;
+        self.builder.build_store(counter, start_data).map_err(|e| e.to_string())?;
+
+        let cond_block = self.context.append_basic_block(fn_val, "forcond");
+        let body_block = self.context.append_basic_block(fn_val, "forbody");
+        let inc_block = self.context.append_basic_block(fn_val, "forinc");
+        let end_block = self.context.append_basic_block(fn_val, "forend");
+
+        self.builder.build_unconditional_branch(cond_block).map_err(|e| e.to_string())?;
+
+        // Condition: counter < end (exclusive) or counter <= end (inclusive).
+        self.builder.position_at_end(cond_block);
+        let cur = self.builder.build_load(i64, counter, "forcur").map_err(|e| e.to_string())?.into_int_value();
+        let pred = if inclusive {
+            inkwell::IntPredicate::SLE
+        } else {
+            inkwell::IntPredicate::SLT
+        };
+        let keep = self.builder.build_int_compare(pred, cur, end_data, "forcmp").map_err(|e| e.to_string())?;
+        self.builder.build_conditional_branch(keep, body_block, end_block).map_err(|e| e.to_string())?;
+
+        // Body: bind the loop variable to the current counter value.
+        self.builder.position_at_end(body_block);
+        let cur_for_var = self.builder.build_load(i64, counter, "forvar").map_err(|e| e.to_string())?.into_int_value();
+        let var_val = self.build_value(i64.const_int(TAG_INT, false), cur_for_var);
+        let var_alloca = self.builder.build_alloca(self.value_type, &for_stmt.pattern.name).map_err(|e| e.to_string())?;
+        self.builder.build_store(var_alloca, var_val).map_err(|e| e.to_string())?;
+        // Save any pre-existing binding of the same name to restore after the loop.
+        let prev = self.locals.insert(for_stmt.pattern.name.clone(), var_alloca);
+        // `continue` runs the increment; `break` exits.
+        self.loop_stack.push((inc_block, end_block));
+        self.compile_block(&for_stmt.body)?;
+        self.loop_stack.pop();
+        // Restore the previous binding (if any).
+        if let Some(p) = prev {
+            self.locals.insert(for_stmt.pattern.name.clone(), p);
+        } else {
+            self.locals.remove(&for_stmt.pattern.name);
+        }
+        if !self.block_terminated() {
+            self.builder.build_unconditional_branch(inc_block).map_err(|e| e.to_string())?;
+        }
+
+        // Increment: counter += 1.
+        self.builder.position_at_end(inc_block);
+        let cur = self.builder.build_load(i64, counter, "forinc_cur").map_err(|e| e.to_string())?.into_int_value();
+        let one = i64.const_int(1, false);
+        let next = self.builder.build_int_add(cur, one, "fornext").map_err(|e| e.to_string())?;
+        self.builder.build_store(counter, next).map_err(|e| e.to_string())?;
+        self.builder.build_unconditional_branch(cond_block).map_err(|e| e.to_string())?;
+
+        self.builder.position_at_end(end_block);
+        Ok(())
+    }
+
+    /// `break` — jump to the innermost loop's break target. Errors outside a
+    /// loop, matching the interpreter (`compiler.rs` compile_break).
+    fn compile_break(&mut self) -> Result<(), String> {
+        let (_, break_block) = self
+            .loop_stack
+            .last()
+            .copied()
+            .ok_or_else(|| "break outside loop".to_string())?;
+        self.builder.build_unconditional_branch(break_block).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// `continue` — jump to the innermost loop's continue target. Errors
+    /// outside a loop.
+    fn compile_continue(&mut self) -> Result<(), String> {
+        let (continue_block, _) = self
+            .loop_stack
+            .last()
+            .copied()
+            .ok_or_else(|| "continue outside loop".to_string())?;
+        self.builder.build_unconditional_branch(continue_block).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -398,13 +644,10 @@ impl<'ctx> Codegen<'ctx> {
             Expr::NullCoalesce(nc) => self.compile_null_coalesce(nc),
             Expr::Array(arr) => self.compile_array(arr),
             Expr::Group(inner) => self.compile_expr(inner),
-            _ => {
-                // Return null for unsupported expressions
-                Ok(self.build_value(
-                    self.context.i64_type().const_int(TAG_NULL, false),
-                    self.context.i64_type().const_int(0, false),
-                ))
-            }
+            other => Err(format!(
+                "unsupported expression in native codegen: {}",
+                expr_kind(other)
+            )),
         }
     }
 
@@ -428,29 +671,25 @@ impl<'ctx> Codegen<'ctx> {
                 let result = self.builder.build_int_z_extend(is_zero, i64, "not").map_err(|e| e.to_string())?;
                 Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
             }
-            _ => {
-                // typeof, await, lazy — return null for now.
-                Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+            UnaryOp::BitNot => {
+                let data = self.extract_data(&operand);
+                let result = self.builder.build_not(data, "bitnot").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), result))
             }
+            other => Err(format!("unsupported unary op in native codegen: {:?}", other)),
         }
     }
 
     /// Compile an index expression (list[i] or map["k"]).
-    fn compile_index(&mut self, idx: &IndexExpr) -> Result<StructValue<'ctx>, String> {
+    fn compile_index(&mut self, _idx: &IndexExpr) -> Result<StructValue<'ctx>, String> {
         // Indexing requires runtime list/map support not yet in coco_rt.
-        // Compile the operands for side effects, then return null.
-        self.compile_expr(&idx.object)?;
-        self.compile_expr(&idx.index)?;
-        let i64 = self.context.i64_type();
-        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+        Err("indexing (a[i]) is not yet supported in native codegen".to_string())
     }
 
     /// Compile a member-access expression (obj.prop).
-    fn compile_member(&mut self, mem: &MemberExpr) -> Result<StructValue<'ctx>, String> {
+    fn compile_member(&mut self, _mem: &MemberExpr) -> Result<StructValue<'ctx>, String> {
         // Member access requires runtime object support not yet in coco_rt.
-        self.compile_expr(&mem.object)?;
-        let i64 = self.context.i64_type();
-        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+        Err("member access (a.b) is not yet supported in native codegen".to_string())
     }
 
     /// Compile a ternary expression (cond ? then : else).
@@ -519,14 +758,9 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     /// Compile an array/list literal.
-    fn compile_array(&mut self, arr: &ArrayLiteral) -> Result<StructValue<'ctx>, String> {
-        // Compile each element for side effects; list construction needs
-        // runtime support not yet in coco_rt. Return null.
-        for el in &arr.elements {
-            self.compile_expr(el)?;
-        }
-        let i64 = self.context.i64_type();
-        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+    fn compile_array(&mut self, _arr: &ArrayLiteral) -> Result<StructValue<'ctx>, String> {
+        // List construction needs runtime support not yet in coco_rt.
+        Err("array literals are not yet supported in native codegen".to_string())
     }
 
     /// First pass for a class: define the LLVM struct type for its property
@@ -747,8 +981,11 @@ impl<'ctx> Codegen<'ctx> {
                 Ok(ptr)
             }
             Literal::Char(c, _) => {
+                // A char is represented by its Unicode scalar value as an int.
+                // (There's no dedicated char runtime type yet; this is
+                // consistent with the i64 value model and safe for int ops.)
                 Ok(self.build_value(
-                    i64.const_int(TAG_STRING, false),
+                    i64.const_int(TAG_INT, false),
                     i64.const_int(*c as u64, false),
                 ))
             }
@@ -763,32 +1000,38 @@ impl<'ctx> Codegen<'ctx> {
                 .into_struct_value();
             Ok(val)
         } else {
-            // Undefined variable — return null
-            Ok(self.build_value(
-                self.context.i64_type().const_int(TAG_NULL, false),
-                self.context.i64_type().const_int(0, false),
-            ))
+            Err(format!("undefined variable '{}' in native codegen", ident.name))
         }
     }
 
     /// Compile a binary expression.
     fn compile_binary(&mut self, bin: &BinaryExpr) -> Result<StructValue<'ctx>, String> {
+        let i64 = self.context.i64_type();
+
+        // Short-circuiting logical ops must NOT eagerly evaluate the RHS, so
+        // handle them before compiling `right`. Ranges are only meaningful as
+        // `for`-loop iterables; as a value expression they're unsupported.
+        match bin.op {
+            BinaryOp::And => return self.compile_short_circuit(bin, false),
+            BinaryOp::Or => return self.compile_short_circuit(bin, true),
+            BinaryOp::Range | BinaryOp::RangeInclusive => {
+                return Err(
+                    "ranges are only supported as a for-in iterable in native codegen".to_string(),
+                )
+            }
+            _ => {}
+        }
+
         let left = self.compile_expr(&bin.left)?;
         let right = self.compile_expr(&bin.right)?;
-        let i64 = self.context.i64_type();
 
         match bin.op {
             BinaryOp::Add => {
-                let l_tag = self.extract_tag(&left);
-                let r_tag = self.extract_tag(&right);
                 let l_data = self.extract_data(&left);
                 let r_data = self.extract_data(&right);
                 let result_data = self.builder.build_int_add(l_data, r_data, "add")
                     .map_err(|e| e.to_string())?;
-                Ok(self.build_value(
-                    i64.const_int(TAG_INT, false),
-                    result_data,
-                ))
+                Ok(self.build_value(i64.const_int(TAG_INT, false), result_data))
             }
             BinaryOp::Sub => {
                 let l_data = self.extract_data(&left);
@@ -810,6 +1053,44 @@ impl<'ctx> Codegen<'ctx> {
                 let result_data = self.builder.build_int_signed_div(l_data, r_data, "div")
                     .map_err(|e| e.to_string())?;
                 Ok(self.build_value(i64.const_int(TAG_INT, false), result_data))
+            }
+            BinaryOp::Mod => {
+                let l_data = self.extract_data(&left);
+                let r_data = self.extract_data(&right);
+                let result_data = self.builder.build_int_signed_rem(l_data, r_data, "mod")
+                    .map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), result_data))
+            }
+            BinaryOp::BitAnd => {
+                let l_data = self.extract_data(&left);
+                let r_data = self.extract_data(&right);
+                let r = self.builder.build_and(l_data, r_data, "bitand").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), r))
+            }
+            BinaryOp::BitOr => {
+                let l_data = self.extract_data(&left);
+                let r_data = self.extract_data(&right);
+                let r = self.builder.build_or(l_data, r_data, "bitor").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), r))
+            }
+            BinaryOp::BitXor => {
+                let l_data = self.extract_data(&left);
+                let r_data = self.extract_data(&right);
+                let r = self.builder.build_xor(l_data, r_data, "bitxor").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), r))
+            }
+            BinaryOp::Shl => {
+                let l_data = self.extract_data(&left);
+                let r_data = self.extract_data(&right);
+                let r = self.builder.build_left_shift(l_data, r_data, "shl").map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), r))
+            }
+            BinaryOp::Shr => {
+                let l_data = self.extract_data(&left);
+                let r_data = self.extract_data(&right);
+                let r = self.builder.build_right_shift(l_data, r_data, false, "shr")
+                    .map_err(|e| e.to_string())?;
+                Ok(self.build_value(i64.const_int(TAG_INT, false), r))
             }
             BinaryOp::Eq => {
                 let l_tag = self.extract_tag(&left);
@@ -863,11 +1144,62 @@ impl<'ctx> Codegen<'ctx> {
             | BinaryOp::BitAndAssign
             | BinaryOp::BitOrAssign
             | BinaryOp::BitXorAssign => self.compile_assign(bin),
-            _ => {
-                // Unsupported binary op — return null
-                Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
-            }
+            other => Err(format!("unsupported binary op in native codegen: {:?}", other)),
         }
+    }
+
+    /// Compile a short-circuiting logical `&&` (`is_or = false`) or `||`
+    /// (`is_or = true`). The RHS is only evaluated if the LHS doesn't decide
+    /// the result. Yields a Bool Value (data 0/1).
+    fn compile_short_circuit(
+        &mut self,
+        bin: &BinaryExpr,
+        is_or: bool,
+    ) -> Result<StructValue<'ctx>, String> {
+        let i64 = self.context.i64_type();
+        let fn_val = self.current_fn.unwrap();
+        let lhs = self.compile_expr(&bin.left)?;
+        let lhs_true = self.builder.build_int_compare(
+            inkwell::IntPredicate::NE,
+            self.extract_data(&lhs),
+            i64.const_int(0, false),
+            "sc_lhs",
+        ).map_err(|e| e.to_string())?;
+
+        let rhs_block = self.context.append_basic_block(fn_val, "sc_rhs");
+        let merge_block = self.context.append_basic_block(fn_val, "sc_merge");
+        // `&&`: if lhs is false, short-circuit to merge with false.
+        // `||`: if lhs is true, short-circuit to merge with true.
+        if is_or {
+            self.builder.build_conditional_branch(lhs_true, merge_block, rhs_block).map_err(|e| e.to_string())?;
+        } else {
+            self.builder.build_conditional_branch(lhs_true, rhs_block, merge_block).map_err(|e| e.to_string())?;
+        }
+
+        // Record which block took the short-circuit path, for the phi.
+        let short_block = self.builder.get_insert_block().unwrap();
+
+        // RHS block: evaluate the RHS as the result.
+        self.builder.position_at_end(rhs_block);
+        let rhs = self.compile_expr(&bin.right)?;
+        let rhs_true = self.builder.build_int_compare(
+            inkwell::IntPredicate::NE,
+            self.extract_data(&rhs),
+            i64.const_int(0, false),
+            "sc_rhs",
+        ).map_err(|e| e.to_string())?;
+        // Extend the i1 to i64 so the phi operands match the short-circuit
+        // constant type.
+        let rhs_val = self.builder.build_int_z_extend(rhs_true, i64, "sc_rhs_ext").map_err(|e| e.to_string())?;
+        self.builder.build_unconditional_branch(merge_block).map_err(|e| e.to_string())?;
+        let rhs_end_block = self.builder.get_insert_block().unwrap();
+
+        // Merge: phi over the short-circuit value and the RHS value.
+        self.builder.position_at_end(merge_block);
+        let phi = self.builder.build_phi(i64, "sc_result").map_err(|e| e.to_string())?;
+        let short_val = i64.const_int(if is_or { 1 } else { 0 }, false);
+        phi.add_incoming(&[(&short_val, short_block), (&rhs_val, rhs_end_block)]);
+        Ok(self.build_value(i64.const_int(TAG_BOOL, false), phi.as_basic_value().into_int_value()))
     }
 
     /// Compile an assignment represented as a `BinaryExpr` with an assignment
@@ -906,7 +1238,7 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Apply a compound assignment op to `current` and `rhs`, returning the
     /// resulting Value. Mirrors `compile_binary` for the supported arithmetic
-    /// ops; unsupported compound ops fall back to the plain rhs.
+    /// and bitwise ops.
     fn apply_compound(
         &self,
         op: BinaryOp,
@@ -917,49 +1249,56 @@ impl<'ctx> Codegen<'ctx> {
         let l = self.extract_data(&current);
         let r = self.extract_data(&rhs);
         let data = match op {
-            BinaryOp::AddAssign => {
-                self.builder.build_int_add(l, r, "add").map_err(|e| e.to_string())?
+            BinaryOp::AddAssign => self.builder.build_int_add(l, r, "add").map_err(|e| e.to_string())?,
+            BinaryOp::SubAssign => self.builder.build_int_sub(l, r, "sub").map_err(|e| e.to_string())?,
+            BinaryOp::MulAssign => self.builder.build_int_mul(l, r, "mul").map_err(|e| e.to_string())?,
+            BinaryOp::DivAssign => self.builder.build_int_signed_div(l, r, "div").map_err(|e| e.to_string())?,
+            BinaryOp::ModAssign => self.builder.build_int_signed_rem(l, r, "mod").map_err(|e| e.to_string())?,
+            BinaryOp::BitAndAssign => self.builder.build_and(l, r, "bitand").map_err(|e| e.to_string())?,
+            BinaryOp::BitOrAssign => self.builder.build_or(l, r, "bitor").map_err(|e| e.to_string())?,
+            BinaryOp::BitXorAssign => self.builder.build_xor(l, r, "bitxor").map_err(|e| e.to_string())?,
+            BinaryOp::ShlAssign => self.builder.build_left_shift(l, r, "shl").map_err(|e| e.to_string())?,
+            BinaryOp::ShrAssign => self.builder.build_right_shift(l, r, false, "shr").map_err(|e| e.to_string())?,
+            BinaryOp::PowAssign => {
+                return Err("**= is not supported in native codegen yet".to_string())
             }
-            BinaryOp::SubAssign => {
-                self.builder.build_int_sub(l, r, "sub").map_err(|e| e.to_string())?
-            }
-            BinaryOp::MulAssign => {
-                self.builder.build_int_mul(l, r, "mul").map_err(|e| e.to_string())?
-            }
-            BinaryOp::DivAssign => {
-                self.builder.build_int_signed_div(l, r, "div").map_err(|e| e.to_string())?
-            }
-            _ => return Ok(rhs),
+            other => return Err(format!("unsupported compound assignment op: {:?}", other)),
         };
         Ok(self.build_value(i64.const_int(TAG_INT, false), data))
     }
 
     /// Compile a function call.
     fn compile_call(&mut self, call: &CallExpr) -> Result<StructValue<'ctx>, String> {
-        if let Expr::Ident(ident) = &call.callee {
-            let mut name = ident.name.clone();
-            if name == "main" {
-                name = "coco_main".to_string();
+        let ident = match &call.callee {
+            Expr::Ident(ident) => ident,
+            _ => {
+                return Err(
+                    "calls on non-identifier callees are not supported in native codegen".to_string(),
+                )
             }
-            if let Some(&(func, arity)) = self.functions.get(&name) {
-                let mut args: Vec<inkwell::values::BasicMetadataValueEnum> = Vec::new();
-                for arg in &call.args {
-                    let val = self.compile_expr(&arg.value)?;
-                    let tag = self.extract_tag(&val);
-                    let data = self.extract_data(&val);
-                    args.push(tag.into());
-                    args.push(data.into());
-                }
-                let result = self.builder.build_call(func, &args, "call").map_err(|e| e.to_string())?;
-                match result.try_as_basic_value().left() {
-                    Some(val) if val.is_struct_value() => return Ok(val.into_struct_value()),
-                    _ => {}
-                }
-            }
+        };
+        let mut name = ident.name.clone();
+        if name == "main" {
+            name = "coco_main".to_string();
         }
-        // Unknown function — return null
-        let i64 = self.context.i64_type();
-        Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
+        let (func, _arity) = self
+            .functions
+            .get(&name)
+            .copied()
+            .ok_or_else(|| format!("call to unknown function '{}' in native codegen", ident.name))?;
+        let mut args: Vec<inkwell::values::BasicMetadataValueEnum> = Vec::new();
+        for arg in &call.args {
+            let val = self.compile_expr(&arg.value)?;
+            let tag = self.extract_tag(&val);
+            let data = self.extract_data(&val);
+            args.push(tag.into());
+            args.push(data.into());
+        }
+        let result = self.builder.build_call(func, &args, "call").map_err(|e| e.to_string())?;
+        match result.try_as_basic_value().left() {
+            Some(val) if val.is_struct_value() => Ok(val.into_struct_value()),
+            _ => Err("function call did not return a value in native codegen".to_string()),
+        }
     }
 
     /// Generate a main() entry point that calls the Coco main() function.
@@ -1070,6 +1409,79 @@ impl<'ctx> Codegen<'ctx> {
         ).ok_or_else(|| "failed to create target machine".to_string())?;
         target_machine.write_to_file(&self.module, FileType::Object, std::path::Path::new(path))
             .map_err(|e| e.to_string())
+    }
+}
+
+/// Human-readable name for an `Item` variant, for error messages.
+fn item_kind(item: &Item) -> &'static str {
+    match item {
+        Item::FnDecl(_) => "fn declaration",
+        Item::ClassDecl(_) => "class declaration",
+        Item::InterfaceDecl(_) => "interface declaration",
+        Item::TraitDecl(_) => "trait declaration",
+        Item::EnumDecl(_) => "enum declaration",
+        Item::ConstDecl(_) => "const declaration",
+        Item::LetDecl(_) => "let declaration",
+        Item::TypeAlias(_) => "type alias",
+        Item::Import(_) => "import",
+        Item::Export(_) => "export",
+        Item::ExprStmt(_) => "top-level expression",
+        Item::Stmt(_) => "top-level statement",
+    }
+}
+
+/// Human-readable name for a `Stmt` variant, for error messages.
+fn stmt_kind(stmt: &Stmt) -> &'static str {
+    match stmt {
+        Stmt::Expr(_) => "expression statement",
+        Stmt::Item(_) => "item statement",
+        Stmt::If(_) => "if statement",
+        Stmt::For(_) => "for statement",
+        Stmt::While(_) => "while statement",
+        Stmt::DoWhile(_) => "do-while statement",
+        Stmt::Loop(_) => "loop statement",
+        Stmt::Return(_) => "return statement",
+        Stmt::Throw(_) => "throw statement",
+        Stmt::Try(_) => "try statement",
+        Stmt::Break(_) => "break statement",
+        Stmt::Continue(_) => "continue statement",
+        Stmt::Parallel(_) => "parallel statement",
+        Stmt::Coro(_) => "coro statement",
+        Stmt::Select(_) => "select statement",
+        Stmt::Unsafe(_) => "unsafe statement",
+        Stmt::Synchronized(_) => "synchronized statement",
+    }
+}
+
+/// Human-readable name for an `Expr` variant, for error messages.
+fn expr_kind(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Literal(_) => "literal",
+        Expr::Ident(_) => "identifier",
+        Expr::Binary(_) => "binary expression",
+        Expr::Unary(_) => "unary expression",
+        Expr::Call(_) => "call expression",
+        Expr::Index(_) => "index expression",
+        Expr::Member(_) => "member access",
+        Expr::Match(_) => "match expression",
+        Expr::Lambda(_) => "lambda",
+        Expr::Array(_) => "array literal",
+        Expr::Object(_) => "object literal",
+        Expr::This(_) => "this",
+        Expr::Dollar(_) => "$",
+        Expr::DollarDollar(_) => "$$",
+        Expr::Super(_) => "super",
+        Expr::New(_) => "new expression",
+        Expr::Ternary(_) => "ternary expression",
+        Expr::NullCoalesce(_) => "null-coalesce expression",
+        Expr::Elvis(_) => "elvis expression",
+        Expr::Pipe(_) => "pipe expression",
+        Expr::Assignment(_) => "assignment expression",
+        Expr::Postfix(_) => "postfix expression",
+        Expr::Group(_) => "grouped expression",
+        Expr::Parallel(_) => "parallel expression",
+        Expr::Template(_) => "template literal",
+        Expr::Lazy(_) => "lazy expression",
     }
 }
 } // end mod native
