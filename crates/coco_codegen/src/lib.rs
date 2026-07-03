@@ -136,10 +136,9 @@ impl<'ctx> Codegen<'ctx> {
     /// Declare external runtime functions.
     fn declare_runtime(&mut self) {
         let i64 = self.context.i64_type();
-        let void = self.context.void_type();
-        let ptr = self.context.ptr_type(AddressSpace::default());
-        // Runtime allocate: (tag, data) -> {i64,i64}*
-        let rt_alloc_type = self.context.i64_type().fn_type(&[i64.into(), i64.into()], false);
+        // Runtime allocate: (tag, data) -> {i64,i64}* (pointer to CocoValue).
+        let ret_type = self.value_type.ptr_type(AddressSpace::default());
+        let rt_alloc_type = ret_type.fn_type(&[i64.into(), i64.into()], false);
         self.module.add_function("coco_rt_alloc", rt_alloc_type, None);
     }
 
@@ -186,12 +185,20 @@ impl<'ctx> Codegen<'ctx> {
         // Compile body
         self.compile_block(&fn_decl.body)?;
 
-        // Default return null if no return
-        let null_val = self.build_value(
-            self.context.i64_type().const_int(TAG_NULL, false),
-            self.context.i64_type().const_int(0, false),
-        );
-        self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        // Default return null if the body didn't already terminate the block
+        // with a return. Emitting a return after a terminator is invalid IR.
+        let block_terminated = self
+            .builder
+            .get_insert_block()
+            .and_then(|b| b.get_terminator())
+            .is_some();
+        if !block_terminated {
+            let null_val = self.build_value(
+                self.context.i64_type().const_int(TAG_NULL, false),
+                self.context.i64_type().const_int(0, false),
+            );
+            self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        }
 
         self.current_fn = None;
         Ok(())
@@ -568,10 +575,17 @@ impl<'ctx> Codegen<'ctx> {
         // Compile the constructor body.
         self.compile_block(&ctor.body)?;
 
-        // Default return null.
+        // Default return null if the block didn't terminate.
         let i64 = self.context.i64_type();
-        let null_val = self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false));
-        self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        let block_terminated = self
+            .builder
+            .get_insert_block()
+            .and_then(|b| b.get_terminator())
+            .is_some();
+        if !block_terminated {
+            let null_val = self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false));
+            self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        }
         self.current_fn = None;
         let _ = (class_name, prop_names);
         Ok(())
@@ -615,8 +629,15 @@ impl<'ctx> Codegen<'ctx> {
         self.compile_block(&method.body)?;
 
         let i64 = self.context.i64_type();
-        let null_val = self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false));
-        self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        let block_terminated = self
+            .builder
+            .get_insert_block()
+            .and_then(|b| b.get_terminator())
+            .is_some();
+        if !block_terminated {
+            let null_val = self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false));
+            self.builder.build_return(Some(&null_val)).map_err(|e| e.to_string())?;
+        }
         self.current_fn = None;
         let _ = class_name;
         Ok(())
@@ -786,12 +807,22 @@ impl<'ctx> Codegen<'ctx> {
         let block = self.context.append_basic_block(entry, "entry");
         self.builder.position_at_end(block);
 
-        // Call the Coco main() if it exists
+        // Call the Coco main() if it exists, and return its value's data field
+        // as the process exit code. main() returns a {i64 tag, i64 data} struct;
+        // for an int return, data holds the integer. If there's no main, exit 0.
         if let Some(&(func, _)) = self.functions.get("main") {
-            self.builder.build_call(func, &[], "call_main").map_err(|e| e.to_string())?;
+            let ret = self
+                .builder
+                .build_call(func, &[], "call_main")
+                .map_err(|e| e.to_string())?
+                .try_as_basic_value()
+                .left()
+                .ok_or_else(|| "main() did not return a value".to_string())?;
+            let data = self.extract_data(&ret.into_struct_value());
+            self.builder.build_return(Some(&data)).map_err(|e| e.to_string())?;
+        } else {
+            self.builder.build_return(Some(&i64.const_int(0, false))).map_err(|e| e.to_string())?;
         }
-
-        self.builder.build_return(Some(&i64.const_int(0, false))).map_err(|e| e.to_string())?;
         Ok(())
     }
 
