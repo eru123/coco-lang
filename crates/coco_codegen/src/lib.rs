@@ -848,11 +848,90 @@ impl<'ctx> Codegen<'ctx> {
                 let result = self.builder.build_int_z_extend(ne, i64, "neext").map_err(|e| e.to_string())?;
                 Ok(self.build_value(i64.const_int(TAG_BOOL, false), result))
             }
+            // Assignments: `lhs = rhs`, `lhs += rhs`, ... The left operand is
+            // a target (an identifier), not a value to load — resolve it to its
+            // alloca, then store. Compound ops read the current value first.
+            BinaryOp::Assign
+            | BinaryOp::AddAssign
+            | BinaryOp::SubAssign
+            | BinaryOp::MulAssign
+            | BinaryOp::DivAssign
+            | BinaryOp::ModAssign
+            | BinaryOp::PowAssign
+            | BinaryOp::ShlAssign
+            | BinaryOp::ShrAssign
+            | BinaryOp::BitAndAssign
+            | BinaryOp::BitOrAssign
+            | BinaryOp::BitXorAssign => self.compile_assign(bin),
             _ => {
                 // Unsupported binary op — return null
                 Ok(self.build_value(i64.const_int(TAG_NULL, false), i64.const_int(0, false)))
             }
         }
+    }
+
+    /// Compile an assignment represented as a `BinaryExpr` with an assignment
+    /// op (the parser produces `a = b` as `BinaryOp::Assign`, not
+    /// `Expr::Assignment`). Only simple identifier targets are supported. The
+    /// result is the assigned value, matching Coco's expression semantics.
+    fn compile_assign(&mut self, bin: &BinaryExpr) -> Result<StructValue<'ctx>, String> {
+        let alloca = match &bin.left {
+            Expr::Ident(ident) => self
+                .locals
+                .get(&ident.name)
+                .copied()
+                .ok_or_else(|| format!("assignment to undeclared variable '{}'", ident.name))?,
+            _ => {
+                return Err("assignment to non-identifier targets is not supported".to_string())
+            }
+        };
+
+        let rhs = self.compile_expr(&bin.right)?;
+        let new_val = if bin.op == BinaryOp::Assign {
+            rhs
+        } else {
+            // Compound assignment: read current, apply the arithmetic op, store.
+            let current = self
+                .builder
+                .build_load(self.value_type, alloca, "cur")
+                .map_err(|e| e.to_string())?
+                .into_struct_value();
+            self.apply_compound(bin.op, current, rhs)?
+        };
+        self.builder
+            .build_store(alloca, new_val)
+            .map_err(|e| e.to_string())?;
+        Ok(new_val)
+    }
+
+    /// Apply a compound assignment op to `current` and `rhs`, returning the
+    /// resulting Value. Mirrors `compile_binary` for the supported arithmetic
+    /// ops; unsupported compound ops fall back to the plain rhs.
+    fn apply_compound(
+        &self,
+        op: BinaryOp,
+        current: StructValue<'ctx>,
+        rhs: StructValue<'ctx>,
+    ) -> Result<StructValue<'ctx>, String> {
+        let i64 = self.context.i64_type();
+        let l = self.extract_data(&current);
+        let r = self.extract_data(&rhs);
+        let data = match op {
+            BinaryOp::AddAssign => {
+                self.builder.build_int_add(l, r, "add").map_err(|e| e.to_string())?
+            }
+            BinaryOp::SubAssign => {
+                self.builder.build_int_sub(l, r, "sub").map_err(|e| e.to_string())?
+            }
+            BinaryOp::MulAssign => {
+                self.builder.build_int_mul(l, r, "mul").map_err(|e| e.to_string())?
+            }
+            BinaryOp::DivAssign => {
+                self.builder.build_int_signed_div(l, r, "div").map_err(|e| e.to_string())?
+            }
+            _ => return Ok(rhs),
+        };
+        Ok(self.build_value(i64.const_int(TAG_INT, false), data))
     }
 
     /// Compile a function call.
