@@ -7,8 +7,18 @@ use crate::types::Ty;
 use crate::unify::is_assignable;
 
 /// Infer the type of an expression given the current environment.
-/// Returns `Ty::Unknown` for expressions we cannot resolve.
+/// Returns `Ty::Unknown` for expressions we cannot resolve. Also records the
+/// inferred type into the environment's type map (keyed by the node's span) so
+/// the native codegen can specialize on statically-known types.
 pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
+    let ty = infer_expr_inner(expr, env);
+    env.record_type(expr.span(), ty.clone());
+    ty
+}
+
+/// The actual inference logic, without recording. `infer_expr` wraps this to
+/// record every node's type.
+fn infer_expr_inner(expr: &Expr, env: &TypeEnv) -> Ty {
     match expr {
         Expr::Literal(lit) => infer_literal(lit),
         Expr::Ident(ident) => env.lookup(&ident.name).cloned().unwrap_or(Ty::Unknown),

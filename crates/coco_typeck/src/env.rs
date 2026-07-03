@@ -1,7 +1,11 @@
 //! Type environment with scoped bindings and function signatures.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
+use coco_span::Span;
+
+use crate::typemap::TypeMap;
 use crate::types::Ty;
 
 /// A function signature used during type checking.
@@ -66,6 +70,10 @@ pub struct TypeEnv {
     shapes: HashMap<String, TypeShape>,
     /// Current `this`/`$` type stack while checking class or trait bodies.
     self_stack: Vec<Ty>,
+    /// Inferred types keyed by AST node span, recorded during inference so the
+    /// native codegen can specialize on statically-known types. Interior-mutable
+    /// so `infer_expr` (which takes `&TypeEnv`) can record into it.
+    types: RefCell<TypeMap>,
 }
 
 impl TypeEnv {
@@ -75,9 +83,23 @@ impl TypeEnv {
             functions: HashMap::new(),
             shapes: HashMap::new(),
             self_stack: Vec::new(),
+            types: RefCell::new(TypeMap::new()),
         };
         env.register_builtins();
         env
+    }
+
+    /// Record the inferred type for the node at `span`. Called from
+    /// `infer_expr` for every expression, building the type map the codegen
+    /// consumes for arithmetic specialization.
+    pub fn record_type(&self, span: Span, ty: Ty) {
+        self.types.borrow_mut().insert(span, ty);
+    }
+
+    /// Take the recorded type map out of the environment (replacing it with an
+    /// empty one). Used by `check()` to return the map in `TypeckResult`.
+    pub fn take_types(&self) -> TypeMap {
+        std::mem::take(&mut *self.types.borrow_mut())
     }
 
     fn register_builtins(&mut self) {

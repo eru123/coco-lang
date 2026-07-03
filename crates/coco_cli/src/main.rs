@@ -157,24 +157,13 @@ fn resolve_file_in(base: &Path, file: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Locate the `libcoco_rt.a` static archive produced by the `coco_rt` crate.
-///
-/// Searched relative to the current executable (the `coco` binary lives in
-/// `target/<profile>/coco`, and the archive in `target/<profile>/libcoco_rt.a`).
-/// Returns None if not found, in which case native linking proceeds without
-/// it (and will fail to resolve `coco_rt_alloc` if the codegen emits calls to
-/// it — surfacing the missing-runtime dependency clearly).
-fn locate_coco_rt() -> Option<std::path::PathBuf> {
-    // The `coco` binary lives in `target/<profile>/coco`; the coco_rt
-    // staticlib output is `target/<profile>/libcoco_rt.a`.
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let archive = dir.join("libcoco_rt.a");
-    if archive.exists() {
-        Some(archive)
-    } else {
-        None
-    }
+/// The path to `libcoco_rt.a`, baked into the `coco_rt` rlib by its build
+/// script (which compiles the C runtime via the `cc` crate). Used to link the
+/// user's native binary, whose `cc` invocation is a separate process outside
+/// Cargo's link step.
+#[cfg(feature = "native")]
+fn coco_rt_archive() -> std::path::PathBuf {
+    std::path::PathBuf::from(coco_rt::path::ARCHIVE_PATH)
 }
 
 /// Resolve the entry point file. If none given, look for src/main.co, main.co.
@@ -444,28 +433,43 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
     if native {
         #[cfg(feature = "native")]
         {
-        // AOT native compilation via LLVM.
-        // Reference coco_rt so it's built (its staticlib libcoco_rt.a is
-        // linked by locate_coco_rt + cc below to resolve coco_rt_alloc).
-        let _rt = std::marker::PhantomData::<coco_rt::CocoValue>;
+        // AOT native compilation via LLVM. The runtime (libcoco_rt.a) is
+        // compiled from C by the coco_rt crate's build script; its path is
+        // baked in via COCO_RT_LIB (see coco_rt_archive) and passed to the
+        // link of the user's binary.
+        let _ = coco_rt::CocoRuntime; // force coco_rt (and its build script) into the graph
+        // Run the type checker to obtain inferred types (keyed by span). The
+        // codegen consults this map to specialize arithmetic on statically-known
+        // types (the adaptive numeric tower). Type errors are reported but do
+        // not abort native compilation — Coco is gradual, so untyped code still
+        // compiles via the runtime tag-dispatch fallback.
+        let typeck_result = coco_typeck::check(&program);
+        for err in &typeck_result.errors {
+            eprintln!("[type error] {} {}", err.code, err.message);
+        }
         let context = inkwell::context::Context::create();
         let mut codegen = coco_codegen::Codegen::new(&context, &resolved.file_stem()
             .unwrap_or_default()
             .to_string_lossy());
         let obj_path = resolved.with_extension("o");
         let result = (|| -> Result<(), String> {
-            codegen.generate(&program)?;
+            codegen.generate(&program, &typeck_result.types)?;
             codegen.compile_to_object(&obj_path.to_string_lossy())?;
             // Link: cc obj.o -o binary, linking the coco_rt static runtime
-            // (provides coco_rt_alloc) produced by the coco_rt crate's
-            // staticlib output.
+            // (provides the adaptive arithmetic + value model) and libm.
             let bin_path = resolved.with_extension("");
-            let rt_archive = locate_coco_rt();
+            let rt_archive = coco_rt_archive();
             let mut cmd = std::process::Command::new("cc");
             cmd.arg(&obj_path);
-            if let Some(rt) = &rt_archive {
-                cmd.arg(rt);
+            if rt_archive.exists() {
+                cmd.arg(&rt_archive);
+            } else {
+                return Err(format!(
+                    "runtime archive not found at {} — rebuild coco_rt",
+                    rt_archive.display()
+                ));
             }
+            cmd.arg("-lm"); // the runtime uses libm (float ops)
             cmd.arg("-o").arg(&bin_path);
             let status = cmd.status().map_err(|e| format!("failed to run linker: {}", e))?;
             if !status.success() {
@@ -485,7 +489,7 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
         #[cfg(not(feature = "native"))]
         {
             eprintln!("Native compilation requires LLVM — rebuild with: cargo build --features native");
-            eprintln!("Set LLVM_SYS_180_PREFIX=/usr/lib/llvm-18 and ensure Polly is available.");
+            eprintln!("See .cargo/config.toml or scripts/fetch-llvm.sh for providing LLVM 18.");
             std::process::exit(1);
         }
         return;

@@ -22,11 +22,13 @@ pub mod convert;
 pub mod env;
 pub mod errors;
 pub mod infer;
+pub mod typemap;
 pub mod types;
 pub mod unify;
 
 use coco_syntax::Program;
 use errors::TypeckError;
+pub use typemap::TypeMap;
 
 /// The result of type checking a program.
 #[derive(Debug)]
@@ -35,6 +37,10 @@ pub struct TypeckResult {
     pub errors: Vec<TypeckError>,
     /// Type warnings found.
     pub warnings: Vec<TypeckError>,
+    /// Inferred types keyed by AST node span, for codegen specialization.
+    /// Empty if no expressions were inferred. The native codegen consults this
+    /// to pick the fastest exact arithmetic tier for statically-typed operands.
+    pub types: TypeMap,
 }
 
 impl TypeckResult {
@@ -99,5 +105,8 @@ pub fn check(program: &Program) -> TypeckResult {
         }
     }
 
-    TypeckResult { errors, warnings }
+    // Collect the inferred type map recorded during checking.
+    let types = env.take_types();
+
+    TypeckResult { errors, warnings, types }
 }

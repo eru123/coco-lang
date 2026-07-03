@@ -4,8 +4,13 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Minimal C-ABI runtime stub linked by native (LLVM) Coco builds."
+description = "Coco native runtime (C): tagged value model, adaptive numeric tower, collections."
 
 [lib]
-# Build as a static library so it can be linked into a native binary via `cc`.
-crate-type = ["staticlib", "rlib"]
+# The rlib is a thin marker so coco_cli can depend on it (forcing the build
+# script to run). The actual runtime is C, compiled to a staticlib by build.rs
+# and linked via `cargo:rustc-link-lib`.
+crate-type = ["rlib"]
+
+[build-dependencies]
+cc = "1.0"
