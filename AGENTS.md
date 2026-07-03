@@ -39,15 +39,24 @@ The repo is a Rust workspace with a compiler toolchain split across crates.
 - `crates/coco_cli`: command-line interface and subcommand wiring
 - `crates/coco_parser`: parser for Coco syntax
 - `crates/coco_typeck`: gradual type checker
-- `crates/coco_interpreter`: interpreter/runtime
+- `crates/coco_interpreter`: bytecode VM, compiler (AST → `Chunk`), and `.cb` artifact serialization (`serialize` module)
 - `crates/coco_syntax`: AST definitions and language constructs
 - `crates/coco_span`: source span tracking
+
+### Execution Model
+The bytecode VM is the sole execution model. There are three ways to run a program:
+- `coco run foo.co` — lex → parse → compile to a `Chunk` → VM executes (full pipeline)
+- `coco run foo.cb` — deserialize a `.cb` bytecode artifact → VM executes (skips parse/compile)
+- `coco build --binary foo.co` — emits a standalone executable that `include_bytes!`s the `.cb` payload and statically links `coco_interpreter` as a library
+
+`coco build foo.co` (no flags) emits a `.cb` artifact via `coco_interpreter::serialize_chunk`. `coco build --disasm` prints bytecode disassembly (a debugging aid). The tree-walking interpreter and the native LLVM backend have been removed.
 
 ### Data Flow
 - Source text is lexed by `coco_lexer`
 - AST is built by `coco_parser` using `coco_syntax`
-- Formatter, type checker, and interpreter consume the parsed AST
-- `coco_cli` orchestrates file resolution, parsing, diagnostics, type checking, and execution
+- Formatter, type checker, and the VM compiler consume the parsed AST
+- The VM compiler lowers the AST to a stack-based bytecode `Chunk`
+- `coco_cli` orchestrates file resolution, parsing, diagnostics, type checking, compilation, and execution (or `.cb` serialization for `build`)
 
 ## Cache Stability
 

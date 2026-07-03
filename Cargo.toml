@@ -11,8 +11,6 @@ members = [
     "crates/coco_safety",
     "crates/coco_gc",
     "crates/coco_cli",
-    "crates/coco_codegen",
-    "crates/coco_rt",
 ]
 resolver = "2"
 
@@ -44,7 +42,6 @@ num-bigint = "0.4"
 num-traits = "0.2"
 regex = "1.10"
 sha2 = "0.10"
-inkwell = { version = "0.5", default-features = false, features = ["llvm18-0", "target-x86"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 mio = { version = "1.0", features = ["os-poll", "os-ext"] }
 

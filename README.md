@@ -6,7 +6,7 @@ Coco is a planned compiled, memory-safe programming language for backend service
 
 It is designed to feel familiar to JavaScript and TypeScript developers while preserving the practical backend productivity PHP is known for. Coco aims to provide strict typing, automatic memory safety, safe multi-core concurrency, secure web defaults, and static binary deployment without forcing developers to manage low-level memory details manually.
 
-Coco is currently in the early implementation stage. Lexer, parser, formatter, interpreter, gradual type checker, memory safety analyzer, and GC runtime are functional. Do not deploy it to production unless your idea of production is still mostly a language lab.
+Coco is currently in the early implementation stage. Lexer, parser, formatter, bytecode VM, gradual type checker, and memory safety analyzer are functional. Source compiles to a `.cb` bytecode artifact (`coco build`) or a standalone executable with an embedded VM (`coco build --binary`). Do not deploy it to production unless your idea of production is still mostly a language lab.
 
 ## Project Status
 
@@ -15,7 +15,7 @@ Coco is not yet a stable language.
 Current stage:
 
 ```txt
-Phase 7 - IR + bytecode VM (functional)
+Phase 7 - bytecode VM + .cb artifacts + embedded-VM binaries (functional)
 ```
 
 Planned stages:
@@ -24,12 +24,12 @@ Planned stages:
 language design
   → lexer and parser
   → formatter
-  → interpreter
+  → bytecode VM (sole execution model)
   → type checker
   → automatic memory safety analyzer
   → runtime
   → async/concurrency system
-  → native compiler
+  → bytecode artifacts (.cb) and standalone binaries (--binary)
   → package manager and tooling
 ```
 
@@ -283,7 +283,7 @@ await parallel {
 - Phase 0: Charter and language identity
 - Phase 1: Grammar and specification
 - Phase 2: Lexer, parser, formatter
-- Phase 3: Tree-walking interpreter MVP
+- Phase 3: Tree-walking interpreter MVP (since removed; the bytecode VM is the sole execution model)
 - Phase 4: Type checker MVP
 - Phase 5: Automatic memory safety analyzer
 - Phase 6: Runtime memory system
@@ -291,7 +291,7 @@ await parallel {
 - Phase 8: Automatic concurrency safety
 - Phase 9: M:N scheduler and async runtime
 - Phase 10: Async I/O and web standard library
-- Phase 11: Native AOT backend
+- Phase 11: Bytecode artifacts (`.cb`) and standalone embedded-VM binaries (replaces the former native AOT backend, which was removed)
 - Phase 12: Developer tooling
 - Phase 13: PHP compatibility and migration tools
 - Phase 14: Package registry and ecosystem

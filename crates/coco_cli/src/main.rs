@@ -76,14 +76,18 @@ enum Commands {
         #[arg(long = "vm")]
         use_vm: bool,
     },
-    /// Compile a .co file to bytecode and print disassembly
+    /// Compile a .co file to a .cb bytecode artifact (or a standalone binary)
     Build {
         /// Path to the .co file (defaults to src/main.co)
         file: Option<PathBuf>,
-        /// Compile to native binary via LLVM instead of bytecode disassembly
-        #[arg(long = "native")]
-        native: bool,
-        /// Enable optimizations (constant folding, dead code in bytecode; LLVM -O3 for native)
+        /// Build a standalone executable with an embedded VM instead of a .cb file
+        #[arg(long = "binary")]
+        binary: bool,
+        /// Print bytecode disassembly to stdout instead of writing a .cb file
+        #[arg(long = "disasm")]
+        disasm: bool,
+        /// Enable optimizations (constant folding, dead code elimination; -O3
+        /// for --binary via cargo --release)
         #[arg(long = "release")]
         release: bool,
     },
@@ -119,9 +123,14 @@ fn main() {
             let f = resolve_entry(file.as_deref());
             cmd_run(&f, no_check, debug, use_vm)
         }
-        Commands::Build { file, native, release } => {
+        Commands::Build {
+            file,
+            binary,
+            disasm,
+            release,
+        } => {
             let f = resolve_entry(file.as_deref());
-            cmd_build(&f, native, release)
+            cmd_build(&f, binary, disasm, release)
         }
         Commands::Test { filter } => cmd_test(filter.as_deref()),
         Commands::Init { name } => cmd_init(&name),
@@ -144,6 +153,12 @@ fn resolve_file_in(base: &Path, file: &Path) -> Option<PathBuf> {
         return Some(with_extension);
     }
 
+    // Bytecode artifacts (.cb) — resolved after .co so source wins on ties.
+    let with_cb = base.join(file.with_extension("cb"));
+    if with_cb.exists() {
+        return Some(with_cb);
+    }
+
     let src_exact = base.join("src").join(file);
     if src_exact.exists() {
         return Some(src_exact);
@@ -154,16 +169,12 @@ fn resolve_file_in(base: &Path, file: &Path) -> Option<PathBuf> {
         return Some(src_with_extension);
     }
 
-    None
-}
+    let src_with_cb = base.join("src").join(file.with_extension("cb"));
+    if src_with_cb.exists() {
+        return Some(src_with_cb);
+    }
 
-/// The path to `libcoco_rt.a`, baked into the `coco_rt` rlib by its build
-/// script (which compiles the C runtime via the `cc` crate). Used to link the
-/// user's native binary, whose `cc` invocation is a separate process outside
-/// Cargo's link step.
-#[cfg(feature = "native")]
-fn coco_rt_archive() -> std::path::PathBuf {
-    std::path::PathBuf::from(coco_rt::path::ARCHIVE_PATH)
+    None
 }
 
 /// Resolve the entry point file. If none given, look for src/main.co, main.co.
@@ -203,7 +214,10 @@ edition = "1.0"
 [dev-dependencies]
 
 [build]
-target = "native"
+# Build target: "bytecode" (.cb artifact) or "binary" (standalone executable
+# with an embedded VM). Bytecode is the default; it ships small and runs via
+# `coco run prog.cb`.
+target = "bytecode"
 optimize = false
 
 [safety]
@@ -344,6 +358,14 @@ fn cmd_fmt(file: &Path, write: bool, check: bool) {
 }
 
 fn cmd_run(file: &Path, no_check: bool, debug: bool, _use_vm: bool) {
+    // Bytecode artifact (.cb): deserialize and run directly, skipping
+    // parse/typecheck/safety/compile. The artifact is already validated.
+    let is_cb = file.extension().map(|e| e == "cb").unwrap_or(false);
+    if is_cb {
+        run_cb_artifact(file, debug);
+        return;
+    }
+
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -403,9 +425,36 @@ fn run_with_vm(source: &str, debug: bool) {
         }
     };
 
+    run_chunk(&chunk, debug);
+}
+
+/// Run a `.cb` bytecode artifact: load, deserialize, execute. Skips
+/// parse/typecheck/safety/compile entirely — the artifact is pre-validated.
+fn run_cb_artifact(path: &Path, debug: bool) {
+    let bytes = match fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error reading {}: {}", path.display(), e);
+            std::process::exit(1);
+        }
+    };
+    let chunk = match coco_interpreter::deserialize_chunk(&bytes) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error loading {}: {}", path.display(), e);
+            std::process::exit(1);
+        }
+    };
+    run_chunk(&chunk, debug);
+}
+
+/// Execute a compiled `Chunk` through the VM and exit with its return code.
+/// Shared by the source-run path (parse + compile) and the artifact-run path
+/// (deserialize), so both exit identically.
+fn run_chunk(chunk: &coco_interpreter::ir::Chunk, debug: bool) {
     let mut vm = coco_interpreter::vm::Vm::new();
     vm.set_debug(debug);
-    match vm.run(&chunk) {
+    match vm.run(chunk) {
         Ok(val) => {
             if let coco_interpreter::Value::Int(code) = val {
                 std::process::exit(code.to_i32().unwrap_or(1));
@@ -418,7 +467,7 @@ fn run_with_vm(source: &str, debug: bool) {
     }
 }
 
-fn cmd_build(file: &Path, native: bool, release: bool) {
+fn cmd_build(file: &Path, binary: bool, disasm: bool, release: bool) {
     let (source, resolved) = match read_source(file) {
         Ok(s) => s,
         Err(e) => {
@@ -429,73 +478,23 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
 
     let mut parser = Parser::new(&source);
     let program = parser.parse_program();
-
-    if native {
-        #[cfg(feature = "native")]
-        {
-        // AOT native compilation via LLVM. The runtime (libcoco_rt.a) is
-        // compiled from C by the coco_rt crate's build script; its path is
-        // baked in via COCO_RT_LIB (see coco_rt_archive) and passed to the
-        // link of the user's binary.
-        let _ = coco_rt::CocoRuntime; // force coco_rt (and its build script) into the graph
-        // Run the type checker to obtain inferred types (keyed by span). The
-        // codegen consults this map to specialize arithmetic on statically-known
-        // types (the adaptive numeric tower). Type errors are reported but do
-        // not abort native compilation — Coco is gradual, so untyped code still
-        // compiles via the runtime tag-dispatch fallback.
-        let typeck_result = coco_typeck::check(&program);
-        for err in &typeck_result.errors {
-            eprintln!("[type error] {} {}", err.code, err.message);
-        }
-        let context = inkwell::context::Context::create();
-        let mut codegen = coco_codegen::Codegen::new(&context, &resolved.file_stem()
-            .unwrap_or_default()
-            .to_string_lossy());
-        let obj_path = resolved.with_extension("o");
-        let result = (|| -> Result<(), String> {
-            codegen.generate(&program, &typeck_result.types)?;
-            codegen.compile_to_object(&obj_path.to_string_lossy())?;
-            // Link: cc obj.o -o binary, linking the coco_rt static runtime
-            // (provides the adaptive arithmetic + value model) and libm.
-            let bin_path = resolved.with_extension("");
-            let rt_archive = coco_rt_archive();
-            let mut cmd = std::process::Command::new("cc");
-            cmd.arg(&obj_path);
-            if rt_archive.exists() {
-                cmd.arg(&rt_archive);
-            } else {
-                return Err(format!(
-                    "runtime archive not found at {} — rebuild coco_rt",
-                    rt_archive.display()
-                ));
-            }
-            cmd.arg("-lm"); // the runtime uses libm (float ops)
-            cmd.arg("-o").arg(&bin_path);
-            let status = cmd.status().map_err(|e| format!("failed to run linker: {}", e))?;
-            if !status.success() {
-                return Err("linking failed".to_string());
-            }
-            println!("Compiled {} -> {}", resolved.display(), bin_path.display());
-            let _ = std::fs::remove_file(&obj_path);
-            Ok(())
-        })();
-        if let Err(e) = result {
-            // Clean up any partial object file on failure.
-            let _ = std::fs::remove_file(&obj_path);
-            eprintln!("Codegen error: {}", e);
-            std::process::exit(1);
-        }
-        } // end #[cfg(feature = "native")]
-        #[cfg(not(feature = "native"))]
-        {
-            eprintln!("Native compilation requires LLVM — rebuild with: cargo build --features native");
-            eprintln!("See .cargo/config.toml or scripts/fetch-llvm.sh for providing LLVM 18.");
-            std::process::exit(1);
-        }
-        return;
+    if !parser.diagnostics().is_empty() {
+        report_parser_diagnostics(&source, &resolved, &parser.diagnostics());
+        std::process::exit(1);
     }
 
-    // Bytecode disassembly mode
+    // Type/safety analysis runs as warnings only: artifacts are still emitted
+    // for gradual-typed code. This matches the build = validated-but-not-gated
+    // contract; `coco run foo.co` keeps the hard-check behavior.
+    let typeck_result = coco_typeck::check(&program);
+    for err in &typeck_result.errors {
+        eprintln!("[type warning] {} {}", err.code, err.message);
+    }
+    let safety_result = safety::analyze(&program);
+    for err in &safety_result.errors {
+        eprintln!("[safety warning] {} {}", err.code, err.message);
+    }
+
     let mut compiler = coco_interpreter::compiler::Compiler::new();
     if release {
         compiler.enable_tree_shake = true;
@@ -508,14 +507,166 @@ fn cmd_build(file: &Path, native: bool, release: bool) {
         }
     };
 
-    println!("== {} (script) ==", resolved.display());
-    println!("{}", coco_interpreter::ir::disassemble(&chunk, "script"));
+    // --disasm: print the disassembly and stop (debugging aid for the compiler).
+    if disasm {
+        println!("== {} (script) ==", resolved.display());
+        println!("{}", coco_interpreter::ir::disassemble(&chunk, "script"));
+        for val in &chunk.constants {
+            if let coco_interpreter::Value::FnObj(fo) = val {
+                println!("{}", coco_interpreter::ir::disassemble(&fo.chunk, &fo.name));
+            }
+        }
+        return;
+    }
 
-    for val in &chunk.constants {
-        if let coco_interpreter::Value::FnObj(fo) = val {
-            println!("{}", coco_interpreter::ir::disassemble(&fo.chunk, &fo.name));
+    let bytecode = match coco_interpreter::serialize_chunk(&chunk) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error serializing bytecode: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Default: write a .cb artifact (foo.co -> foo.cb).
+    let cb_path = resolved.with_extension("cb");
+    if let Err(e) = fs::write(&cb_path, &bytecode) {
+        eprintln!("error writing {}: {}", cb_path.display(), e);
+        std::process::exit(1);
+    }
+    println!("Compiled {} -> {}", resolved.display(), cb_path.display());
+
+    // --binary: also produce a standalone executable embedding the VM + bytecode.
+    if binary {
+        let bin_path = resolved.with_extension("");
+        match build_embedded_binary(&bytecode, &bin_path, release) {
+            Ok(()) => println!("Linked {} -> {}", resolved.display(), bin_path.display()),
+            Err(e) => {
+                eprintln!("error building binary: {}", e);
+                std::process::exit(1);
+            }
         }
     }
+}
+
+/// Produce a standalone executable that embeds the VM and the given bytecode.
+///
+/// Generates a throwaway Rust crate whose `main.rs` `include_bytes!`s the
+/// `.cb` payload and calls `coco_interpreter` as a library, then shells out to
+/// `cargo build` to compile it. The resulting binary is copied to `out_path`.
+fn build_embedded_binary(
+    bytecode: &[u8],
+    out_path: &Path,
+    release: bool,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    // Locate the in-tree coco_interpreter the generated crate will depend on.
+    let workspace_root = env!("COCO_WORKSPACE_ROOT");
+    let interpreter_path = Path::new(workspace_root).join("crates/coco_interpreter");
+    if !interpreter_path.exists() {
+        return Err(format!(
+            "cannot locate coco_interpreter at {} — the `coco` binary was built \
+             from a relocated workspace; rebuilding coco from its source tree fixes this",
+            interpreter_path.display()
+        ));
+    }
+
+    let tmp = std::env::temp_dir().join(format!(
+        "coco-build-{}-{}",
+        std::process::id(),
+        out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("out")
+    ));
+    std::fs::create_dir_all(tmp.join("src"))
+        .map_err(|e| format!("failed to create temp crate dir: {}", e))?;
+
+    // Cargo.toml: depend on the in-tree coco_interpreter by path.
+    let cargo_toml = format!(
+        r#"[package]
+name = "coco_embedded"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "coco_embedded"
+path = "src/main.rs"
+
+[dependencies]
+coco_interpreter = {{ path = {:?} }}
+num-traits = "0.2"
+"#,
+        interpreter_path.display().to_string()
+    );
+    fs::write(tmp.join("Cargo.toml"), cargo_toml)
+        .map_err(|e| format!("failed to write Cargo.toml: {}", e))?;
+
+    // payload.cb: the embedded bytecode.
+    let mut payload = fs::File::create(tmp.join("src/payload.cb"))
+        .map_err(|e| format!("failed to write payload: {}", e))?;
+    payload
+        .write_all(bytecode)
+        .map_err(|e| format!("failed to write payload: {}", e))?;
+
+    // main.rs: load the embedded bytecode and run it through the VM.
+    let main_rs = r#"fn main() {
+    let bytecode: &[u8] = include_bytes!("payload.cb");
+    let chunk = match coco_interpreter::deserialize_chunk(bytecode) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("corrupt embedded bytecode: {e}");
+            std::process::exit(1);
+        }
+    };
+    let mut vm = coco_interpreter::vm::Vm::new();
+    match vm.run(&chunk) {
+        Ok(coco_interpreter::Value::Int(code)) => {
+            std::process::exit(num_traits::ToPrimitive::to_i32(&code).unwrap_or(1));
+        }
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("VM error: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+"#;
+    fs::write(tmp.join("src/main.rs"), main_rs)
+        .map_err(|e| format!("failed to write main.rs: {}", e))?;
+
+    // Build the generated crate.
+    let target_dir = tmp.join("target");
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("build")
+        .arg("--bin")
+        .arg("coco_embedded")
+        .arg("--manifest-path")
+        .arg(tmp.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&target_dir);
+    if release {
+        cmd.arg("--release");
+    }
+    let status = cmd
+        .status()
+        .map_err(|e| format!("failed to run cargo: {}", e))?;
+    if !status.success() {
+        return Err("cargo build for embedded crate failed".to_string());
+    }
+
+    // Locate the built binary and copy it to the requested output path.
+    let profile = if release { "release" } else { "debug" };
+    let built = target_dir.join(profile).join("coco_embedded");
+    if !built.exists() {
+        return Err(format!(
+            "built binary not found at {} (expected after successful cargo build)",
+            built.display()
+        ));
+    }
+    fs::copy(&built, out_path)
+        .map_err(|e| format!("failed to copy binary to {}: {}", out_path.display(), e))?;
+
+    // Best-effort cleanup of the temp crate (keep target/ out of the way).
+    let _ = std::fs::remove_dir_all(&tmp);
+    Ok(())
 }
 
 /// Discover and run test files in tests/*.co.
