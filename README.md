@@ -26,6 +26,32 @@ cargo test
 - `crates/coco_syntax`: AST definitions
 - `tests/`: `.co` integration tests
 
+## Install
+
+### Linux
+```bash
+bash scripts/package-linux.sh
+sudo dpkg -i dist/linux-amd64/coco_*.deb
+```
+
+### macOS
+```bash
+bash scripts/package-macos.sh
+sudo installer -pkg dist/macos-<arch>/coco-<version>-<arch>.pkg -target /
+```
+
+### Windows
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1
+```
+Extract `dist\windows-amd64\coco-<version>-windows-amd64.zip` and place `coco.exe` on your `PATH`.
+
+### Direct binary install
+```bash
+cargo build --release
+sudo install -m 0755 target/release/coco /usr/local/bin/coco
+```
+
 ## Build
 
 ```bash
