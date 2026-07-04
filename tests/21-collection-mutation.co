@@ -29,13 +29,10 @@ fn main() {
   o.y += 10;
   print(o.y);               // 12
 
-  // Build a list via mutation in a loop (while, since for-over-range is a
-  // separate pre-existing bug being fixed elsewhere).
+  // Build a list via mutation in a for-over-range loop.
   let nums = [0, 0, 0, 0, 0];
-  let i = 0;
-  while i < 5 {
+  for i in 0..5 {
     nums[i] = i * i;
-    i = i + 1;
   }
   print(nums[0]);           // 0
   print(nums[1]);           // 1

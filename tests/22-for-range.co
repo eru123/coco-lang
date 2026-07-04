@@ -1,0 +1,40 @@
+// For-over-range loops
+// Demonstrates: for i in a..b (exclusive) and for i in a..=b (inclusive),
+// range() builtin, and iteration over a range-produced list.
+
+fn main() {
+  // Exclusive range: 0..5 yields 0,1,2,3,4.
+  let sum = 0;
+  for i in 0..5 {
+    sum = sum + i;
+  }
+  print(sum);              // 10 (0+1+2+3+4)
+
+  // Inclusive range: 1..=5 yields 1,2,3,4,5.
+  let sum2 = 0;
+  for i in 1..=5 {
+    sum2 = sum2 + i;
+  }
+  print(sum2);             // 15 (1+2+3+4+5)
+
+  // Range with non-zero start.
+  let count = 0;
+  for i in 3..6 {
+    count = count + 1;
+  }
+  print(count);            // 3 (3,4,5)
+
+  // range() builtin directly.
+  let r = range(0, 5);
+  print(r.length);         // 5
+  print(r[0]);             // 0
+  print(r[4]);             // 4
+
+  // Range end value as a variable.
+  let n = 4;
+  let product = 1;
+  for i in 1..n {
+    product = product * i;
+  }
+  print(product);          // 6 (1*2*3)
+}

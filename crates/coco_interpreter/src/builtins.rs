@@ -1033,10 +1033,17 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, Signal> {
         }
         "range" => {
             if args.len() < 1 || args.len() > 3 { return Err(Signal::Error(RuntimeError::new("range(start, end, step?) expects 1-3 args"))); }
-            let start = match &args[0] { Value::Int(n) => n.to_i64().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("range expects int arguments"))) };
-            let end = if args.len() >= 2 { match &args[1] { Value::Int(n) => n.to_i64().unwrap_or(0), _ => return Err(Signal::Error(RuntimeError::new("range expects int arguments"))) } } else { let e = start; 0 };
+            // Accept both Int64 (i64 fast path) and Int (BigInt); the compiler
+            // emits int literals as Int64, so the old Int-only match rejected
+            // `range(0, 5)`.
+            let to_i64 = |v: &Value| -> Result<i64, Signal> {
+                v.as_i64().or_else(|| v.to_bigint().and_then(|b| b.to_i64()))
+                    .ok_or_else(|| Signal::Error(RuntimeError::new("range expects int arguments")))
+            };
+            let start = to_i64(&args[0])?;
+            let end = if args.len() >= 2 { to_i64(&args[1])? } else { let _e = start; 0 };
             let start = if args.len() == 1 { 0 } else { start };
-            let step = if args.len() >= 3 { match &args[2] { Value::Int(n) => n.to_i64().unwrap_or(1), _ => return Err(Signal::Error(RuntimeError::new("range step must be int"))) } } else { 1 };
+            let step = if args.len() >= 3 { to_i64(&args[2])? } else { 1 };
             let mut items: Vec<Value> = Vec::new();
             let mut i = start;
             if step > 0 { while i < end { items.push(Value::int_from_i64(i as i64)); i += step; } }

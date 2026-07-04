@@ -1152,6 +1152,30 @@ impl Compiler {
                 self.emit_op_u16(OP_TYPE_IS, type_idx);
                 return Ok(());
             }
+            // Ranges: a..b / a..=b compile to a call to the `range` builtin.
+            // OP_CALL expects [callee, arg1, ..., argn] (callee at the bottom),
+            // so load the callee BEFORE the operands — hence this is handled
+            // here as an early return, before the generic operand compilation.
+            Range => {
+                let range_idx = self.name_constant("range");
+                self.emit_op_u16(OP_LOAD_GLOBAL, range_idx); // [range]
+                self.compile_expr(&bin.left)?;               // [range, start]
+                self.compile_expr(&bin.right)?;              // [range, start, end]
+                self.emit_op_u8(OP_CALL, 2);                 // range(start, end)
+                return Ok(());
+            }
+            RangeInclusive => {
+                let range_idx = self.name_constant("range");
+                self.emit_op_u16(OP_LOAD_GLOBAL, range_idx); // [range]
+                self.compile_expr(&bin.left)?;               // [range, start]
+                self.compile_expr(&bin.right)?;              // [range, start, end]
+                // Inclusive: end + 1 (operate on the top, the end value).
+                let one_idx = self.add_constant(Value::int_from_i64(1));
+                self.emit_op_u16(OP_CONST, one_idx);         // [range, start, end, 1]
+                self.emit_op(OP_ADD);                        // [range, start, end+1]
+                self.emit_op_u8(OP_CALL, 2);                 // range(start, end+1)
+                return Ok(());
+            }
             _ => {}
         }
 
@@ -1177,22 +1201,6 @@ impl Compiler {
             BitXor => self.emit_op(OP_BIT_XOR),
             Shl => self.emit_op(OP_SHL),
             Shr => self.emit_op(OP_SHR),
-            // Ranges: push both ends and build range list
-            Range => {
-                // Pop right and left, build range by calling builtin range()
-                let range_idx = self.name_constant("range");
-                self.emit_op_u16(OP_LOAD_GLOBAL, range_idx);
-                self.emit_op_u8(OP_CALL, 2); // range(start, end)
-            }
-            RangeInclusive => {
-                // Inclusive: range(start, end + 1)
-                let one_idx = self.add_constant(Value::int_from_i64(1));
-                self.emit_op_u16(OP_CONST, one_idx);
-                self.emit_op(OP_ADD);
-                let range_idx = self.name_constant("range");
-                self.emit_op_u16(OP_LOAD_GLOBAL, range_idx);
-                self.emit_op_u8(OP_CALL, 2);
-            }
             Elvis => {
                 // Already handled as Expr::Elvis, shouldn't reach here
                 return Err(CompileError::new("elvis should be handled as Expr::Elvis"));
