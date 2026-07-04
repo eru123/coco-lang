@@ -94,9 +94,16 @@ pub const OP_INDEX: u8 = 62;
 pub const OP_STORE_INDEX: u8 = 63;
 pub const OP_MEMBER: u8 = 64;
 pub const OP_STORE_MEMBER: u8 = 65;
+// Write-back variants for `a[i] = v` / `a.x = v` where `a` is a local slot —
+// mutate the local's Arc<CoW> in place and store it back, so the mutation is
+// visible (the plain STORE_* opcodes only mutate the stack copy, which CoW
+// hides from the binding when the Arc is shared).
+pub const OP_STORE_INDEX_LOCAL: u8 = 66; // u16 local slot
+pub const OP_STORE_MEMBER_LOCAL: u8 = 67; // u16 prop-idx, u16 local slot
 
 pub const OP_POP: u8 = 70;
 pub const OP_DUP: u8 = 71;
+pub const OP_SWAP: u8 = 72; // swap top two stack values
 
 pub const OP_THROW: u8 = 80;
 pub const OP_TRY_BEGIN: u8 = 81;
@@ -127,6 +134,17 @@ pub const OP_ADD_F: u8 = 103; // float addition
 pub const OP_SUB_F: u8 = 104; // float subtraction
 pub const OP_MUL_F: u8 = 105; // float multiplication
 pub const OP_DIV_F: u8 = 106; // float division
+pub const OP_MOD_F: u8 = 113; // float modulo
+pub const OP_POW_F: u8 = 114; // float power
+
+// Int-specific arithmetic (i64 fast path with overflow -> BigInt escalation;
+// see `int_binop` in vm.rs). Emitted by the compiler when both operands are
+// statically typed int/uint — skips runtime tag dispatch.
+pub const OP_ADD_I: u8 = 115; // int addition (i64 fast path, bignum escalation)
+pub const OP_SUB_I: u8 = 116; // int subtraction
+pub const OP_MUL_I: u8 = 117; // int multiplication
+pub const OP_DIV_I: u8 = 118; // int division
+pub const OP_MOD_I: u8 = 119; // int modulo
 
 // Runtime type introspection
 pub const OP_TYPE_IS: u8 = 107; // check value against type (pops type-name-const-idx, value; pushes bool)
@@ -197,8 +215,11 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_STORE_INDEX => "STORE_INDEX",
         OP_MEMBER => "MEMBER",
         OP_STORE_MEMBER => "STORE_MEMBER",
+        OP_STORE_INDEX_LOCAL => "STORE_INDEX_LOCAL",
+        OP_STORE_MEMBER_LOCAL => "STORE_MEMBER_LOCAL",
         OP_POP => "POP",
         OP_DUP => "DUP",
+        OP_SWAP => "SWAP",
         OP_THROW => "THROW",
         OP_TRY_BEGIN => "TRY_BEGIN",
         OP_TRY_END => "TRY_END",
@@ -220,6 +241,13 @@ pub fn opcode_name(op: u8) -> &'static str {
         OP_SUB_F => "SUB_F",
         OP_MUL_F => "MUL_F",
         OP_DIV_F => "DIV_F",
+        OP_MOD_F => "MOD_F",
+        OP_POW_F => "POW_F",
+        OP_ADD_I => "ADD_I",
+        OP_SUB_I => "SUB_I",
+        OP_MUL_I => "MUL_I",
+        OP_DIV_I => "DIV_I",
+        OP_MOD_I => "MOD_I",
         OP_TYPE_IS => "TYPE_IS",
         OP_TYPEOF => "TYPEOF",
         OP_PIPE_VAL => "PIPE_VAL",
@@ -250,11 +278,14 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
         | OP_BUILD_MAP
         | OP_MEMBER
         | OP_STORE_MEMBER
+        | OP_STORE_INDEX_LOCAL
         | OP_TRY_BEGIN => Some(2),
 
         OP_CALL | OP_ASYNC_CALL | OP_LAZY_CALL => Some(1),
 
         OP_METHOD_CALL | OP_SUPER_METHOD => Some(3), // u16 name_idx + u8 arg_count
+
+        OP_STORE_MEMBER_LOCAL => Some(4), // u16 prop-idx + u16 local slot
 
         OP_NEW => Some(1),
 
@@ -266,7 +297,9 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
 
         OP_TYPE_IS => Some(2), // u16 const index for type name
 
-        OP_ADD_F | OP_SUB_F | OP_MUL_F | OP_DIV_F | OP_TYPEOF | OP_PIPE_VAL | OP_ITER_MAP | OP_CLOSE_UPVALUE => Some(0),
+        OP_ADD_F | OP_SUB_F | OP_MUL_F | OP_DIV_F | OP_MOD_F | OP_POW_F
+            | OP_ADD_I | OP_SUB_I | OP_MUL_I | OP_DIV_I | OP_MOD_I
+            | OP_TYPEOF | OP_PIPE_VAL | OP_ITER_MAP | OP_CLOSE_UPVALUE => Some(0),
 
         OP_NULL
         | OP_TRUE
@@ -296,6 +329,7 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
         | OP_STORE_INDEX
         | OP_POP
         | OP_DUP
+        | OP_SWAP
         | OP_THROW
         | OP_TRY_END
         | OP_CATCH => Some(0),
@@ -527,6 +561,21 @@ impl ChunkBuilder {
         self.code.push(0);
         write_u16(&mut self.code[start..start + 2], val16);
         self.code.push(val8);
+    }
+
+    /// Emit an opcode followed by two u16 operands.
+    /// Used for OP_STORE_MEMBER_LOCAL (prop-idx: u16, local slot: u16).
+    pub fn emit_op_u16_u16(&mut self, op: u8, a: u16, b: u16) {
+        self.record_line();
+        self.code.push(op);
+        let start = self.code.len();
+        self.code.push(0);
+        self.code.push(0);
+        write_u16(&mut self.code[start..start + 2], a);
+        let start2 = self.code.len();
+        self.code.push(0);
+        self.code.push(0);
+        write_u16(&mut self.code[start2..start2 + 2], b);
     }
 
     /// Emit a jump instruction whose target is a label not yet placed.

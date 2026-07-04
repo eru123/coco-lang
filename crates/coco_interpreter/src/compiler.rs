@@ -20,7 +20,8 @@ use crate::ir::{
     OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_METHOD_CALL,
     OP_MOD, OP_MUL, OP_NE, OP_NEG, OP_NEW, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE,
     OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
-    OP_STORE_MEMBER, OP_SUB, OP_SUPER_METHOD, OP_THIS, OP_THROW, OP_TRUE,
+    OP_STORE_MEMBER, OP_STORE_MEMBER_LOCAL, OP_STORE_INDEX_LOCAL,
+    OP_SUB, OP_SUPER_METHOD, OP_SWAP, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
     OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF, OP_PARALLEL_RUN,
     // OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE are dispatched by the VM but
@@ -1227,47 +1228,85 @@ impl Compiler {
                 Ok(())
             }
             Expr::Index(idx_expr) => {
-                // a[i] = value  or  a[i] += value
-                self.compile_expr(&idx_expr.object)?;
-                self.compile_expr(&idx_expr.index)?;
-
-                if let Some(op) = compound_op {
-                    // Get current: stack is [obj, key]
-                    self.emit_op(OP_DUP);
-                    self.emit_op(OP_INDEX); // [obj, key, current]
-                    // compile RHS: [obj, key, current, rhs]
+                // a[i] = value  or  a[i] += value.
+                //
+                // When `a` is a local, emit OP_STORE_INDEX_LOCAL, which mutates
+                // the local's Arc<CoW> in place and writes it back (so the
+                // mutation is visible). For non-local targets, fall back to
+                // OP_STORE_INDEX, which mutates the stack copy (CoW: visible
+                // only when the Arc is uniquely owned).
+                let local_slot = match &idx_expr.object {
+                    Expr::Ident(id) => self.resolve_local(&id.name).map(|l| l.slot),
+                    _ => None,
+                };
+                if let Some(slot) = local_slot {
+                    if let Some(op) = compound_op {
+                        // read current: [current]
+                        self.emit_op_u16(OP_LOAD_LOCAL, slot as u16);
+                        self.compile_expr(&idx_expr.index)?;
+                        self.emit_op(OP_INDEX);
+                        self.compile_expr(value_expr)?;
+                        self.emit_op(op); // [result]
+                        // store-back: [key, result] -> STORE_INDEX_LOCAL
+                        self.compile_expr(&idx_expr.index)?;
+                        self.emit_op(OP_SWAP);
+                        self.emit_op_u16(OP_STORE_INDEX_LOCAL, slot as u16);
+                    } else {
+                        self.compile_expr(&idx_expr.index)?;
+                        self.compile_expr(value_expr)?;
+                        self.emit_op_u16(OP_STORE_INDEX_LOCAL, slot as u16);
+                    }
+                } else if let Some(op) = compound_op {
+                    self.compile_expr(&idx_expr.object)?;
+                    self.compile_expr(&idx_expr.index)?;
+                    self.emit_op(OP_INDEX);
                     self.compile_expr(value_expr)?;
-                    // apply op: [obj, key, result]
-                    self.emit_op(op);
+                    self.emit_op(op); // [result]
+                    self.compile_expr(&idx_expr.object)?;
+                    self.emit_op(OP_SWAP);
+                    self.compile_expr(&idx_expr.index)?;
+                    self.emit_op(OP_SWAP);
+                    self.emit_op(OP_STORE_INDEX);
                 } else {
-                    // Simple: [obj, key, value]
+                    self.compile_expr(&idx_expr.object)?;
+                    self.compile_expr(&idx_expr.index)?;
                     self.compile_expr(value_expr)?;
+                    self.emit_op(OP_STORE_INDEX);
                 }
-
-                // Dup result: [obj, key, result, result]
-                self.emit_op(OP_DUP);
-                // Store: pops (result_copy, key, obj), leaves [result]
-                self.emit_op(OP_STORE_INDEX);
                 Ok(())
             }
             Expr::Member(mem_expr) => {
                 let prop_name = &mem_expr.property.name;
                 let name_idx = self.name_constant(prop_name);
 
-                self.compile_expr(&mem_expr.object)?;
-
-                if let Some(op) = compound_op {
-                    // Get current
-                    self.emit_op(OP_DUP);
+                let local_slot = match &mem_expr.object {
+                    Expr::Ident(id) => self.resolve_local(&id.name).map(|l| l.slot),
+                    _ => None,
+                };
+                if let Some(slot) = local_slot {
+                    if let Some(op) = compound_op {
+                        self.emit_op_u16(OP_LOAD_LOCAL, slot as u16);
+                        self.emit_op_u16(OP_MEMBER, name_idx); // [current]
+                        self.compile_expr(value_expr)?;
+                        self.emit_op(op); // [result]
+                        self.emit_op_u16_u16(OP_STORE_MEMBER_LOCAL, name_idx, slot as u16);
+                    } else {
+                        self.compile_expr(value_expr)?;
+                        self.emit_op_u16_u16(OP_STORE_MEMBER_LOCAL, name_idx, slot as u16);
+                    }
+                } else if let Some(op) = compound_op {
+                    self.compile_expr(&mem_expr.object)?;
                     self.emit_op_u16(OP_MEMBER, name_idx);
                     self.compile_expr(value_expr)?;
                     self.emit_op(op);
+                    self.compile_expr(&mem_expr.object)?;
+                    self.emit_op(OP_SWAP);
+                    self.emit_op_u16(OP_STORE_MEMBER, name_idx);
                 } else {
+                    self.compile_expr(&mem_expr.object)?;
                     self.compile_expr(value_expr)?;
+                    self.emit_op_u16(OP_STORE_MEMBER, name_idx);
                 }
-
-                self.emit_op(OP_DUP);
-                self.emit_op_u16(OP_STORE_MEMBER, name_idx);
                 Ok(())
             }
             _ => Err(CompileError::new("invalid assignment target")),
@@ -2042,6 +2081,9 @@ impl Compiler {
     }
     fn emit_op(&mut self, op: u8) {
         self.builder.emit_op(op);
+    }
+    fn emit_op_u16_u16(&mut self, op: u8, a: u16, b: u16) {
+        self.builder.emit_op_u16_u16(op, a, b);
     }
     fn emit_op_u16(&mut self, op: u8, val: u16) {
         self.builder.emit_op_u16(op, val);

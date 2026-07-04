@@ -500,22 +500,24 @@ impl Vm {
             OP_GE => self.binop(|a, b| Self::vm_cmp(a, b, |o| o != std::cmp::Ordering::Less))?,
 
             // ---- Bitwise ----
-            OP_BIT_AND => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x & y))?,
-            OP_BIT_OR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x | y))?,
-            OP_BIT_XOR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| x ^ y))?,
+            OP_BIT_AND => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x & y), |x, y| x & y))?,
+            OP_BIT_OR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x | y), |x, y| x | y))?,
+            OP_BIT_XOR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x ^ y), |x, y| x ^ y))?,
             OP_SHL => self.binop(|a, b| {
                 use num_traits::ToPrimitive;
-                Self::vm_bitop(a, b, |x, y| {
-                    let shift = y.to_usize().unwrap_or(0);
-                    x << shift
-                })
+                Self::vm_bitop(
+                    a, b,
+                    |x, y| y.try_into().ok().and_then(|s: u32| x.checked_shl(s)),
+                    |x, y| { let shift = y.to_usize().unwrap_or(0); x << shift },
+                )
             })?,
             OP_SHR => self.binop(|a, b| {
                 use num_traits::ToPrimitive;
-                Self::vm_bitop(a, b, |x, y| {
-                    let shift = y.to_usize().unwrap_or(0);
-                    x >> shift
-                })
+                Self::vm_bitop(
+                    a, b,
+                    |x, y| y.try_into().ok().and_then(|s: u32| x.checked_shr(s)),
+                    |x, y| { let shift = y.to_usize().unwrap_or(0); x >> shift },
+                )
             })?,
 
             // ---- Unary ----
@@ -530,8 +532,13 @@ impl Vm {
             OP_BIT_NOT => {
                 let val = self.pop();
                 if val.is_int() {
-                    let n = val.to_bigint().unwrap();
-                    self.push(Self::normalize_int(!n));
+                    // i64 fast path: !x is total for i64, no overflow possible.
+                    if let Some(xv) = val.as_i64() {
+                        self.push(Value::Int64(!xv));
+                    } else {
+                        let n = val.to_bigint().unwrap();
+                        self.push(Self::normalize_int(!n));
+                    }
                 } else {
                     return Err(VmError::new("bitwise NOT requires integer"));
                 }
@@ -625,10 +632,50 @@ impl Vm {
                 self.push(Self::vm_index(collection, _index)?);
             }
             OP_STORE_INDEX => {
-                let _value = self.pop();
-                let _ = self.pop(); // index
-                let _ = self.pop(); // collection
-                self.push(_value);
+                // a[i] = v for a non-local (nested/complex) target. Mutates the
+                // stack copy (CoW); the mutation is visible only if the Arc is
+                // uniquely owned. For local targets the compiler emits
+                // OP_STORE_INDEX_LOCAL (which writes back). Prefer the
+                // copy-returning builtins (list_push, map_set) for portable
+                // mutation of shared collections.
+                let value = self.pop();
+                let index = self.pop();
+                let collection = self.pop();
+                Self::vm_store_index(collection, index, value.clone())?;
+                self.push(value);
+            }
+            OP_STORE_INDEX_LOCAL => {
+                // a[i] = v where `a` is local slot (u16 operand). Pops value,
+                // key; mutates the local's Arc (make_mut), writes it back to
+                // the local; pushes value as the expression result.
+                let slot = self.read_u16_operand() as usize;
+                let value = self.pop();
+                let index = self.pop();
+                let frame = self.current_frame()?;
+                let idx = frame.stack_offset + slot;
+                if idx >= self.stack.len() {
+                    return Err(VmError::new(format!("local {} out of bounds", slot)));
+                }
+                let collection = self.stack[idx].clone();
+                let mutated = Self::vm_store_index(collection, index, value.clone())?;
+                self.stack[idx] = mutated;
+                self.push(value);
+            }
+            OP_STORE_MEMBER_LOCAL => {
+                // a.x = v where `a` is local. Operands: u16 prop-idx, u16 slot.
+                let prop_idx = self.read_u16_operand() as usize;
+                let slot = self.read_u16_operand() as usize;
+                let prop = self.string_constant(prop_idx)?.to_string();
+                let value = self.pop();
+                let frame = self.current_frame()?;
+                let idx = frame.stack_offset + slot;
+                if idx >= self.stack.len() {
+                    return Err(VmError::new(format!("local {} out of bounds", slot)));
+                }
+                let obj = self.stack[idx].clone();
+                let mutated = Self::vm_store_member(obj, &prop, value.clone())?;
+                self.stack[idx] = mutated;
+                self.push(value);
             }
             OP_MEMBER => {
                 let idx = self.read_u16_operand() as usize;
@@ -637,11 +684,14 @@ impl Vm {
                 self.push(self.vm_member(obj, &prop)?);
             }
             OP_STORE_MEMBER => {
+                // Compiler emits [obj, value] (no DUP). Pop value, obj;
+                // mutate; push value back as the assignment result.
                 let idx = self.read_u16_operand() as usize;
-                let _prop = self.string_constant(idx)?;
-                let _value = self.pop();
-                let _obj = self.pop();
-                self.push(_value);
+                let prop = self.string_constant(idx)?.to_string();
+                let value = self.pop();
+                let obj = self.pop();
+                Self::vm_store_member(obj, &prop, value.clone())?;
+                self.push(value);
             }
 
             // ---- Stack ----
@@ -651,6 +701,12 @@ impl Vm {
             OP_DUP => {
                 let val = self.peek();
                 self.push(val);
+            }
+            OP_SWAP => {
+                let a = self.pop();
+                let b = self.pop();
+                self.push(a);
+                self.push(b);
             }
 
             // ---- Exceptions ----
@@ -952,6 +1008,15 @@ impl Vm {
             OP_SUB_F => self.binop(|a, b| Self::vm_sub_f(a, b))?,
             OP_MUL_F => self.binop(|a, b| Self::vm_mul_f(a, b))?,
             OP_DIV_F => self.binop(|a, b| Self::vm_div_f(a, b))?,
+            OP_MOD_F => self.binop(|a, b| Self::vm_mod_f(a, b))?,
+            OP_POW_F => self.binop(|a, b| Self::vm_pow_f(a, b))?,
+
+            // ---- Int arithmetic (i64 fast path, bignum escalation) ----
+            OP_ADD_I => self.binop(|a, b| Self::vm_add_i(a, b))?,
+            OP_SUB_I => self.binop(|a, b| Self::vm_sub_i(a, b))?,
+            OP_MUL_I => self.binop(|a, b| Self::vm_mul_i(a, b))?,
+            OP_DIV_I => self.binop(|a, b| Self::vm_div_i(a, b))?,
+            OP_MOD_I => self.binop(|a, b| Self::vm_mod_i(a, b))?,
 
             // ---- Type introspection ----
             OP_TYPE_IS => {
@@ -1694,6 +1759,79 @@ impl Vm {
         }
     }
 
+    fn vm_mod_f(a: Value, b: Value) -> VmResult<Value> {
+        match (a, b) {
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x % y)),
+            (Value::Float(x), y) if y.is_int() => Ok(Value::Float(x % Self::int_to_f64(&y)?)),
+            (x, Value::Float(y)) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? % y)),
+            _ => Err(VmError::new("MOD_F requires float operands")),
+        }
+    }
+
+    fn vm_pow_f(a: Value, b: Value) -> VmResult<Value> {
+        match (a, b) {
+            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x.powf(y))),
+            (Value::Float(x), y) if y.is_int() => {
+                use num_traits::ToPrimitive;
+                if let Some(exp) = y.as_i64().and_then(|e| e.to_i32()) {
+                    Ok(Value::Float(x.powi(exp)))
+                } else {
+                    Ok(Value::Float(x.powf(Self::int_to_f64(&y)?)))
+                }
+            }
+            (x, Value::Float(y)) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)?.powf(y))),
+            _ => Err(VmError::new("POW_F requires float operands")),
+        }
+    }
+
+    // Int-specialized handlers: both operands must be ints. They skip the
+    // runtime tag-dispatch of the generic handlers and go straight to
+    // `int_binop` (i64 fast path with overflow -> BigInt escalation). Emitted
+    // by the compiler when both operands are statically typed int/uint.
+    fn vm_add_i(a: Value, b: Value) -> VmResult<Value> {
+        if a.is_int() && b.is_int() {
+            Self::int_binop(&a, &b, i64::checked_add, |x, y| x + y)
+        } else {
+            Err(VmError::new("ADD_I requires int operands"))
+        }
+    }
+    fn vm_sub_i(a: Value, b: Value) -> VmResult<Value> {
+        if a.is_int() && b.is_int() {
+            Self::int_binop(&a, &b, i64::checked_sub, |x, y| x - y)
+        } else {
+            Err(VmError::new("SUB_I requires int operands"))
+        }
+    }
+    fn vm_mul_i(a: Value, b: Value) -> VmResult<Value> {
+        if a.is_int() && b.is_int() {
+            Self::int_binop(&a, &b, i64::checked_mul, |x, y| x * y)
+        } else {
+            Err(VmError::new("MUL_I requires int operands"))
+        }
+    }
+    fn vm_div_i(a: Value, b: Value) -> VmResult<Value> {
+        if a.is_int() && b.is_int() {
+            if b.as_i64() == Some(0) && b.to_bigint().map_or(false, |bb| bb == BigInt::from(0)) {
+                return Err(VmError::new("division by zero"));
+            }
+            // i64::MIN / -1 overflows; int_binop's checked_div returns None
+            // and the BigInt path handles it exactly.
+            Self::int_binop(&a, &b, i64::checked_div, |x, y| x / y)
+        } else {
+            Err(VmError::new("DIV_I requires int operands"))
+        }
+    }
+    fn vm_mod_i(a: Value, b: Value) -> VmResult<Value> {
+        if a.is_int() && b.is_int() {
+            if b.as_i64() == Some(0) && b.to_bigint().map_or(false, |bb| bb == BigInt::from(0)) {
+                return Err(VmError::new("modulo by zero"));
+            }
+            Self::int_binop(&a, &b, |x, y| if y != 0 { Some(x % y) } else { None }, |x, y| x % y)
+        } else {
+            Err(VmError::new("MOD_I requires int operands"))
+        }
+    }
+
     fn vm_type_is(val: &Value, type_name: &str) -> bool {
         match type_name {
             "int" => matches!(val, Value::Int64(_) | Value::Int(_)),
@@ -1758,20 +1896,29 @@ impl Vm {
         Ok(Value::Bool(pred(ord)))
     }
 
-    fn vm_bitop<F>(a: Value, b: Value, op: F) -> VmResult<Value>
+    fn vm_bitop<F, G>(a: Value, b: Value, i64_op: G, bigint_op: F) -> VmResult<Value>
     where
         F: FnOnce(BigInt, BigInt) -> BigInt,
+        G: FnOnce(i64, i64) -> Option<i64>,
     {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
+                // i64 fast path: both operands fit in i64 and the op doesn't
+                // overflow (for &, |, ^ it never does; for shifts we use
+                // checked_shl/checked_shr). Falls back to BigInt otherwise.
+                if let (Some(xv), Some(yv)) = (x.as_i64(), y.as_i64()) {
+                    if let Some(r) = i64_op(xv, yv) {
+                        return Ok(Value::Int64(r));
+                    }
+                }
                 let ba = x.to_bigint().unwrap();
                 let bb = y.to_bigint().unwrap();
-                Ok(Self::normalize_int(op(ba, bb)))
+                Ok(Self::normalize_int(bigint_op(ba, bb)))
             }
             // Bitwise on bools (per grammar: "bitwise on bools"): treat as 0/1
             // and return a Bool so word-form operators like `xor` stay logical.
             (Value::Bool(a), Value::Bool(b)) => {
-                let result = op(BigInt::from(a as u8), BigInt::from(b as u8));
+                let result = bigint_op(BigInt::from(a as u8), BigInt::from(b as u8));
                 Ok(Value::Bool(result != BigInt::from(0)))
             }
             _ => Err(VmError::new("bitwise operations require integers")),
@@ -1812,6 +1959,50 @@ impl Vm {
                     .ok_or_else(|| VmError::new("index out of bounds"))
             }
             _ => Err(VmError::new("invalid index operation")),
+        }
+    }
+
+    /// `collection[index] = value` — mutates the collection (copy-on-write via
+    /// `Arc::make_mut`) and returns the (possibly-new) collection Value. The
+    /// caller is responsible for writing it back to the binding if the
+    /// mutation should be visible. Mirrors `vm_index`'s negative-index wrap.
+    fn vm_store_index(collection: Value, index: Value, value: Value) -> VmResult<Value> {
+        use num_traits::ToPrimitive;
+        match (collection, &index) {
+            (Value::List(mut list), idx) if idx.is_int() => {
+                let i = idx.as_i64().or_else(|| idx.to_bigint()?.to_i64());
+                let len = list.data.len() as i64;
+                let idx_usize = match i {
+                    Some(n) if n >= 0 => n as usize,
+                    Some(n) => (len + n).max(0) as usize,
+                    None => usize::MAX,
+                };
+                let list_mut = std::sync::Arc::make_mut(&mut list);
+                if idx_usize >= list_mut.data.len() {
+                    return Err(VmError::new("index out of bounds in assignment"));
+                }
+                list_mut.data[idx_usize] = value;
+                Ok(Value::List(list))
+            }
+            (Value::Map(mut map), Value::String(key)) => {
+                let map_mut = std::sync::Arc::make_mut(&mut map);
+                map_mut.data.insert(key.clone(), value);
+                Ok(Value::Map(map))
+            }
+            _ => Err(VmError::new("invalid index assignment")),
+        }
+    }
+
+    /// `obj.prop = value` — for a Map, inserts/replaces the property
+    /// (copy-on-write) and returns the (possibly-new) map Value.
+    fn vm_store_member(obj: Value, prop: &str, value: Value) -> VmResult<Value> {
+        match obj {
+            Value::Map(mut map) => {
+                let map_mut = std::sync::Arc::make_mut(&mut map);
+                map_mut.data.insert(prop.to_string(), value);
+                Ok(Value::Map(map))
+            }
+            _ => Err(VmError::new("cannot set property on non-object value")),
         }
     }
 

@@ -13,6 +13,7 @@ use std::fmt;
 ///
 /// The `data` field is public because every access site reads or writes it
 /// directly (e.g. `list.data.push(...)`).
+#[derive(Clone)]
 pub struct CoW<T: Clone + 'static> {
     pub data: T,
 }
