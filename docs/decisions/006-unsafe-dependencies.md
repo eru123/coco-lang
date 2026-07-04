@@ -17,7 +17,7 @@ mode = "application"
 allow_unsafe_dependencies = false
 
 [safety.allow]
-coco-ffi-png = "audited"
+my-native-package = "audited"
 ```
 
 ## Rationale

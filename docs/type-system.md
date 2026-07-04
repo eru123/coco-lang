@@ -75,7 +75,7 @@ fn debugDump(label: string, value: mixed): void {
     console.log(`${label}: ${JSON.stringify(value)}`);
 }
 
-// FFI/interop with untyped systems
+// Interop with untyped systems via safe host APIs
 fn callJavaScript(fn: string, args: list<mixed>): mixed {
     return jsRuntime.invoke(fn, args);
 }
@@ -160,7 +160,7 @@ Both are dynamically checked, but:
 - **Untyped parameters** are a gradual typing feature — you might add types later
 - **`mixed` annotation** is an explicit declaration that this value is intentionally dynamic
 
-Use `mixed` when the type is genuinely unknowable (JSON, FFI, dynamic config). Use untyped parameters during prototyping or in scripts where typing overhead isn't worth it.
+Use `mixed` when the type is genuinely unknowable (JSON, dynamic config, host boundaries). Use untyped parameters during prototyping or in scripts where typing overhead isn't worth it.
 
 ---
 

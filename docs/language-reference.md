@@ -889,14 +889,15 @@ Magic methods can use `this` or `$` for member access.
 
 ```coco
 unsafe {
-    const lib = ffi.load("libcrypto.so");
-    const encrypt = lib.fn("crypto_encrypt");
+    // Low-level work only; no FFI escape hatch is provided in Coco.
 }
 ```
 
-- Only for FFI, raw memory, systems work
-- Blocked in `application` safety mode
+- Use only for low-level systems work where safe APIs are unavailable
+- Restricted in `application` safety mode
 - Visible in source and tooling reports
+
+Coco does not include an FFI layer. Avoid `unsafe { }` for portability targets; prefer safe host/runtime extensions when native interoperability is required.
 
 ---
 
@@ -1143,6 +1144,6 @@ const result: string | int = match value {
 - **`Result<T, E>`** — For expected failures (parsing, I/O, validation)
 - **Exceptions** — For unexpected failures (bugs, invariant violations)
 - **`T|null`** — When a value can legitimately be absent
-- **`mixed`** — Only for truly dynamic data (JSON, FFI, dynamic config)
+- **`mixed`** — Only for truly dynamic data (JSON, dynamic config)
 - **Union types** — When you have a known set of possible types
 - **Match expressions** — For exhaustive handling of enums, unions, and conditionals

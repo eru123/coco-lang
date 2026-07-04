@@ -82,7 +82,7 @@ mode = "library"
 
 ### `systems`
 
-Allows unsafe blocks and low-level APIs. For FFI bindings, custom allocators, and platform-specific code.
+Allows unsafe blocks and low-level systems-level work by exception. Coco no longer supports FFI; unsafe is for platform runtime internals, not external native binding.
 
 ```toml
 [safety]
