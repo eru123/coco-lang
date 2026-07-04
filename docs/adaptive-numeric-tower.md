@@ -6,7 +6,7 @@ This document describes Coco’s numeric model and the optional APC advisory beh
 
 - default runtime behavior should remain stable and narrow
 - overflow behavior should escalate to a wider representation instead of silent truncation in advisory mode
-- type-specialized arithmetic should remain a compiler optimization surface, not a separate codegen backend
+- type-specialized arithmetic should remain a compiler optimization surface, not a separate code generation path
 
 ## Current implementation
 

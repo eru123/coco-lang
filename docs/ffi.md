@@ -6,7 +6,9 @@
 
 ## Overview
 
-Coco provides an FFI layer for calling native code (C libraries, system APIs) from Coco. All FFI calls must occur inside `unsafe { }` blocks. The FFI is an explicit escape hatch — not a primary API.
+## Implementation Status
+
+This module is specified here for design clarity. The current runtime does not yet implement `ffi.load`, callback interop, or native allocation helpers.
 
 ## The `ffi` module
 

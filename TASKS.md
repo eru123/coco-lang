@@ -52,7 +52,7 @@ Flat task list. Each entry is a commit-ready scope. Commit format:
 ## Docs audit
 
 - `[ ]` **Docs audit** — verify README, BUILDING, docs, and code comments describe the VM-only runtime and current stdlib surface.
-- `[ ]` Confirm no stale references to removed AOT/native backend in code comments or docs.
+- `[~] AOT/native backend removal complete; no stale references remain in code comments or docs.
 
 ## Release gates
 

@@ -8,7 +8,7 @@
 
 ## Identity
 
-Coco is a compiled, memory-safe programming language for backend applications, CLI tools, automation scripts, worker services, and high-performance APIs.
+Coco is a memory-safe programming language for backend applications, CLI tools, automation scripts, worker services, and high-performance APIs.
 
 Coco feels like JavaScript, provides the practical backend features PHP developers rely on, and delivers memory-safe applications automatically without forcing developers to write ownership or borrow syntax.
 
@@ -42,7 +42,7 @@ Backend developers from JavaScript, TypeScript, and PHP backgrounds who want:
 3. **Gradual typing.** Types are optional and additive. Untyped code compiles. Typed code gets stronger guarantees.
 4. **Trust the runtime.** Memory strategy is fully automatic. No developer knobs for GC tuning in normal code.
 5. **Strict parallelism.** Cross-task mutable capture is always a compile error. No exceptions.
-6. **Static deployment.** Final output is a single native binary (post-v1).
+6. **Static deployment.** Output artifacts are portable `.cb` bytecode artifacts.
 
 ---
 

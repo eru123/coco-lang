@@ -281,16 +281,16 @@ When parsing a pipe expression:
 3. If `$$` appears, treat it as a placeholder token
 4. Reset `inPipeExpression = false` at the end of the pipe chain
 
-During codegen:
+During compilation to bytecode:
 ```coco
 x |> process($$)
-// Generates: process(x)
+// Compiles to: process(x)
 
 x |> $$.method()
-// Generates: x.method()
+// Compiles to: x.method()
 
 x |> transform($$, config)
-// Generates: transform(x, config)
+// Compiles to: transform(x, config)
 ```
 
 ### Error Messages

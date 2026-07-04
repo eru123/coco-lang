@@ -105,7 +105,7 @@ Current: early implementation / behavioral stabilization.
 
 Completed: lexer, parser, formatter, type checker, safety analyzer, bytecode VM/gc runtime, basic stdlib surface.
 
-Near-term: concurrency safety refinements, async I/O completeness, stdlib/host integration, incremental compiler/codegen research.
+Near-term: concurrency safety refinements, async I/O completeness, stdlib/host integration, optional APC advisory hardening, and optional AOT research as an explicitly tracked future direction.
 
 Not planned: runtime libraries yet, hashbang support or self-hosted compiler.
 

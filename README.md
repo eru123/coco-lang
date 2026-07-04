@@ -2,7 +2,7 @@
 
 **Status:** Early implementation — syntax, type checker, bytecode VM runtime, concurrency primitives, and stdlib/IO modules are functional.
 
-**Current execution model:** Bytecode VM only. `coco run` compiles and executes via the VM path. `coco build` emits a `.cb` artifact via `coco_interpreter::serialize_chunk`; `coco build --disasm` prints bytecode disassembly. The old AOT/LLVM backend and `coco build --binary` were removed.
+**Current execution model:** Bytecode VM only. `coco run` type-checks and executes source via the VM path. `coco build` emits a `.cb` artifact via `coco_interpreter::serialize_chunk`; `coco build --disasm` prints bytecode disassembly. The old AOT/LLVM backend and `coco build --binary` are not present.
 
 ## What is Coco?
 
@@ -73,6 +73,7 @@ cargo test -p coco_typeck
 - Optional gradual typing
 - Safe concurrency primitives
 - Practical bytecode VM performance
+- Explicit future compatibility; no backward-compat hacks
 
 ## Roadmap
 
@@ -81,13 +82,14 @@ Near-term:
 - Finalize safe error-runtime behavior on VM paths
 - Complete project graph resolution for multi-file builds
 - Stabilize stdlib/host integration
+- Add APC advisory coverage where `apc-advisory` is enabled
 
 Deferred:
 
 - Runtime package management surface
 - Self-hosting compiler
 - JIT/WASM output
-- AOT/native backend research is explicit, tracked, and not currently enabled
+- AOT/native-backend research is explicit, tracked, and not currently enabled
 
 ## Contributing
 
