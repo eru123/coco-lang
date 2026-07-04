@@ -11,6 +11,9 @@ members = [
     "crates/coco_safety",
     "crates/coco_gc",
     "crates/coco_cli",
+    "crates/coco_codegen",
+    "crates/coco_rt",
+    "crates/coco_num",
 ]
 resolver = "2"
 
@@ -33,12 +36,15 @@ coco_interpreter = { path = "crates/coco_interpreter" }
 coco_typeck = { path = "crates/coco_typeck" }
 coco_safety = { path = "crates/coco_safety" }
 coco_gc = { path = "crates/coco_gc" }
+coco_num = { path = "crates/coco_num" }
 
 # External dependencies
 ariadne = "0.4"
 unicode-xid = "0.2"
 clap = { version = "4.5", features = ["derive"] }
 num-bigint = "0.4"
+num-integer = "0.1"
+num-rational = "0.4"
 num-traits = "0.2"
 regex = "1.10"
 sha2 = "0.10"

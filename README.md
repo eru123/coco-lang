@@ -18,6 +18,8 @@ Current stage:
 Phase 7 - bytecode VM + .cb artifacts + embedded-VM binaries (functional)
 ```
 
+The interpreter is also prototyping the Adaptive Precision Cascade/Universal Numeric Substrate (`crates/coco_num`) from the cipher-of-precision paper. This layer is under active test and may still move.
+
 Planned stages:
 
 ```txt

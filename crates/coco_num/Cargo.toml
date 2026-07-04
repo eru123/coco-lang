@@ -1,0 +1,13 @@
+[package]
+name = "coco_num"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Adaptive Precision Cascade / Universal Numeric Substrate model for Coco."
+
+[dependencies]
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+num-integer = { workspace = true }
+num-rational = "0.4"
