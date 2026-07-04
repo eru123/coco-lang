@@ -1,0 +1,45 @@
+// Collection mutation
+// Demonstrates: list[i] = x, obj.field = x, compound index assign, negative
+// index assign. These were previously silent no-ops; the write-back opcodes
+// (OP_STORE_INDEX_LOCAL / OP_STORE_MEMBER_LOCAL) now make them work for local
+// targets.
+
+fn main() {
+  // List element assignment.
+  let a = [1, 2, 3];
+  a[0] = 99;
+  print(a[0]);              // 99
+  print(a[1]);              // 2
+
+  // Negative index assignment.
+  a[-1] = 77;
+  print(a[2]);              // 77
+
+  // Compound index assignment (a[1] += 5).
+  a[1] += 5;
+  print(a[1]);              // 7
+
+  // Map property assignment.
+  let o = {x: 1, y: 2};
+  o.x = 42;
+  print(o.x);               // 42
+  print(o.y);               // 2
+
+  // Compound member assignment.
+  o.y += 10;
+  print(o.y);               // 12
+
+  // Build a list via mutation in a loop (while, since for-over-range is a
+  // separate pre-existing bug being fixed elsewhere).
+  let nums = [0, 0, 0, 0, 0];
+  let i = 0;
+  while i < 5 {
+    nums[i] = i * i;
+    i = i + 1;
+  }
+  print(nums[0]);           // 0
+  print(nums[1]);           // 1
+  print(nums[2]);           // 4
+  print(nums[3]);           // 9
+  print(nums[4]);           // 16
+}

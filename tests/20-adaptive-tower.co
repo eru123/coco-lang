@@ -1,0 +1,47 @@
+// Adaptive numeric tower
+// Demonstrates: type-driven opcode specialization (int _I, float _F, generic),
+// i64 fast path with overflow -> bignum escalation, string concat, and the
+// dynamic fallback for untyped code.
+
+// Typed int arithmetic -> OP_ADD_I (i64 fast path, overflow escalates).
+fn add_int(a: int, b: int): int { return a + b; }
+
+// Typed float arithmetic -> OP_ADD_F (native f64).
+fn add_float(a: float, b: float): float { return a + b; }
+
+// Untyped arithmetic -> OP_ADD (runtime tag dispatch; handles any type).
+fn add_any(a, b) { return a + b; }
+
+fn main() {
+  // Tier 0: i64 fast path.
+  print(add_int(2, 3));                  // 5
+  print(add_int(100, 200));              // 300
+
+  // Tier 1: overflow -> bignum (exact, never wraps).
+  let big: int = 9223372036854775806;    // INT64_MAX - 1
+  print(add_int(big, 2));                // 9223372036854775808
+
+  // Tier 2: float.
+  print(add_float(1.5, 2.5));            // 4
+  print(add_float(2.0, 0.25));           // 2.25
+
+  // Tier 3: string concat (via the untyped add_any).
+  print(add_any("foo", "bar"));          // foobar
+
+  // Dynamic fallback: one unannotated function, all tiers at runtime.
+  print(add_any(2, 3));                  // 5
+  print(add_any(1.5, 2.5));              // 4
+  print(add_any("a", "b"));              // ab
+
+  // i64 fast path for bitops (no BigInt allocation for small ints).
+  print(12 & 10);                        // 8
+  print(12 | 10);                        // 14
+  print(12 ^ 10);                        // 6
+  print(~0);                             // -1
+  print(1 << 4);                         // 16
+  print(256 >> 4);                       // 16
+
+  // Typed division/modulo.
+  print(add_int(17, 0) + 0);             // 17
+  print(17 % 5);                         // 2
+}

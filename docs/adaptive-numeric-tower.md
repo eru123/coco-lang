@@ -49,105 +49,110 @@ There are two dispatch points, one static and one dynamic:
 ### Static (compile time)
 
 The type checker (`coco_typeck`) infers a `Ty` for every expression and records
-it in a span-keyed `TypeMap` (`crates/coco_typeck/src/typemap.rs`). The native
-codegen consults this map in `compile_binary` (`crates/coco_codegen/src/lib.rs`):
+it in a span-keyed `TypeMap` (`crates/coco_typeck/src/typemap.rs`). The bytecode
+compiler consults this map in `compile_binary` (`crates/coco_interpreter/src/compiler.rs`)
+via `typed_arith_op`:
 
-- Both operands `Ty::Int`/`Ty::Uint` → emit a native i64 op **with an overflow
-  guard** that, on overflow, branches to a runtime call (Tier 1). This is the
-  Shewchuk-style escalation, generalized: the fast path runs first, and the
-  exact-but-slow path runs only when the fast path can't stay correct.
-- Both operands `Ty::Float` → emit a native f64 op (Tier 2).
-- Either operand `Ty::Unknown`/`Ty::Mixed` (untyped code) → emit a runtime
-  `coco_add`/`coco_sub`/... call that dispatches on the value's tag at runtime
-  (fallback).
+- Both operands `Ty::Int`/`Ty::Uint` → emit `OP_ADD_I` (etc.) — an int-specialized
+  opcode that skips runtime tag dispatch and goes straight to the i64 fast path
+  with overflow→BigInt escalation (Tier 0 + Tier 1).
+- Either operand `Ty::Float` (and the other numeric) → emit `OP_ADD_F` (etc.) —
+  a float-specialized opcode doing a native f64 op (Tier 2).
+- Either operand `Ty::Unknown`/`Ty::Mixed` (untyped code) → emit the generic
+  `OP_ADD`, which dispatches on the value's runtime tag (fallback).
 
 Because Coco is gradually typed, unannotated code (e.g. `fn add(a, b)`) still
-compiles — it just takes the dynamic fallback. Annotated code (`fn add(a: int,
-b: int): int`) gets the native fast path. The user pays for abstraction only
-when they don't annotate.
+compiles — it just takes the dynamic fallback. Annotated code
+(`fn add(a: int, b: int): int`) gets the specialized fast path. The user pays
+for abstraction only when they don't annotate. Inference also flows from
+literals, so `let x = 1; x + 2` (unannotated but inferable) gets `OP_ADD_I`.
+
+The `TypeMap` is plumbed from `coco_typeck::check` (run in the CLI's `run`,
+`build`, and `test` paths) into `Compiler::with_types`, and propagates into
+function bodies (each `compile_function_body` clones the map; spans are stable
+program-wide).
 
 ### Dynamic (runtime)
 
-The C runtime (`crates/coco_rt/c/arith.c`) implements `coco_add`/`coco_sub`/
-`coco_mul`/`coco_div`/`coco_mod`, each dispatching on the operands' tags:
+The VM's value layer (`crates/coco_interpreter/src/vm.rs`) implements the tower
+in `int_binop` (the core) and the `vm_add`/`vm_sub`/... handlers. Each generic
+arithmetic opcode dispatches on the operands' runtime tags:
 
-- `int + int` (no overflow) → native i64 add (Tier 0)
-- `int + int` (overflow) → bignum (Tier 1, exact)
+- `int + int` (no overflow) → native i64 add via `int_binop`'s fast path (Tier 0)
+- `int + int` (overflow) → BigInt escalation, exact (Tier 1)
 - any `float` operand → f64 (Tier 2)
 - `string + string` (for `+` only) → concatenation (Tier 3)
-- `bigint` involved → bignum (Tier 1)
+- `bigint` involved → BigInt (Tier 1)
 
-The runtime is the single source of truth for tier selection; the codegen's
-static specialization is an optimization that bypasses it when types are known.
+`int_binop` tries the i64 op with `checked_add`/`checked_mul`/etc.; on overflow
+or when an operand is a BigInt, it escalates to BigInt and `normalize_int`
+shrinks the result back to `Int64` if it fits (so the fast-path representation
+is "sticky" across compound expressions). The int-specialized `OP_ADD_I`/
+`vm_add_i` handlers call `int_binop` directly (skipping the tag-dispatch match);
+the float-specialized `OP_ADD_F`/`vm_add_f` handlers do native f64 with
+int→float promotion.
 
 ## Edge-case decisions
 
-These are deliberate choices, documented as the spec the codegen and runtime
-implement against:
+These are deliberate choices, documented as the spec the VM implements against:
 
 - **Integer overflow → bignum, never wrap.** `INT64_MAX + 1` is `9223372036854775808`, exact. (Python/Scheme lineage, not Julia/Rust.)
 - **`int + float` → `float`.** The int is promoted to f64; this is lossy for ints beyond 2⁵³, matching most languages. (A future rational/decimal tier could avoid this.)
 - **Division by zero:** integer `÷0` aborts with a diagnostic; float `/0` yields IEEE `inf`/`nan`.
-- **Modulo** is truncated toward zero; the remainder takes the sign of the dividend (C semantics, matching the interpreter).
-- **Equality is type-strict:** `1 == 1.0` is `false`, `1 == "1"` is `false` (matches the interpreter's `value_eq`).
+- **Modulo** is truncated toward zero; the remainder takes the sign of the dividend (C semantics).
+- **Equality is type-strict:** `1 == 1.0` is `false`, `1 == "1"` is `false` (via `value_eq`).
 - **Comparisons** promote `int`→`float` when mixed; `string < string` is lexicographic by bytes.
 - **`+` is overloaded** for string concatenation, but only when *both* operands are strings (no JS-style `"a" + 1` coercion).
 - **`-INT64_MIN`** escalates to bignum (would overflow i64).
+- **Bitwise ops** (`& | ^ << >> ~`) use the i64 fast path with BigInt fallback (same `int_binop` pattern); `(Bool, Bool)` returns a `Bool` so `xor` stays logical.
 
 ## Value model
 
-Every value is a heap-allocated, refcounted, tagged `coco_val` (see
-`crates/coco_rt/c/coco_rt.h`):
+Every value is a `Value` enum (`crates/coco_interpreter/src/value.rs`):
 
-```c
-typedef struct coco_val {
-    coco_tag tag;       // INT | FLOAT | BIGINT | STRING | BOOL | NULL | LIST | MAP
-    int refcount;       // refcounted (matches interpreter's Arc model; no tracing GC)
-    union {
-        int64_t i;          // COCO_INT
-        double f;           // COCO_FLOAT
-        coco_bigint *bi;    // COCO_BIGINT
-        coco_str *s;        // COCO_STRING
-        bool b;             // COCO_BOOL
-        coco_list *l;       // COCO_LIST
-        coco_map *m;        // COCO_MAP
-    } u;
-} coco_val;
+```rust
+pub enum Value {
+    Int64(i64),                            // Tier 0: i64 fast path, no allocation
+    Int(BigInt),                           // Tier 1: bignum (overflow escalation)
+    Float(f64),                            // Tier 2: f64
+    String(String),                        // Tier 3: UTF-8
+    Bool(bool),
+    Null,
+    List(Arc<CoW<Vec<Value>>>),            // refcounted, copy-on-write
+    Map(Arc<CoW<HashMap<String, Value>>>), // string keys
+    // ... FnObj, TaskHandle, Channel, Atomic, Ok/Err
+}
 ```
 
-Refcounting (not tracing GC) matches the interpreter, where `List`/`Map` are
-`Arc`-backed and `gc_ref()` returns `None`. Map keys are strings only.
+`Int64` and `Int` are semantically identical (`Int64(1) == Int(BigInt::from(1))`);
+the dual representation is purely a performance optimization. List/Map are
+`Arc<CoW<...>>` (refcounted, copy-on-write) — no tracing GC. `int_binop` and
+`normalize_int` move values between `Int64` and `Int` as overflow demands.
 
-## Building native code
+## Building / running
 
-The native codegen requires LLVM 18. Provide it one of these ways (see
-`.cargo/config.toml` and `scripts/fetch-llvm.sh`):
-
-1. **System LLVM** — `apt-get install llvm-18-dev libpolly-18-dev` (puts
-   `llvm-config-18` on PATH; `llvm-sys` finds it automatically).
-2. **Vendored** — `scripts/fetch-llvm.sh` downloads a prebuilt LLVM 18; export
-   the `LLVM_SYS_180_PREFIX` it prints before building.
-
-Then:
+Coco's sole execution model is the bytecode VM (the AOT/LLVM codegen was
+removed). Build and run:
 
 ```
-cargo build -p coco_cli --features native
-./target/debug/coco build --native program.co   # produces ./program
+cargo build -p coco_cli
+./target/debug/coco run program.co        # parse -> typeck -> compile -> VM
+./target/debug/coco build --disasm program.co   # show bytecode (incl. _I/_F opcodes)
 ```
 
-The runtime (`libcoco_rt.a`) is compiled from C by `coco_rt`'s build script via
-the `cc` crate and linked into each native binary automatically — no separate
-build step required.
+The type checker runs as part of `run`/`build`/`test` to produce the `TypeMap`
+for specialization (and as a hard-check gate on `run`, skippable with
+`--no-check`).
 
 ## What's implemented vs. deferred
 
-**Implemented:** tiers 0–3 + dynamic fallback; i64/f64/string/bigint; lists,
-indexing, `.length`; control flow (if/else-if/else, while, for-over-range,
-loop, do-while, break/continue); logical &&/||, %, bitwise, shifts; lambdas,
-match, templates, and member access are *not* yet implemented (they error
-clearly rather than silently no-op).
+**Implemented:** tiers 0–3 + dynamic fallback; i64/f64/string/bigint with
+overflow escalation; static opcode specialization (`_I`/`_F`) via the TypeMap;
+i64 fast path for bitops; lists/indexing/`.length`/mutation (write-back for
+local targets); control flow; the full builtin library (fs/net/db/regex/json);
+async/parallel/channels/atomics (see `docs/vm-audit.md` for the audit).
 
 **Deferred:** rational/decimal tier (exact `0.1 + 0.2`); Karatsuba bignum;
-async/tasks/channels/atomics; the full builtin library (fs/net/db/regex/json);
 BigInt literals (bignum currently arises only from overflow escalation);
-compile-time constant folding.
+compile-time constant folding; full blocking channel semantics; real upvalue
+capture; `io_wait` task suspension. See `docs/vm-audit.md`.

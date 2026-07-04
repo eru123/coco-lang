@@ -419,17 +419,13 @@ impl Vm {
                             }
                         }
                     }
-                    // Fallback: not a runnable task — leave it to be awaited
-                    // serially by pushing a null result slot.
-                    runs.push(crate::parallel::ParallelRun {
-                        callee: crate::ir::FnObj {
-                            name: "<noop>".to_string(),
-                            arity: 0,
-                            chunk: crate::ir::Chunk::new(),
-                            is_async: false,
-                        },
-                        args: vec![],
-                    });
+                    // Not a runnable task (already completed, a non-task value,
+                    // or a task whose closure vanished). Error loudly rather
+                    // than silently substituting a no-op, which masks bugs.
+                    return Err(VmError::new(
+                        "parallel { run ... } expects pending async task handles; \
+                         got a non-runnable value (already completed or not a task)",
+                    ));
                 }
                 let result = crate::parallel::parallel_join(runs, &self.globals)?;
                 self.push(result);
@@ -662,9 +658,13 @@ impl Vm {
                 self.push(value);
             }
             OP_STORE_MEMBER_LOCAL => {
-                // a.x = v where `a` is local. Operands: u16 prop-idx, u16 slot.
+                // a.x = v where `a` is local. Operands: u16 prop-idx (ip+1),
+                // u16 slot (ip+3). read_u16_operand always reads at ip+1, so
+                // read the second u16 directly.
                 let prop_idx = self.read_u16_operand() as usize;
-                let slot = self.read_u16_operand() as usize;
+                let frame = self.frames.last().expect("no frame");
+                let chunk = self.chunk_of(&frame.closure).expect("no chunk");
+                let slot = read_u16(&chunk.code[frame.ip + 3..frame.ip + 5]) as usize;
                 let prop = self.string_constant(prop_idx)?.to_string();
                 let value = self.pop();
                 let frame = self.current_frame()?;
