@@ -21,6 +21,7 @@ pub mod task;
 pub mod value;
 pub mod verify;
 pub mod vm;
+pub mod numeric;
 
 // ============================================================================
 // Embedded stdlib sources

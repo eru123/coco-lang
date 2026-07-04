@@ -11,8 +11,6 @@ members = [
     "crates/coco_safety",
     "crates/coco_gc",
     "crates/coco_cli",
-    "crates/coco_codegen",
-    "crates/coco_rt",
     "crates/coco_num",
 ]
 resolver = "2"

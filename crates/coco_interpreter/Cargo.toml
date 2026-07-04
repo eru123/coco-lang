@@ -11,6 +11,7 @@ coco_span = { path = "../coco_span" }
 coco_parser = { path = "../coco_parser" }
 coco_gc = { path = "../coco_gc" }
 coco_typeck = { path = "../coco_typeck" }
+coco_num = { path = "../coco_num", optional = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 regex = { workspace = true }
@@ -22,3 +23,4 @@ mio = { workspace = true, optional = true }
 default = ["db", "async-io"]
 db = ["dep:rusqlite"]
 async-io = ["dep:mio"]
+apc-advisory = ["dep:coco_num"]

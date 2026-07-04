@@ -2,6 +2,18 @@
 //!
 //! Minimal mathematical model of the APC planner and UNS tier chain from
 //! "The Adaptive Precision Cascade" paper.
+//!
+//! **NOTE:** This crate currently provides the *mathematical core* only.
+//! The interpreter's runtime values (`Value::Int64`, `Value::Int`, `Value::Float`)
+//! are NOT yet backed by APC types.  Arithmetic in the VM still uses the
+//! existing fast-path adaptive representation, with optional advisory checks
+//! from this module.  Full APC integration is deferred until the execution
+//! model stabilizes enough to measure Layer 2 performance claims.
+//!
+//! Current integration points:
+//! - Integer overflow detection via `select_tier` / `eval_policy`
+//! - Promotion/demotion proof sketches verified by unit tests
+//! - Future: replace `Value` numeric variants with `NumericState`-backed payloads
 
 #![allow(dead_code)]
 #![allow(unused_variables)]

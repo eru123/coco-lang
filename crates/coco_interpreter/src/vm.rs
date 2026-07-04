@@ -24,6 +24,7 @@ use crate::ir::{read_i16, read_u16, Chunk, FnObj, *};
 use crate::task::{TaskId, TaskScheduler};
 use crate::value::Value;
 
+
 // ============================================================================
 // VM error
 // ============================================================================
@@ -1576,11 +1577,21 @@ impl Vm {
         }
     }
 
+    #[cfg_attr(not(feature = "apc-advisory"), allow(unused_variables))]
+    fn advise_int_overflow(a: &Value, b: &Value, op: &str) {
+        #[cfg(feature = "apc-advisory")]
+        {
+            crate::numeric::opcode_entered(op);
+        }
+    }
+
     pub(crate) fn vm_add(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             (x, y) if x.is_int() && y.is_int() => {
-                Self::int_binop(&x, &y, i64::checked_add, |a, b| a + b)
+                let result = Self::int_binop(&x, &y, i64::checked_add, |a, b| a + b);
+                Self::advise_int_overflow(&x, &y, "add");
+                result
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
             (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? + match y {
@@ -1597,7 +1608,9 @@ impl Vm {
     pub(crate) fn vm_sub(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
-                Self::int_binop(&x, &y, i64::checked_sub, |a, b| a - b)
+                let result = Self::int_binop(&x, &y, i64::checked_sub, |a, b| a - b);
+                Self::advise_int_overflow(&x, &y, "sub");
+                result
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
             (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? - match y {
@@ -1614,7 +1627,9 @@ impl Vm {
     pub(crate) fn vm_mul(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
-                Self::int_binop(&x, &y, i64::checked_mul, |a, b| a * b)
+                let result = Self::int_binop(&x, &y, i64::checked_mul, |a, b| a * b);
+                Self::advise_int_overflow(&x, &y, "mul");
+                result
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
             (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? * match y {
