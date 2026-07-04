@@ -262,24 +262,10 @@ pub fn opcode_name(op: u8) -> &'static str {
 /// instruction, or None if the opcode is unknown.
 pub fn operand_bytes(op: u8) -> Option<usize> {
     match op {
-        OP_CONST
-        | OP_LOAD_LOCAL
-        | OP_STORE_LOCAL
-        | OP_LOAD_GLOBAL
-        | OP_STORE_GLOBAL
-        | OP_DEFINE_GLOBAL
-        | OP_JUMP
-        | OP_JUMP_IF_FALSE
-        | OP_JUMP_IF_TRUE
-        | OP_POP_JUMP_IF_FALSE
-        | OP_LOOP
-        | OP_MAKE_CLOSURE
-        | OP_BUILD_LIST
-        | OP_BUILD_MAP
-        | OP_MEMBER
-        | OP_STORE_MEMBER
-        | OP_STORE_INDEX_LOCAL
-        | OP_TRY_BEGIN => Some(2),
+        OP_CONST | OP_LOAD_LOCAL | OP_STORE_LOCAL | OP_LOAD_GLOBAL | OP_STORE_GLOBAL
+        | OP_DEFINE_GLOBAL | OP_JUMP | OP_JUMP_IF_FALSE | OP_JUMP_IF_TRUE
+        | OP_POP_JUMP_IF_FALSE | OP_LOOP | OP_MAKE_CLOSURE | OP_BUILD_LIST | OP_BUILD_MAP
+        | OP_MEMBER | OP_STORE_MEMBER | OP_STORE_INDEX_LOCAL | OP_TRY_BEGIN => Some(2),
 
         OP_CALL | OP_ASYNC_CALL | OP_LAZY_CALL => Some(1),
 
@@ -293,46 +279,19 @@ pub fn operand_bytes(op: u8) -> Option<usize> {
 
         OP_SELECT_TRY_RECV => Some(2), // u16 jump offset
 
-        OP_THIS | OP_AWAIT | OP_TRY | OP_CHANNEL_SEND | OP_CHANNEL_RECV | OP_ATOMIC_LOAD | OP_ATOMIC_STORE => Some(0),
+        OP_THIS | OP_AWAIT | OP_TRY | OP_CHANNEL_SEND | OP_CHANNEL_RECV | OP_ATOMIC_LOAD
+        | OP_ATOMIC_STORE => Some(0),
 
         OP_TYPE_IS => Some(2), // u16 const index for type name
 
-        OP_ADD_F | OP_SUB_F | OP_MUL_F | OP_DIV_F | OP_MOD_F | OP_POW_F
-            | OP_ADD_I | OP_SUB_I | OP_MUL_I | OP_DIV_I | OP_MOD_I
-            | OP_TYPEOF | OP_PIPE_VAL | OP_ITER_MAP | OP_CLOSE_UPVALUE => Some(0),
+        OP_ADD_F | OP_SUB_F | OP_MUL_F | OP_DIV_F | OP_MOD_F | OP_POW_F | OP_ADD_I | OP_SUB_I
+        | OP_MUL_I | OP_DIV_I | OP_MOD_I | OP_TYPEOF | OP_PIPE_VAL | OP_ITER_MAP
+        | OP_CLOSE_UPVALUE => Some(0),
 
-        OP_NULL
-        | OP_TRUE
-        | OP_FALSE
-        | OP_ADD
-        | OP_SUB
-        | OP_MUL
-        | OP_DIV
-        | OP_MOD
-        | OP_POW
-        | OP_EQ
-        | OP_NE
-        | OP_LT
-        | OP_GT
-        | OP_LE
-        | OP_GE
-        | OP_BIT_AND
-        | OP_BIT_OR
-        | OP_BIT_XOR
-        | OP_SHL
-        | OP_SHR
-        | OP_NEG
-        | OP_NOT
-        | OP_BIT_NOT
-        | OP_RETURN
-        | OP_INDEX
-        | OP_STORE_INDEX
-        | OP_POP
-        | OP_DUP
-        | OP_SWAP
-        | OP_THROW
-        | OP_TRY_END
-        | OP_CATCH => Some(0),
+        OP_NULL | OP_TRUE | OP_FALSE | OP_ADD | OP_SUB | OP_MUL | OP_DIV | OP_MOD | OP_POW
+        | OP_EQ | OP_NE | OP_LT | OP_GT | OP_LE | OP_GE | OP_BIT_AND | OP_BIT_OR | OP_BIT_XOR
+        | OP_SHL | OP_SHR | OP_NEG | OP_NOT | OP_BIT_NOT | OP_RETURN | OP_INDEX
+        | OP_STORE_INDEX | OP_POP | OP_DUP | OP_SWAP | OP_THROW | OP_TRY_END | OP_CATCH => Some(0),
 
         _ => None,
     }
@@ -649,7 +608,9 @@ impl ChunkBuilder {
     }
 
     fn record_line(&mut self) {
-        if self.lines.is_empty() || self.lines.last().map(|(_, l)| *l).unwrap_or(999) != self.current_line {
+        if self.lines.is_empty()
+            || self.lines.last().map(|(_, l)| *l).unwrap_or(999) != self.current_line
+        {
             self.lines.push((self.code.len(), self.current_line));
         }
     }
@@ -711,13 +672,22 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize, out: &mut String) -
                 } else {
                     out.push_str(&format!("{} {:>4}  ; <invalid>\n", op_name, val));
                 }
-            } else if op == OP_JUMP || op == OP_JUMP_IF_FALSE || op == OP_JUMP_IF_TRUE || op == OP_POP_JUMP_IF_FALSE {
+            } else if op == OP_JUMP
+                || op == OP_JUMP_IF_FALSE
+                || op == OP_JUMP_IF_TRUE
+                || op == OP_POP_JUMP_IF_FALSE
+            {
                 let target = offset as i32 + 3 + val as i32;
                 out.push_str(&format!("{} {:>4}  -> {}\n", op_name, val, target));
             } else if op == OP_LOOP {
                 let target = offset as i32 + 3 - val as i32;
                 out.push_str(&format!("{} {:>4}  -> {}\n", op_name, val, target));
-            } else if op == OP_LOAD_GLOBAL || op == OP_STORE_GLOBAL || op == OP_DEFINE_GLOBAL || op == OP_MEMBER || op == OP_STORE_MEMBER {
+            } else if op == OP_LOAD_GLOBAL
+                || op == OP_STORE_GLOBAL
+                || op == OP_DEFINE_GLOBAL
+                || op == OP_MEMBER
+                || op == OP_STORE_MEMBER
+            {
                 if let Some(Value::String(s)) = chunk.constants.get(val as usize) {
                     out.push_str(&format!("{} {:>4}  ; {}\n", op_name, val, s));
                 } else {

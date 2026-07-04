@@ -14,20 +14,87 @@
 //! The output is a `Chunk` ready to be executed by the VM.
 
 use crate::ir::{
-    Chunk, ChunkBuilder, FnObj, Label, OP_ADD, OP_ADD_F, OP_ADD_I, OP_BIT_AND, OP_BIT_NOT,
-    OP_BIT_OR, OP_BIT_XOR, OP_BUILD_LIST, OP_BUILD_MAP, OP_CALL, OP_CATCH, OP_CONST,
-    OP_DEFINE_GLOBAL, OP_DIV, OP_DIV_F, OP_DIV_I, OP_DUP, OP_EQ, OP_FALSE, OP_GE, OP_GT,
-    OP_INDEX, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LE, OP_LOAD_GLOBAL, OP_LOAD_LOCAL,
-    OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_METHOD_CALL, OP_MOD, OP_MOD_F, OP_MOD_I, OP_MUL,
-    OP_MUL_F, OP_MUL_I, OP_NE, OP_NEG, OP_NEW, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE,
-    OP_POW, OP_POW_F, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
-    OP_STORE_MEMBER, OP_STORE_MEMBER_LOCAL, OP_STORE_INDEX_LOCAL, OP_SUB, OP_SUB_F, OP_SUB_I,
-    OP_SUPER_METHOD, OP_SWAP, OP_THIS, OP_THROW, OP_TRUE,
-    OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
-    OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF, OP_PARALLEL_RUN,
+    Chunk,
+    ChunkBuilder,
+    FnObj,
+    Label,
+    OP_ADD,
+    OP_ADD_F,
+    OP_ADD_I,
+    OP_ASYNC_CALL,
+    OP_AWAIT,
+    OP_BIT_AND,
+    OP_BIT_NOT,
+    OP_BIT_OR,
+    OP_BIT_XOR,
+    OP_BUILD_LIST,
+    OP_BUILD_MAP,
+    OP_CALL,
+    OP_CATCH,
+    OP_CONST,
+    OP_DEFINE_GLOBAL,
+    OP_DIV,
+    OP_DIV_F,
+    OP_DIV_I,
+    OP_DUP,
+    OP_EQ,
+    OP_FALSE,
+    OP_GE,
+    OP_GT,
+    OP_INDEX,
+    OP_JUMP,
+    OP_JUMP_IF_FALSE,
+    OP_JUMP_IF_TRUE,
+    OP_LAZY_CALL,
+    OP_LE,
+    OP_LOAD_GLOBAL,
+    OP_LOAD_LOCAL,
+    OP_LT,
+    OP_MAKE_CLOSURE,
+    OP_MEMBER,
+    OP_METHOD_CALL,
+    OP_MOD,
+    OP_MOD_F,
+    OP_MOD_I,
+    OP_MUL,
+    OP_MUL_F,
+    OP_MUL_I,
+    OP_NE,
+    OP_NEG,
+    OP_NEW,
+    OP_NOT,
+    OP_NULL,
+    OP_PARALLEL_RUN,
     // OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE are dispatched by the VM but
     // not yet emitted by the compiler; import them here when compile_for /
     // compile_pipe / scope-close are wired to emit them.
+    OP_POP,
+    OP_POP_JUMP_IF_FALSE,
+    OP_POW,
+    OP_POW_F,
+    OP_RETURN,
+    OP_SELECT_TRY_RECV,
+    OP_SHL,
+    OP_SHR,
+    OP_STORE_GLOBAL,
+    OP_STORE_INDEX,
+    OP_STORE_INDEX_LOCAL,
+    OP_STORE_LOCAL,
+    OP_STORE_MEMBER,
+    OP_STORE_MEMBER_LOCAL,
+    OP_SUB,
+    OP_SUB_F,
+    OP_SUB_I,
+    OP_SUPER_METHOD,
+    OP_SWAP,
+    OP_THIS,
+    OP_THROW,
+    OP_TRUE,
+    OP_TRY,
+    OP_TRY_BEGIN,
+    OP_TRY_END,
+    OP_TYPEOF,
+    OP_TYPE_IS,
 };
 use crate::value::Value;
 use coco_parser::Parser;
@@ -157,7 +224,9 @@ impl Compiler {
         // work (functions can call other functions defined later).
         for item in &program.items {
             match item {
-                Item::FnDecl(fn_decl) => { self.declare_function(fn_decl)?; }
+                Item::FnDecl(fn_decl) => {
+                    self.declare_function(fn_decl)?;
+                }
                 Item::Export(export) => {
                     if let Item::FnDecl(fn_decl) = &*export.item {
                         self.declare_function(fn_decl)?;
@@ -195,8 +264,7 @@ impl Compiler {
         // Find the FnObj constants and their names
         let mut fn_names: std::collections::HashMap<usize, String> =
             std::collections::HashMap::new();
-        let mut reachable: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut reachable: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut worklist: Vec<String> = Vec::new();
 
         // Scan constants for FnObj values
@@ -218,10 +286,7 @@ impl Compiler {
         // Walk the bytecode of reachable functions to find calls
         while let Some(name) = worklist.pop() {
             // Find the FnObj constant index for this function
-            let const_idx = fn_names
-                .iter()
-                .find(|(_, n)| *n == &name)
-                .map(|(i, _)| *i);
+            let const_idx = fn_names.iter().find(|(_, n)| *n == &name).map(|(i, _)| *i);
 
             if let Some(idx) = const_idx {
                 let fn_obj = match &chunk.constants[idx] {
@@ -234,8 +299,7 @@ impl Compiler {
                 let mut ip: i32 = 0;
                 while (ip as usize) < code.len() {
                     let op = code[ip as usize];
-                    let step = 1
-                        + crate::ir::operand_bytes(op).unwrap_or(0) as i32;
+                    let step = 1 + crate::ir::operand_bytes(op).unwrap_or(0) as i32;
 
                     if op == OP_CALL || op == OP_ASYNC_CALL || op == OP_LAZY_CALL {
                         // Walk backward from CALL to find the preceding
@@ -244,9 +308,8 @@ impl Compiler {
                         while back >= 0 {
                             let bop = code[back as usize];
                             if bop == OP_LOAD_GLOBAL || bop == OP_DEFINE_GLOBAL {
-                                let idx = crate::ir::read_u16(
-                                    &code[(back + 1) as usize..],
-                                ) as usize;
+                                let idx =
+                                    crate::ir::read_u16(&code[(back + 1) as usize..]) as usize;
                                 if let Some(Value::String(callee_name)) =
                                     fn_obj.chunk.constants.get(idx)
                                 {
@@ -259,9 +322,7 @@ impl Compiler {
                                 }
                                 break;
                             }
-                            back -= 1
-                                + crate::ir::operand_bytes(bop).unwrap_or(0)
-                                    as i32;
+                            back -= 1 + crate::ir::operand_bytes(bop).unwrap_or(0) as i32;
                         }
                     }
 
@@ -280,12 +341,9 @@ impl Compiler {
             let op = code[ip as usize];
             if op == OP_DEFINE_GLOBAL {
                 // Check if this defines an unreachable function
-                let name_idx =
-                    crate::ir::read_u16(&code[(ip + 1) as usize..]) as usize;
+                let name_idx = crate::ir::read_u16(&code[(ip + 1) as usize..]) as usize;
                 if let Some(Value::String(fn_name)) = constants.get(name_idx) {
-                    if fn_names.values().any(|n| n == fn_name)
-                        && !reachable.contains(fn_name)
-                    {
+                    if fn_names.values().any(|n| n == fn_name) && !reachable.contains(fn_name) {
                         // Skip this instruction (2 bytes op+idx)
                         ip += 3;
                         // Also skip the preceding LOAD_GLOBAL + MAKE_CLOSURE pattern
@@ -993,7 +1051,9 @@ impl Compiler {
             Expr::Super(_) => {
                 // super pushes the parent class map via OP_THIS + prototype lookup
                 // For now, we'll handle it in compile_call when used as super.method()
-                Err(CompileError::new("super only valid in method call position"))
+                Err(CompileError::new(
+                    "super only valid in method call position",
+                ))
             }
             Expr::Match(match_expr) => self.compile_match(match_expr),
             Expr::Elvis(elvis) => self.compile_elvis(elvis),
@@ -1002,9 +1062,13 @@ impl Compiler {
             Expr::Lazy(inner) => {
                 // Compile inner expression as an async lambda and spawn it
                 let params: Vec<String> = Vec::new();
-                let body = Block { span: inner.span(), stmts: vec![
-                    Stmt::Return(ReturnStmt { span: inner.span(), value: Some((**inner).clone()) })
-                ]};
+                let body = Block {
+                    span: inner.span(),
+                    stmts: vec![Stmt::Return(ReturnStmt {
+                        span: inner.span(),
+                        value: Some((**inner).clone()),
+                    })],
+                };
                 let chunk = self.compile_function_body("<lazy>", &params, &body)?;
                 let fn_obj = FnObj {
                     name: "<lazy>".to_string(),
@@ -1161,21 +1225,21 @@ impl Compiler {
             Range => {
                 let range_idx = self.name_constant("range");
                 self.emit_op_u16(OP_LOAD_GLOBAL, range_idx); // [range]
-                self.compile_expr(&bin.left)?;               // [range, start]
-                self.compile_expr(&bin.right)?;              // [range, start, end]
-                self.emit_op_u8(OP_CALL, 2);                 // range(start, end)
+                self.compile_expr(&bin.left)?; // [range, start]
+                self.compile_expr(&bin.right)?; // [range, start, end]
+                self.emit_op_u8(OP_CALL, 2); // range(start, end)
                 return Ok(());
             }
             RangeInclusive => {
                 let range_idx = self.name_constant("range");
                 self.emit_op_u16(OP_LOAD_GLOBAL, range_idx); // [range]
-                self.compile_expr(&bin.left)?;               // [range, start]
-                self.compile_expr(&bin.right)?;              // [range, start, end]
-                // Inclusive: end + 1 (operate on the top, the end value).
+                self.compile_expr(&bin.left)?; // [range, start]
+                self.compile_expr(&bin.right)?; // [range, start, end]
+                                                // Inclusive: end + 1 (operate on the top, the end value).
                 let one_idx = self.add_constant(Value::int_from_i64(1));
-                self.emit_op_u16(OP_CONST, one_idx);         // [range, start, end, 1]
-                self.emit_op(OP_ADD);                        // [range, start, end+1]
-                self.emit_op_u8(OP_CALL, 2);                 // range(start, end+1)
+                self.emit_op_u16(OP_CONST, one_idx); // [range, start, end, 1]
+                self.emit_op(OP_ADD); // [range, start, end+1]
+                self.emit_op_u8(OP_CALL, 2); // range(start, end+1)
                 return Ok(());
             }
             _ => {}
@@ -1240,10 +1304,15 @@ impl Compiler {
         let lt = types.get(bin.left.span());
         let rt = types.get(bin.right.span());
         let is_int = |t: Option<&coco_typeck::types::Ty>| {
-            matches!(t, Some(coco_typeck::types::Ty::Int) | Some(coco_typeck::types::Ty::Uint))
+            matches!(
+                t,
+                Some(coco_typeck::types::Ty::Int) | Some(coco_typeck::types::Ty::Uint)
+            )
         };
-        let is_float = |t: Option<&coco_typeck::types::Ty>| matches!(t, Some(coco_typeck::types::Ty::Float));
-        let is_numeric = |t: Option<&coco_typeck::types::Ty>| t.map(|t| t.is_numeric()).unwrap_or(false);
+        let is_float =
+            |t: Option<&coco_typeck::types::Ty>| matches!(t, Some(coco_typeck::types::Ty::Float));
+        let is_numeric =
+            |t: Option<&coco_typeck::types::Ty>| t.map(|t| t.is_numeric()).unwrap_or(false);
         // Both statically int -> int op (i64 fast path).
         if is_int(lt) && is_int(rt) {
             return op_i;
@@ -1322,7 +1391,7 @@ impl Compiler {
                         self.emit_op(OP_INDEX);
                         self.compile_expr(value_expr)?;
                         self.emit_op(op); // [result]
-                        // store-back: [key, result] -> STORE_INDEX_LOCAL
+                                          // store-back: [key, result] -> STORE_INDEX_LOCAL
                         self.compile_expr(&idx_expr.index)?;
                         self.emit_op(OP_SWAP);
                         self.emit_op_u16(OP_STORE_INDEX_LOCAL, slot as u16);
@@ -1867,17 +1936,28 @@ impl Compiler {
         // extends — store parent class name for runtime resolution
         if let Some(parent) = &class_decl.extends {
             if let Type::Named(named) = parent {
-                values.push(("__parent_name__".to_string(), Value::String(named.name.name.clone())));
+                values.push((
+                    "__parent_name__".to_string(),
+                    Value::String(named.name.name.clone()),
+                ));
             }
         }
 
         // implements — store interface names for runtime validation
         if !class_decl.implements.is_empty() {
-            let iface_names: Vec<String> = class_decl.implements.iter()
-                .filter_map(|t| match t { Type::Named(n) => Some(n.name.name.clone()), _ => None })
+            let iface_names: Vec<String> = class_decl
+                .implements
+                .iter()
+                .filter_map(|t| match t {
+                    Type::Named(n) => Some(n.name.name.clone()),
+                    _ => None,
+                })
                 .collect();
             if !iface_names.is_empty() {
-                values.push(("__implements__".to_string(), Value::String(iface_names.join(","))));
+                values.push((
+                    "__implements__".to_string(),
+                    Value::String(iface_names.join(",")),
+                ));
             }
         }
 
@@ -1891,49 +1971,66 @@ impl Compiler {
             }
         }
         if !trait_names.is_empty() {
-            values.push(("__use_traits__".to_string(), Value::String(trait_names.join(","))));
+            values.push((
+                "__use_traits__".to_string(),
+                Value::String(trait_names.join(",")),
+            ));
         }
 
         // Members: constructor, methods, properties
         for member in &class_decl.members {
             match member {
                 ClassMember::Constructor(ctor) => {
-                    let params: Vec<String> = ctor.params.iter().map(|p| p.name.name.clone()).collect();
+                    let params: Vec<String> =
+                        ctor.params.iter().map(|p| p.name.name.clone()).collect();
                     let ctor_chunk = self.compile_function_body(
                         &format!("{}.constructor", class_name),
                         &params,
                         &ctor.body,
                     )?;
-                    values.push(("__constructor__".to_string(), Value::FnObj(FnObj {
-                        name: format!("{}.constructor", class_name),
-                        arity: params.len(),
-                        chunk: ctor_chunk,
-                        is_async: false,
-                    })));
+                    values.push((
+                        "__constructor__".to_string(),
+                        Value::FnObj(FnObj {
+                            name: format!("{}.constructor", class_name),
+                            arity: params.len(),
+                            chunk: ctor_chunk,
+                            is_async: false,
+                        }),
+                    ));
                 }
                 ClassMember::Method(method) => {
-                    let params: Vec<String> = method.params.iter().map(|p| p.name.name.clone()).collect();
+                    let params: Vec<String> =
+                        method.params.iter().map(|p| p.name.name.clone()).collect();
                     let meth_chunk = self.compile_function_body(
                         &format!("{}.{}", class_name, method.name.name),
                         &params,
                         &method.body,
                     )?;
                     let is_static = method.modifiers.contains(&Modifier::Static);
-                    values.push((method.name.name.clone(), Value::FnObj(FnObj {
-                        name: format!("{}.{}", class_name, method.name.name),
-                        arity: params.len(),
-                        chunk: meth_chunk,
-                        is_async: method.is_async,
-                    })));
+                    values.push((
+                        method.name.name.clone(),
+                        Value::FnObj(FnObj {
+                            name: format!("{}.{}", class_name, method.name.name),
+                            arity: params.len(),
+                            chunk: meth_chunk,
+                            is_async: method.is_async,
+                        }),
+                    ));
                     // Store static methods too
                     if !is_static {
                         // Non-static methods are already stored above
                     }
                     if !method.modifiers.is_empty() {
-                        let mod_str = method.modifiers.iter()
+                        let mod_str = method
+                            .modifiers
+                            .iter()
                             .map(|m| format!("{:?}", m))
-                            .collect::<Vec<_>>().join(",");
-                        values.push((format!("__mod_{}", method.name.name), Value::String(mod_str)));
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        values.push((
+                            format!("__mod_{}", method.name.name),
+                            Value::String(mod_str),
+                        ));
                     }
                 }
                 ClassMember::Property(prop) => {
@@ -1942,10 +2039,16 @@ impl Compiler {
                     let default_val = Value::Null; // Default values resolved at runtime
                     values.push((prop_key, default_val));
                     if !prop.modifiers.is_empty() {
-                        let mod_str = prop.modifiers.iter()
+                        let mod_str = prop
+                            .modifiers
+                            .iter()
                             .map(|m| format!("{:?}", m))
-                            .collect::<Vec<_>>().join(",");
-                        values.push((format!("__modprop_{}", prop.name.name), Value::String(mod_str)));
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        values.push((
+                            format!("__modprop_{}", prop.name.name),
+                            Value::String(mod_str),
+                        ));
                     }
                 }
                 ClassMember::UseTrait(_) => {} // handled above
@@ -1984,11 +2087,15 @@ impl Compiler {
     fn compile_trait_decl(&mut self, trait_decl: &TraitDecl) -> CResult<()> {
         let mut values: Vec<(String, Value)> = Vec::new();
 
-        values.push(("__trait__".to_string(), Value::String(trait_decl.name.name.clone())));
+        values.push((
+            "__trait__".to_string(),
+            Value::String(trait_decl.name.name.clone()),
+        ));
 
         for member in &trait_decl.members {
             if let TraitMember::Method(method) = member {
-                let params: Vec<String> = method.params.iter().map(|p| p.name.name.clone()).collect();
+                let params: Vec<String> =
+                    method.params.iter().map(|p| p.name.name.clone()).collect();
                 let meth_chunk = self.compile_function_body(
                     &format!("{}.{}", trait_decl.name.name, method.name.name),
                     &params,
@@ -2025,11 +2132,17 @@ impl Compiler {
     fn compile_interface_decl(&mut self, iface_decl: &InterfaceDecl) -> CResult<()> {
         let mut values: Vec<(String, Value)> = Vec::new();
 
-        values.push(("__interface__".to_string(), Value::String(iface_decl.name.name.clone())));
+        values.push((
+            "__interface__".to_string(),
+            Value::String(iface_decl.name.name.clone()),
+        ));
 
         if let Some(parent) = &iface_decl.extends {
             if let Type::Named(named) = parent {
-                values.push(("__extends__".to_string(), Value::String(named.name.name.clone())));
+                values.push((
+                    "__extends__".to_string(),
+                    Value::String(named.name.name.clone()),
+                ));
             }
         }
 
@@ -2039,7 +2152,10 @@ impl Compiler {
                     values.push((sig.name.name.clone(), Value::String("method".to_string())));
                 }
                 InterfaceMember::PropertySignature(sig) => {
-                    values.push((format!("__prop_{}", sig.name.name), Value::String("property".to_string())));
+                    values.push((
+                        format!("__prop_{}", sig.name.name),
+                        Value::String("property".to_string()),
+                    ));
                 }
             }
         }
@@ -2275,26 +2391,22 @@ impl Compiler {
             BinaryOp::Lt => {
                 let a = Self::literal_to_value(left)?;
                 let b = Self::literal_to_value(right)?;
-                Vm::vm_cmp(a, b, |o| o == Ordering::Less)
-                    .ok()
+                Vm::vm_cmp(a, b, |o| o == Ordering::Less).ok()
             }
             BinaryOp::Gt => {
                 let a = Self::literal_to_value(left)?;
                 let b = Self::literal_to_value(right)?;
-                Vm::vm_cmp(a, b, |o| o == Ordering::Greater)
-                    .ok()
+                Vm::vm_cmp(a, b, |o| o == Ordering::Greater).ok()
             }
             BinaryOp::Le => {
                 let a = Self::literal_to_value(left)?;
                 let b = Self::literal_to_value(right)?;
-                Vm::vm_cmp(a, b, |o| o != Ordering::Greater)
-                    .ok()
+                Vm::vm_cmp(a, b, |o| o != Ordering::Greater).ok()
             }
             BinaryOp::Ge => {
                 let a = Self::literal_to_value(left)?;
                 let b = Self::literal_to_value(right)?;
-                Vm::vm_cmp(a, b, |o| o != Ordering::Less)
-                    .ok()
+                Vm::vm_cmp(a, b, |o| o != Ordering::Less).ok()
             }
             BinaryOp::BitAnd => {
                 let a = Self::literal_to_value(left)?;

@@ -13,7 +13,7 @@ Examples:
 ```
 feat(parser): parse do-while statement
 fix(vm): implement structural equality for lists
-refactor(arch): remove tree-walking interpreter
+feat(vm): make VM the sole execution path
 test(vm): add bytecode compiler snapshot tests
 docs: add BUILDING.md
 ```

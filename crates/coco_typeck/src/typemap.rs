@@ -1,11 +1,12 @@
 //! A span-keyed map of inferred expression types, produced during type
-//! checking and consumed by the native codegen to specialize arithmetic (and
-//! other operations) on statically-known types.
+//! checking and used by the bytecode VM compiler to specialize arithmetic
+//! and other operations on statically-known types.
 //!
-//! See `docs/adaptive-numeric-tower.md`: when both operands of a binary op
-//! resolve to a concrete `Ty` (e.g. `Int`+`Int`), the codegen emits a native
-//! fast-path op; when either is `Unknown`/`Mixed`, it falls back to a runtime
-//! tag-dispatched call. This map is how the codegen learns the static types.
+//! When both operands of a binary op resolve to a concrete `Ty` (for example
+//! `Int` + `Int`), the compiler can emit a narrower VM opcode instead of the
+//! fully generic dispatch. When either operand is unresolved, it falls back to
+//! the runtime tag-dispatched path. This map is how the compiler learns the
+//! static types.
 
 use std::collections::HashMap;
 
@@ -24,7 +25,9 @@ pub struct TypeMap {
 impl TypeMap {
     /// Create an empty map.
     pub fn new() -> Self {
-        Self { inner: HashMap::new() }
+        Self {
+            inner: HashMap::new(),
+        }
     }
 
     /// Record the inferred type for the node at `span`.

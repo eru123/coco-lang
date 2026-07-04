@@ -44,11 +44,7 @@ impl<'a> Parser<'a> {
     fn error(&mut self, msg: &str) {
         let span = self.current.span;
         self.diagnostics.push(
-            Diagnostic::error(
-                coco_span::FileId(0),
-                msg.to_string(),
-            )
-            .with_label(span, "here", true),
+            Diagnostic::error(coco_span::FileId(0), msg.to_string()).with_label(span, "here", true),
         );
         self.synchronize();
     }
@@ -1442,18 +1438,20 @@ impl<'a> Parser<'a> {
                 self.parse_template(text, span)
             }
             // Keywords that are valid as identifiers in expression context
-            TokenKind::Ok | TokenKind::Err | TokenKind::Result
-            | TokenKind::Typeof | TokenKind::As
-            | TokenKind::From | TokenKind::Use
+            TokenKind::Ok
+            | TokenKind::Err
+            | TokenKind::Result
+            | TokenKind::Typeof
+            | TokenKind::As
+            | TokenKind::From
+            | TokenKind::Use
             | TokenKind::Await
-            | TokenKind::Coro | TokenKind::Select => {
+            | TokenKind::Coro
+            | TokenKind::Select => {
                 let text = self.current.text.clone();
                 let span = self.current.span;
                 self.advance();
-                Expr::Ident(Ident {
-                    name: text,
-                    span,
-                })
+                Expr::Ident(Ident { name: text, span })
             }
             _ => {
                 let span = self.current.span;

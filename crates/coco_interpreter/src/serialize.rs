@@ -509,7 +509,10 @@ mod tests {
                 assert!(fo.is_async);
                 assert_eq!(fo.chunk.code, vec![1, 51]);
                 assert_eq!(fo.chunk.constants.len(), 2);
-                assert!(value_eq(&fo.chunk.constants[0], &Value::Int(BigInt::from(7))));
+                assert!(value_eq(
+                    &fo.chunk.constants[0],
+                    &Value::Int(BigInt::from(7))
+                ));
                 assert_eq!(fo.chunk.lines, vec![(0, 10)]);
             }
             _ => panic!("expected FnObj"),
@@ -567,7 +570,10 @@ mod tests {
         assert_eq!(back.code, chunk.code);
         assert_eq!(back.constants.len(), 2);
         assert!(value_eq(&back.constants[0], &Value::Int(BigInt::from(99))));
-        assert!(value_eq(&back.constants[1], &Value::String("hi".to_string())));
+        assert!(value_eq(
+            &back.constants[1],
+            &Value::String("hi".to_string())
+        ));
         assert_eq!(back.lines, chunk.lines);
     }
 

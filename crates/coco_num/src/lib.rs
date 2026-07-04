@@ -58,14 +58,54 @@ pub struct TierMeta {
 }
 
 const TIER_METAS: &[TierMeta] = &[
-    TierMeta { index: 0, name: "T0", cost: 1, determinism: true },
-    TierMeta { index: 1, name: "T1", cost: 2, determinism: true },
-    TierMeta { index: 2, name: "T2", cost: 3, determinism: true },
-    TierMeta { index: 3, name: "T3", cost: 5, determinism: true },
-    TierMeta { index: 4, name: "T4", cost: 9, determinism: true },
-    TierMeta { index: 5, name: "T5", cost: 14, determinism: true },
-    TierMeta { index: 6, name: "T6", cost: 20, determinism: true },
-    TierMeta { index: 7, name: "T7", cost: 28, determinism: true },
+    TierMeta {
+        index: 0,
+        name: "T0",
+        cost: 1,
+        determinism: true,
+    },
+    TierMeta {
+        index: 1,
+        name: "T1",
+        cost: 2,
+        determinism: true,
+    },
+    TierMeta {
+        index: 2,
+        name: "T2",
+        cost: 3,
+        determinism: true,
+    },
+    TierMeta {
+        index: 3,
+        name: "T3",
+        cost: 5,
+        determinism: true,
+    },
+    TierMeta {
+        index: 4,
+        name: "T4",
+        cost: 9,
+        determinism: true,
+    },
+    TierMeta {
+        index: 5,
+        name: "T5",
+        cost: 14,
+        determinism: true,
+    },
+    TierMeta {
+        index: 6,
+        name: "T6",
+        cost: 20,
+        determinism: true,
+    },
+    TierMeta {
+        index: 7,
+        name: "T7",
+        cost: 28,
+        determinism: true,
+    },
 ];
 
 impl Tier {
@@ -173,12 +213,7 @@ impl Interval {
     }
 
     pub fn mul_inflation(a: &Self, b: &Self, rounding: f64) -> Self {
-        let corners = [
-            a.lo * b.lo,
-            a.lo * b.hi,
-            a.hi * b.lo,
-            a.hi * b.hi,
-        ];
+        let corners = [a.lo * b.lo, a.lo * b.hi, a.hi * b.lo, a.hi * b.hi];
         let lo = corners.iter().copied().fold(f64::INFINITY, f64::min);
         let hi = corners.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let rounding = rounding.abs();
@@ -195,12 +230,7 @@ impl Interval {
                 hi: f64::INFINITY,
             };
         }
-        let corners = [
-            a.lo / b.lo,
-            a.lo / b.hi,
-            a.hi / b.lo,
-            a.hi / b.hi,
-        ];
+        let corners = [a.lo / b.lo, a.lo / b.hi, a.hi / b.lo, a.hi / b.hi];
         let lo = corners.iter().copied().fold(f64::INFINITY, f64::min);
         let hi = corners.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let rounding = rounding.abs();
@@ -305,9 +335,7 @@ impl NumericState {
             .ok_or(APCError::DemotionNotLossless)?;
         let payload = match tier {
             Tier::T0 | Tier::T1 | Tier::T4 => Num::BigInt(exact.clone()),
-            Tier::T2 if can_represent_as_i64(&exact) => {
-                Num::I64(exact.to_i64().unwrap())
-            }
+            Tier::T2 if can_represent_as_i64(&exact) => Num::I64(exact.to_i64().unwrap()),
             _ => return Err(APCError::DemotionNotLossless),
         };
         Ok(NumericState {
@@ -374,9 +402,7 @@ fn payload_to_bigint(payload: &Num) -> Result<BigInt, APCError> {
         Num::I64(n) => Ok(BigInt::from(*n)),
         Num::BigInt(n) => Ok(n.clone()),
         Num::F64(n) => approx_bigint_from_f64(*n).ok_or(APCError::TierLossless),
-        Num::DoubleDouble { hi, .. } => {
-            approx_bigint_from_f64(*hi).ok_or(APCError::TierLossless)
-        }
+        Num::DoubleDouble { hi, .. } => approx_bigint_from_f64(*hi).ok_or(APCError::TierLossless),
         Num::Rational(r) => Ok(r.numer().clone() / r.denom().clone()),
         Num::Decimal(s) => s
             .parse::<f64>()
@@ -839,11 +865,7 @@ pub fn check_properties(samples: CheckSamples, policy: Policy) -> VerificationRe
                                 }
                                 if selected.tier > base {
                                     if let Ok(promoted) = selected.promote(base) {
-                                        let prev = previous_payload(
-                                            &a.payload,
-                                            *op,
-                                            &b.payload,
-                                        );
+                                        let prev = previous_payload(&a.payload, *op, &b.payload);
                                         if promoted.payload != prev {
                                             report.capable_tiers.push(CounterExample {
                                                 op: *op,
@@ -963,8 +985,7 @@ pub mod tests {
                 max_cost_budget: 100,
                 require_determinism: true,
             };
-            let result =
-                eval_policy(Op::Add, a, b, policy).expect("addition with loose policy");
+            let result = eval_policy(Op::Add, a, b, policy).expect("addition with loose policy");
             assert!(result.interval.lo.is_finite());
         }
 

@@ -47,9 +47,7 @@ The repo is a Rust workspace with a compiler toolchain split across crates.
 The bytecode VM is the sole execution model. There are three ways to run a program:
 - `coco run foo.co` — lex → parse → compile to a `Chunk` → VM executes (full pipeline)
 - `coco run foo.cb` — deserialize a `.cb` bytecode artifact → VM executes (skips parse/compile)
-- `coco build --binary foo.co` — emits a standalone executable that `include_bytes!`s the `.cb` payload and statically links `coco_interpreter` as a library
-
-`coco build foo.co` (no flags) emits a `.cb` artifact via `coco_interpreter::serialize_chunk`. `coco build --disasm` prints bytecode disassembly (a debugging aid). The tree-walking interpreter and the native LLVM backend have been removed.
+- `coco build foo.co` — emits a `.cb` artifact via `coco_interpreter::serialize_chunk`; `coco build --disasm` prints bytecode disassembly
 
 ### Data Flow
 - Source text is lexed by `coco_lexer`

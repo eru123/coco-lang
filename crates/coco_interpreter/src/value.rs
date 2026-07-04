@@ -228,7 +228,6 @@ impl Value {
             Value::Int(n)
         }
     }
-
 }
 
 /// Structural equality for `Value`s, exposed as the `deepEquals` builtin.
@@ -262,7 +261,10 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
             if a.data.len() != b.data.len() {
                 return false;
             }
-            a.data.iter().zip(b.data.iter()).all(|(x, y)| value_eq(x, y))
+            a.data
+                .iter()
+                .zip(b.data.iter())
+                .all(|(x, y)| value_eq(x, y))
         }
         (Value::Map(a), Value::Map(b)) => {
             if a.data.len() != b.data.len() {

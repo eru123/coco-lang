@@ -1,5 +1,4 @@
 /// Call stack tracking for error reporting.
-
 use std::path::PathBuf;
 
 use coco_span::Span;
@@ -90,11 +89,7 @@ impl CallStack {
                     location
                 ));
             } else {
-                result.push_str(&format!(
-                    "  at {} ({})\n",
-                    frame.function_name,
-                    location
-                ));
+                result.push_str(&format!("  at {} ({})\n", frame.function_name, location));
             }
         }
         result

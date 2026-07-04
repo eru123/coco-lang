@@ -33,7 +33,11 @@ pub fn collect_items(items: &[Item], env: &mut TypeEnv) {
     for item in items {
         match item {
             Item::EnumDecl(enum_decl) => {
-                let variants: Vec<String> = enum_decl.variants.iter().map(|v| v.name.name.clone()).collect();
+                let variants: Vec<String> = enum_decl
+                    .variants
+                    .iter()
+                    .map(|v| v.name.name.clone())
+                    .collect();
                 env.register_enum(enum_decl.name.name.clone(), variants);
             }
             Item::FnDecl(fn_decl) => {

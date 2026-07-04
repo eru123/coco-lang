@@ -37,9 +37,10 @@ pub struct TypeckResult {
     pub errors: Vec<TypeckError>,
     /// Type warnings found.
     pub warnings: Vec<TypeckError>,
-    /// Inferred types keyed by AST node span, for codegen specialization.
-    /// Empty if no expressions were inferred. The native codegen consults this
-    /// to pick the fastest exact arithmetic tier for statically-typed operands.
+    /// Inferred types keyed by AST node span, for VM-compiler specialization.
+    /// Empty if no expressions were inferred. The bytecode compiler uses this
+    /// map to pick narrower arithmetic opcodes when both operands have a
+    /// concrete static type.
     pub types: TypeMap,
 }
 
@@ -108,5 +109,9 @@ pub fn check(program: &Program) -> TypeckResult {
     // Collect the inferred type map recorded during checking.
     let types = env.take_types();
 
-    TypeckResult { errors, warnings, types }
+    TypeckResult {
+        errors,
+        warnings,
+        types,
+    }
 }

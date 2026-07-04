@@ -2,8 +2,7 @@
 // Demonstrates: coro{}, fire-and-forget execution, parallel{}, scope isolation
 //
 // `coro { ... }` creates a fire-and-forget coroutine. The body executes
-// immediately in the tree-walking interpreter, or as a spawned task in
-// the bytecode VM. Coroutines are useful for background cleanup, logging,
+// as a spawned task in the bytecode VM runtime. Coroutines are useful for background cleanup, logging,
 // metrics collection, and other non-critical side effects.
 
 // Simulated metrics collector

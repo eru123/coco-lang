@@ -20,8 +20,7 @@ use crate::value::Value;
 static DB_REGISTRY: std::sync::LazyLock<Arc<Mutex<HashMap<usize, Connection>>>> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-static NEXT_DB_HANDLE: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(1);
+static NEXT_DB_HANDLE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 
 fn alloc_db_handle() -> usize {
     NEXT_DB_HANDLE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -47,11 +46,14 @@ pub fn db_open(args: &[Value]) -> Result<Value, Signal> {
     }
     let path = match &args[0] {
         Value::String(s) => s.clone(),
-        _ => return Err(Signal::Error(RuntimeError::new("db_open expects a string path"))),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "db_open expects a string path",
+            )))
+        }
     };
-    let conn = Connection::open(&path).map_err(|e| {
-        Signal::Error(RuntimeError::new(format!("db_open failed: {}", e)))
-    })?;
+    let conn = Connection::open(&path)
+        .map_err(|e| Signal::Error(RuntimeError::new(format!("db_open failed: {}", e))))?;
     let handle = alloc_db_handle();
     DB_REGISTRY.lock().unwrap().insert(handle, conn);
     Ok(Value::int_from_i64(handle as i64))
@@ -66,12 +68,21 @@ pub fn db_exec(args: &[Value]) -> Result<Value, Signal> {
         )));
     }
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
-        _ => return Err(Signal::Error(RuntimeError::new("db_exec: handle must be int"))),
+        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int64(n) => (*n as usize),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "db_exec: handle must be int",
+            )))
+        }
     };
     let sql = match &args[1] {
         Value::String(s) => s.clone(),
-        _ => return Err(Signal::Error(RuntimeError::new("db_exec: sql must be string"))),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "db_exec: sql must be string",
+            )))
+        }
     };
     let params = params_from_value(args.get(2));
 
@@ -94,12 +105,21 @@ pub fn db_query(args: &[Value]) -> Result<Value, Signal> {
         )));
     }
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
-        _ => return Err(Signal::Error(RuntimeError::new("db_query: handle must be int"))),
+        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int64(n) => (*n as usize),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "db_query: handle must be int",
+            )))
+        }
     };
     let sql = match &args[1] {
         Value::String(s) => s.clone(),
-        _ => return Err(Signal::Error(RuntimeError::new("db_query: sql must be string"))),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "db_query: sql must be string",
+            )))
+        }
     };
     let params = params_from_value(args.get(2));
 
@@ -142,8 +162,8 @@ pub fn db_query(args: &[Value]) -> Result<Value, Signal> {
         })
         .map_err(|e| Signal::Error(RuntimeError::new(format!("db_query: {}", e))))?;
     for row in rows {
-        let map = row
-            .map_err(|e| Signal::Error(RuntimeError::new(format!("db_query row: {}", e))))?;
+        let map =
+            row.map_err(|e| Signal::Error(RuntimeError::new(format!("db_query row: {}", e))))?;
         collected.push(map);
     }
     drop(stmt);
@@ -165,8 +185,13 @@ pub fn db_close(args: &[Value]) -> Result<Value, Signal> {
         )));
     }
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
-        _ => return Err(Signal::Error(RuntimeError::new("db_close: handle must be int"))),
+        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int64(n) => (*n as usize),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "db_close: handle must be int",
+            )))
+        }
     };
     let mut reg = DB_REGISTRY.lock().unwrap();
     reg.remove(&handle);

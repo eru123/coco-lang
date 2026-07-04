@@ -72,11 +72,11 @@ enum Commands {
         /// Enable debug mode (GC stats)
         #[arg(long = "debug")]
         debug: bool,
-        /// (no-op: VM is now the default runtime) Use the bytecode VM instead of the tree-walking interpreter
+        /// Use the bytecode VM path for execution
         #[arg(long = "vm")]
         use_vm: bool,
     },
-    /// Compile a .co file to a .cb bytecode artifact (or a standalone binary)
+    /// Compile a .co file to a .cb bytecode artifact
     Build {
         /// Path to the .co file (defaults to src/main.co)
         file: Option<PathBuf>,
@@ -179,10 +179,14 @@ fn resolve_file_in(base: &Path, file: &Path) -> Option<PathBuf> {
 
 /// Resolve the entry point file. If none given, look for src/main.co, main.co.
 fn resolve_entry(file: Option<&Path>) -> PathBuf {
-    if let Some(f) = file { return f.to_path_buf(); }
+    if let Some(f) = file {
+        return f.to_path_buf();
+    }
     for candidate in &["src/main.co", "main.co", "src/index.co", "index.co"] {
         let p = Path::new(candidate);
-        if p.exists() { return p.to_path_buf(); }
+        if p.exists() {
+            return p.to_path_buf();
+        }
     }
     PathBuf::from("main.co")
 }
@@ -423,8 +427,7 @@ fn run_with_vm(source: &str, debug: bool) {
     // command's --check gate handles that; this is purely for specialization,
     // so gradual/untyped code still compiles via generic opcodes.
     let typeck_result = coco_typeck::check(&program);
-    let mut compiler = coco_interpreter::compiler::Compiler::new()
-        .with_types(typeck_result.types);
+    let mut compiler = coco_interpreter::compiler::Compiler::new().with_types(typeck_result.types);
     let chunk = match compiler.compile_script(&program) {
         Ok(c) => c,
         Err(e) => {
@@ -503,8 +506,7 @@ fn cmd_build(file: &Path, binary: bool, disasm: bool, release: bool) {
         eprintln!("[safety warning] {} {}", err.code, err.message);
     }
 
-    let mut compiler = coco_interpreter::compiler::Compiler::new()
-        .with_types(typeck_result.types);
+    let mut compiler = coco_interpreter::compiler::Compiler::new().with_types(typeck_result.types);
     if release {
         compiler.enable_tree_shake = true;
     }
@@ -562,11 +564,7 @@ fn cmd_build(file: &Path, binary: bool, disasm: bool, release: bool) {
 /// Generates a throwaway Rust crate whose `main.rs` `include_bytes!`s the
 /// `.cb` payload and calls `coco_interpreter` as a library, then shells out to
 /// `cargo build` to compile it. The resulting binary is copied to `out_path`.
-fn build_embedded_binary(
-    bytecode: &[u8],
-    out_path: &Path,
-    release: bool,
-) -> Result<(), String> {
+fn build_embedded_binary(bytecode: &[u8], out_path: &Path, release: bool) -> Result<(), String> {
     use std::io::Write;
 
     // Locate the in-tree coco_interpreter the generated crate will depend on.
@@ -583,7 +581,10 @@ fn build_embedded_binary(
     let tmp = std::env::temp_dir().join(format!(
         "coco-build-{}-{}",
         std::process::id(),
-        out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("out")
+        out_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("out")
     ));
     std::fs::create_dir_all(tmp.join("src"))
         .map_err(|e| format!("failed to create temp crate dir: {}", e))?;
@@ -691,7 +692,8 @@ fn cmd_test(filter: Option<&str>) {
     }
 
     let mut entries: Vec<PathBuf> = match fs::read_dir(tests_dir) {
-        Ok(read) => read.filter_map(|e| e.ok().map(|e| e.path()))
+        Ok(read) => read
+            .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.extension().map(|e| e == "co").unwrap_or(false))
             .collect(),
         Err(e) => {
@@ -704,10 +706,12 @@ fn cmd_test(filter: Option<&str>) {
 
     if let Some(pattern) = filter {
         let pattern_lower = pattern.to_lowercase();
-        entries.retain(|p| p.file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n.to_lowercase().contains(&pattern_lower))
-            .unwrap_or(false));
+        entries.retain(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.to_lowercase().contains(&pattern_lower))
+                .unwrap_or(false)
+        });
     }
 
     if entries.is_empty() {
@@ -739,8 +743,8 @@ fn cmd_test(filter: Option<&str>) {
 
         // Compile + run via VM (with type-driven opcode specialization).
         let typeck_result = coco_typeck::check(&program);
-        let mut compiler = coco_interpreter::compiler::Compiler::new()
-            .with_types(typeck_result.types);
+        let mut compiler =
+            coco_interpreter::compiler::Compiler::new().with_types(typeck_result.types);
         let chunk = match compiler.compile_script(&program) {
             Ok(c) => c,
             Err(e) => {
@@ -753,17 +757,29 @@ fn cmd_test(filter: Option<&str>) {
         let mut vm = coco_interpreter::vm::Vm::new();
         match vm.run(&chunk) {
             Ok(_) => {
-                println!("  PASS  {}", entry.file_name().unwrap_or_default().to_string_lossy());
+                println!(
+                    "  PASS  {}",
+                    entry.file_name().unwrap_or_default().to_string_lossy()
+                );
                 passed += 1;
             }
             Err(e) => {
-                println!("  FAIL  {}: {}", entry.file_name().unwrap_or_default().to_string_lossy(), e);
+                println!(
+                    "  FAIL  {}: {}",
+                    entry.file_name().unwrap_or_default().to_string_lossy(),
+                    e
+                );
                 failed += 1;
             }
         }
     }
 
-    println!("\n{} passed, {} failed, {} total", passed, failed, passed + failed);
+    println!(
+        "\n{} passed, {} failed, {} total",
+        passed,
+        failed,
+        passed + failed
+    );
     if failed > 0 {
         std::process::exit(1);
     }
@@ -899,7 +915,8 @@ fn report_safety_errors(source: &str, file: &Path, result: &safety::SafetyResult
         diag.emit(&source_map);
     }
     for warning in &result.warnings {
-        let mut diag = Diagnostic::warning(file_id, format!("[{}] {}", warning.code, warning.message));
+        let mut diag =
+            Diagnostic::warning(file_id, format!("[{}] {}", warning.code, warning.message));
         if !warning.span.is_empty() {
             diag = diag.with_label(warning.span, "here", true);
         }
@@ -921,7 +938,11 @@ fn report_type_errors(source: &str, file: &Path, result: &coco_typeck::TypeckRes
 
 /// Emit parser diagnostics with ariadne-rendered labels.
 /// Parser diagnostics now carry their own span labels.
-fn report_parser_diagnostics(source: &str, file: &Path, diagnostics: &[coco_diagnostics::Diagnostic]) {
+fn report_parser_diagnostics(
+    source: &str,
+    file: &Path,
+    diagnostics: &[coco_diagnostics::Diagnostic],
+) {
     if diagnostics.is_empty() {
         return;
     }

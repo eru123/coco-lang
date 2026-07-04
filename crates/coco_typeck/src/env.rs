@@ -71,8 +71,9 @@ pub struct TypeEnv {
     /// Current `this`/`$` type stack while checking class or trait bodies.
     self_stack: Vec<Ty>,
     /// Inferred types keyed by AST node span, recorded during inference so the
-    /// native codegen can specialize on statically-known types. Interior-mutable
-    /// so `infer_expr` (which takes `&TypeEnv`) can record into it.
+    /// bytecode compiler can specialize arithmetic on statically-known types.
+    /// Interior-mutable so `infer_expr` (which takes `&TypeEnv`) can record
+    /// into it.
     types: RefCell<TypeMap>,
 }
 
@@ -90,8 +91,8 @@ impl TypeEnv {
     }
 
     /// Record the inferred type for the node at `span`. Called from
-    /// `infer_expr` for every expression, building the type map the codegen
-    /// consumes for arithmetic specialization.
+    /// `infer_expr` for every expression, building the type map the bytecode
+    /// compiler uses for arithmetic specialization.
     pub fn record_type(&self, span: Span, ty: Ty) {
         self.types.borrow_mut().insert(span, ty);
     }

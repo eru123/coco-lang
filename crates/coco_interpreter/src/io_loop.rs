@@ -14,7 +14,7 @@
 use std::os::fd::AsRawFd;
 use std::time::Duration;
 
-use mio::{Events, Interest, Poll, Token, unix::SourceFd};
+use mio::{unix::SourceFd, Events, Interest, Poll, Token};
 
 use crate::builtins::{with_tcp_listener, with_tcp_stream};
 use crate::error::{RuntimeError, Signal};
@@ -55,12 +55,21 @@ pub fn io_wait(args: &[Value]) -> Result<Value, Signal> {
     }
     use num_traits::ToPrimitive;
     let handle = match &args[0] {
-        Value::Int(n) => n.to_usize().unwrap_or(0), Value::Int64(n) => (*n as usize),
-        _ => return Err(Signal::Error(RuntimeError::new("io_wait: handle must be int"))),
+        Value::Int(n) => n.to_usize().unwrap_or(0),
+        Value::Int64(n) => (*n as usize),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "io_wait: handle must be int",
+            )))
+        }
     };
     let want_read = match &args[1] {
         Value::Bool(b) => *b,
-        _ => return Err(Signal::Error(RuntimeError::new("io_wait: want_read must be bool"))),
+        _ => {
+            return Err(Signal::Error(RuntimeError::new(
+                "io_wait: want_read must be bool",
+            )))
+        }
     };
     let timeout_ms = match args.get(2) {
         Some(Value::Int(n)) => n.to_u64().unwrap_or(0),
@@ -75,7 +84,10 @@ pub fn io_wait(args: &[Value]) -> Result<Value, Signal> {
     };
 
     let mut poll = Poll::new().map_err(|e| {
-        Signal::Error(RuntimeError::new(format!("io_wait: poll create failed: {}", e)))
+        Signal::Error(RuntimeError::new(format!(
+            "io_wait: poll create failed: {}",
+            e
+        )))
     })?;
     let mut events = Events::with_capacity(1);
     let token = Token(handle);
@@ -85,9 +97,14 @@ pub fn io_wait(args: &[Value]) -> Result<Value, Signal> {
         Interest::WRITABLE
     };
     let mut source = SourceFd(&fd);
-    poll.registry().register(&mut source, token, interest).map_err(|e| {
-        Signal::Error(RuntimeError::new(format!("io_wait: register failed: {}", e)))
-    })?;
+    poll.registry()
+        .register(&mut source, token, interest)
+        .map_err(|e| {
+            Signal::Error(RuntimeError::new(format!(
+                "io_wait: register failed: {}",
+                e
+            )))
+        })?;
 
     let timeout = if timeout_ms == 0 {
         // 0 means non-blocking: return immediately if not ready.
@@ -95,9 +112,8 @@ pub fn io_wait(args: &[Value]) -> Result<Value, Signal> {
     } else {
         Some(Duration::from_millis(timeout_ms))
     };
-    poll.poll(&mut events, timeout).map_err(|e| {
-        Signal::Error(RuntimeError::new(format!("io_wait: poll failed: {}", e)))
-    })?;
+    poll.poll(&mut events, timeout)
+        .map_err(|e| Signal::Error(RuntimeError::new(format!("io_wait: poll failed: {}", e))))?;
     let _ = poll.registry().deregister(&mut source);
     Ok(Value::Bool(!events.is_empty()))
 }

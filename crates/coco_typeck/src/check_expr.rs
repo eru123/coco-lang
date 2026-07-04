@@ -177,7 +177,11 @@ fn check_binary(bin: &BinaryExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckErro
             {
                 // Only error if the non-string operand is truly incompatible
                 // (e.g., never/void types — anything else coerces via toString)
-                let non_string = if matches!(left_ty, Ty::String) { &right_ty } else { &left_ty };
+                let non_string = if matches!(left_ty, Ty::String) {
+                    &right_ty
+                } else {
+                    &left_ty
+                };
                 if matches!(non_string, Ty::Never | Ty::Void) {
                     errors.push(TypeckError::incompatible_operands(
                         "+",
@@ -281,7 +285,9 @@ fn check_call(call: &CallExpr, env: &mut TypeEnv, errors: &mut Vec<TypeckError>)
                     }
                     inferred_args.push(found.unwrap_or(Ty::Unknown));
                 }
-                let subst_params: Vec<Ty> = sig.params.iter()
+                let subst_params: Vec<Ty> = sig
+                    .params
+                    .iter()
                     .map(|p| p.substitute(&sig.type_params, &inferred_args))
                     .collect();
                 let subst_ret = sig.ret.substitute(&sig.type_params, &inferred_args);

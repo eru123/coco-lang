@@ -2,10 +2,10 @@
 //! Each test wraps its source in `fn main() { ... }` so the VM can find and
 //! call main(). The VM is the sole dev runtime.
 
-use coco_parser::Parser;
 use coco_interpreter::compiler::Compiler;
 use coco_interpreter::vm::Vm;
 use coco_interpreter::Value;
+use coco_parser::Parser;
 use num_bigint::BigInt;
 
 fn run_src(src: &str) -> Value {
@@ -116,9 +116,18 @@ fn unary_neg() {
 fn deep_equals_builtin() {
     // Structural equality: type-strict, deep, order-independent for maps.
     assert!(matches!(run_src("deepEquals(1, 1)"), Value::Bool(true)));
-    assert!(matches!(run_src("deepEquals(1, \"1\")"), Value::Bool(false)));
-    assert!(matches!(run_src("deepEquals([1,2,3], [1,2,3])"), Value::Bool(true)));
-    assert!(matches!(run_src("deepEquals([1,2], [1,2,3])"), Value::Bool(false)));
+    assert!(matches!(
+        run_src("deepEquals(1, \"1\")"),
+        Value::Bool(false)
+    ));
+    assert!(matches!(
+        run_src("deepEquals([1,2,3], [1,2,3])"),
+        Value::Bool(true)
+    ));
+    assert!(matches!(
+        run_src("deepEquals([1,2], [1,2,3])"),
+        Value::Bool(false)
+    ));
     // Map order independence — the bug that toString comparison had.
     assert!(matches!(
         run_src("deepEquals({\"a\":1,\"b\":2}, {\"b\":2,\"a\":1})"),
@@ -146,43 +155,73 @@ fn grouping() {
 }
 #[test]
 fn let_binding() {
-    assert_eq!(run_src("fn main() { let x = 42; return x; }").as_i64(), Some(42));
+    assert_eq!(
+        run_src("fn main() { let x = 42; return x; }").as_i64(),
+        Some(42)
+    );
 }
 #[test]
 fn const_binding() {
-    assert_eq!(run_src("fn main() { const y = 99; return y; }").as_i64(), Some(99));
+    assert_eq!(
+        run_src("fn main() { const y = 99; return y; }").as_i64(),
+        Some(99)
+    );
 }
 #[test]
 fn reassignment() {
-    assert_eq!(run_src("fn main() { let x = 1; x = 2; return x; }").as_i64(), Some(2));
+    assert_eq!(
+        run_src("fn main() { let x = 1; x = 2; return x; }").as_i64(),
+        Some(2)
+    );
 }
 #[test]
 fn add_assign() {
-    assert_eq!(run_src("fn main() { let x = 10; x += 5; return x; }").as_i64(), Some(15));
+    assert_eq!(
+        run_src("fn main() { let x = 10; x += 5; return x; }").as_i64(),
+        Some(15)
+    );
 }
 #[test]
 fn sub_assign() {
-    assert_eq!(run_src("fn main() { let x = 10; x -= 3; return x; }").as_i64(), Some(7));
+    assert_eq!(
+        run_src("fn main() { let x = 10; x -= 3; return x; }").as_i64(),
+        Some(7)
+    );
 }
 #[test]
 fn if_true() {
-    assert_eq!(run_src("fn main() { let x = 0; if true { x = 1; } return x; }").as_i64(), Some(1));
+    assert_eq!(
+        run_src("fn main() { let x = 0; if true { x = 1; } return x; }").as_i64(),
+        Some(1)
+    );
 }
 #[test]
 fn if_false() {
-    assert_eq!(run_src("fn main() { let x = 0; if false { x = 1; } return x; }").as_i64(), Some(0));
+    assert_eq!(
+        run_src("fn main() { let x = 0; if false { x = 1; } return x; }").as_i64(),
+        Some(0)
+    );
 }
 #[test]
 fn if_else() {
-    assert_eq!(run_src("fn main() { let x = 0; if false { x = 1; } else { x = 2; } return x; }").as_i64(), Some(2));
+    assert_eq!(
+        run_src("fn main() { let x = 0; if false { x = 1; } else { x = 2; } return x; }").as_i64(),
+        Some(2)
+    );
 }
 #[test]
 fn while_loop() {
-    assert_eq!(run_src("fn main() { let x = 0; while x < 5 { x += 1; } return x; }").as_i64(), Some(5));
+    assert_eq!(
+        run_src("fn main() { let x = 0; while x < 5 { x += 1; } return x; }").as_i64(),
+        Some(5)
+    );
 }
 #[test]
 fn for_loop() {
-    assert_eq!(run_src("fn main() { let s = 0; for n in [1, 2, 3] { s += n; } return s; }").as_i64(), Some(6));
+    assert_eq!(
+        run_src("fn main() { let s = 0; for n in [1, 2, 3] { s += n; } return s; }").as_i64(),
+        Some(6)
+    );
 }
 #[test]
 fn for_in_map() {
@@ -193,15 +232,25 @@ fn for_in_map() {
 }
 #[test]
 fn loop_break() {
-    assert_eq!(run_src("fn main() { let x = 0; loop { x += 1; if x == 3 { break; } } return x; }").as_i64(), Some(3));
+    assert_eq!(
+        run_src("fn main() { let x = 0; loop { x += 1; if x == 3 { break; } } return x; }")
+            .as_i64(),
+        Some(3)
+    );
 }
 #[test]
 fn function_call() {
-    assert_eq!(run_src("fn add(a, b) { return a + b; } fn main() { return add(2, 3); }").as_i64(), Some(5));
+    assert_eq!(
+        run_src("fn add(a, b) { return a + b; } fn main() { return add(2, 3); }").as_i64(),
+        Some(5)
+    );
 }
 #[test]
 fn arrow_expr_body_returns_value() {
-    assert_eq!(run_src("fn main() { const x = () => 1; return x(); }").as_i64(), Some(1));
+    assert_eq!(
+        run_src("fn main() { const x = () => 1; return x(); }").as_i64(),
+        Some(1)
+    );
 }
 #[test]
 fn recursion() {
@@ -211,14 +260,20 @@ fn recursion() {
 fn nested_function_declaration() {
     // Regression: nested `fn` declarations inside another function body were
     // skipped by the compiler, so calling them yielded "null is not callable".
-    assert_eq!(run_src("fn main() { fn helper() { return 42; } return helper(); }").as_i64(), Some(42));
+    assert_eq!(
+        run_src("fn main() { fn helper() { return 42; } return helper(); }").as_i64(),
+        Some(42)
+    );
 }
 #[test]
 fn nested_function_with_let_binding() {
     // Regression: a spurious OP_POP after STORE_LOCAL corrupted the caller's
     // stack, so binding the result of a nested-function call failed with
     // "local N out of bounds".
-    assert_eq!(run_src("fn main() { fn helper() { return 7; } let r = helper(); return r; }").as_i64(), Some(7));
+    assert_eq!(
+        run_src("fn main() { fn helper() { return 7; } let r = helper(); return r; }").as_i64(),
+        Some(7)
+    );
 }
 #[test]
 fn list_literal() {
@@ -229,11 +284,17 @@ fn list_literal() {
 }
 #[test]
 fn list_index() {
-    assert_eq!(run_src("fn main() { const a = [10, 20, 30]; return a[1]; }").as_i64(), Some(20));
+    assert_eq!(
+        run_src("fn main() { const a = [10, 20, 30]; return a[1]; }").as_i64(),
+        Some(20)
+    );
 }
 #[test]
 fn list_length() {
-    assert_eq!(run_src("fn main() { const a = [1, 2, 3, 4]; return a.length; }").as_i64(), Some(4));
+    assert_eq!(
+        run_src("fn main() { const a = [1, 2, 3, 4]; return a.length; }").as_i64(),
+        Some(4)
+    );
 }
 #[test]
 fn map_literal() {
@@ -244,5 +305,8 @@ fn map_literal() {
 }
 #[test]
 fn map_index() {
-    assert_eq!(run_src("fn main() { const m = {\"a\": 100}; return m[\"a\"]; }").as_i64(), Some(100));
+    assert_eq!(
+        run_src("fn main() { const m = {\"a\": 100}; return m[\"a\"]; }").as_i64(),
+        Some(100)
+    );
 }

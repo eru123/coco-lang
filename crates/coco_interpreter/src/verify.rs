@@ -15,9 +15,8 @@
 //! which is verified in turn.
 
 use crate::ir::{
-    operand_bytes, read_i16, read_u16, OP_CONST, OP_DEFINE_GLOBAL, OP_LOAD_GLOBAL,
-    OP_MAKE_CLOSURE, OP_MEMBER, OP_METHOD_CALL, OP_STORE_GLOBAL, OP_STORE_MEMBER,
-    OP_SUPER_METHOD, OP_TYPE_IS,
+    operand_bytes, read_i16, read_u16, OP_CONST, OP_DEFINE_GLOBAL, OP_LOAD_GLOBAL, OP_MAKE_CLOSURE,
+    OP_MEMBER, OP_METHOD_CALL, OP_STORE_GLOBAL, OP_STORE_MEMBER, OP_SUPER_METHOD, OP_TYPE_IS,
 };
 use crate::ir::{Chunk, FnObj};
 use crate::value::Value;
@@ -36,7 +35,11 @@ impl std::fmt::Display for VerifyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (self.context.as_deref(), self.offset) {
             (Some(ctx), Some(off)) => {
-                write!(f, "verify error in {} at offset {}: {}", ctx, off, self.message)
+                write!(
+                    f,
+                    "verify error in {} at offset {}: {}",
+                    ctx, off, self.message
+                )
             }
             (Some(ctx), None) => write!(f, "verify error in {}: {}", ctx, self.message),
             (None, Some(off)) => write!(f, "verify error at offset {}: {}", off, self.message),
@@ -161,8 +164,14 @@ fn verify_code(chunk: &Chunk, ctx: &VerifyCtx) -> Result<(), VerifyError> {
         // Opcodes whose u16 operand is a constant-pool index.
         let const_index_op = matches!(
             op,
-            OP_CONST | OP_LOAD_GLOBAL | OP_STORE_GLOBAL | OP_DEFINE_GLOBAL
-                | OP_MAKE_CLOSURE | OP_MEMBER | OP_STORE_MEMBER | OP_TYPE_IS
+            OP_CONST
+                | OP_LOAD_GLOBAL
+                | OP_STORE_GLOBAL
+                | OP_DEFINE_GLOBAL
+                | OP_MAKE_CLOSURE
+                | OP_MEMBER
+                | OP_STORE_MEMBER
+                | OP_TYPE_IS
         );
         if const_index_op {
             let idx = read_u16(&code[operand_start..operand_end]) as usize;
@@ -268,7 +277,10 @@ fn verify_code(chunk: &Chunk, ctx: &VerifyCtx) -> Result<(), VerifyError> {
                 return Err(VerifyError::at(
                     ip,
                     ctx,
-                    format!("try handler offset {} out of code bounds (0..{})", handler, n),
+                    format!(
+                        "try handler offset {} out of code bounds (0..{})",
+                        handler, n
+                    ),
                 ));
             }
             if !instruction_starts.contains(&handler) {
@@ -291,7 +303,10 @@ fn verify_code(chunk: &Chunk, ctx: &VerifyCtx) -> Result<(), VerifyError> {
                 return Err(VerifyError::at(
                     ip,
                     ctx,
-                    format!("select-try-recv jump target {} out of code bounds (0..{})", target, n),
+                    format!(
+                        "select-try-recv jump target {} out of code bounds (0..{})",
+                        target, n
+                    ),
                 ));
             }
             if target < n && !instruction_starts.contains(&target) {
@@ -362,10 +377,7 @@ mod tests {
 
     #[test]
     fn accepts_const_index_in_range() {
-        let chunk = make_chunk(
-            vec![OP_CONST, 0, 0, OP_RETURN],
-            vec![Value::Int64(42)],
-        );
+        let chunk = make_chunk(vec![OP_CONST, 0, 0, OP_RETURN], vec![Value::Int64(42)]);
         assert!(verify_chunk(&chunk).is_ok());
     }
 
@@ -398,8 +410,12 @@ mod tests {
         // CONST 0 (3 bytes), JUMP_IF_FALSE -> offset 0 (lands just after the jump,
         // i.e. on the NULL), NULL, RETURN.
         let code = vec![
-            OP_CONST, 0, 0, // push const 0
-            OP_JUMP_IF_FALSE, 0, 0, // jump 0 → lands on next instr (NULL)
+            OP_CONST,
+            0,
+            0, // push const 0
+            OP_JUMP_IF_FALSE,
+            0,
+            0, // jump 0 → lands on next instr (NULL)
             OP_NULL,
             OP_RETURN,
         ];
@@ -417,10 +433,7 @@ mod tests {
             chunk: bad_inner,
             is_async: false,
         };
-        let outer = make_chunk(
-            vec![OP_CONST, 0, 0, OP_RETURN],
-            vec![Value::FnObj(fo)],
-        );
+        let outer = make_chunk(vec![OP_CONST, 0, 0, OP_RETURN], vec![Value::FnObj(fo)]);
         let err = verify_chunk(&outer).unwrap_err();
         assert!(err.message.contains("in constant #0"));
         assert!(err.message.contains("unknown opcode"));
@@ -443,6 +456,9 @@ mod tests {
         let src = "fn fib(n: int): int { if n < 2 { return n; } return fib(n-1) + fib(n-2); } fn main(): int { return fib(10); }";
         let program = coco_parser::Parser::new(src).parse_program();
         let chunk = Compiler::new().compile_script(&program).expect("compile");
-        assert!(verify_chunk(&chunk).is_ok(), "compiler output failed verification");
+        assert!(
+            verify_chunk(&chunk).is_ok(),
+            "compiler output failed verification"
+        );
     }
 }

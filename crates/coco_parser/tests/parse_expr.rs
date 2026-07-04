@@ -76,7 +76,7 @@ fn parse_binary_add() {
     match expr {
         Expr::Binary(ref b) => {
             assert_eq!(b.op, BinaryOp::Add);
-                    match &b.left {
+            match &b.left {
                 Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "1"),
                 other => panic!("expected int literal, got {:?}", other),
             }

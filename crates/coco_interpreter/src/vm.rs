@@ -24,7 +24,6 @@ use crate::ir::{read_i16, read_u16, Chunk, FnObj, *};
 use crate::task::{TaskId, TaskScheduler};
 use crate::value::Value;
 
-
 // ============================================================================
 // VM error
 // ============================================================================
@@ -115,10 +114,8 @@ impl Vm {
 
     /// Register a built-in function as a global.
     pub fn register_builtin(&mut self, name: &str, builtin_name: &str) {
-        self.globals.insert(
-            name.to_string(),
-            Value::BuiltinFn(builtin_name.to_string()),
-        );
+        self.globals
+            .insert(name.to_string(), Value::BuiltinFn(builtin_name.to_string()));
     }
 
     /// Replace this VM's globals (used to seed a worker VM for parallel runs).
@@ -132,7 +129,9 @@ impl Vm {
         if args.len() != fn_obj.arity {
             return Err(VmError::new(format!(
                 "{}() expects {} arguments, got {}",
-                fn_obj.name, fn_obj.arity, args.len()
+                fn_obj.name,
+                fn_obj.arity,
+                args.len()
             )));
         }
         // Build a stack: [FnObj, arg0, arg1, ...] and a frame, then run.
@@ -234,9 +233,9 @@ impl Vm {
                     match &awaited.state {
                         crate::task::TaskState::Completed(val) => {
                             // Find and replace the TaskHandle with the result
-                            if let Some(pos) = self.stack.iter().rposition(|v| {
-                                matches!(v, Value::TaskHandle(id) if *id == awaited_id)
-                            }) {
+                            if let Some(pos) = self.stack.iter().rposition(
+                                |v| matches!(v, Value::TaskHandle(id) if *id == awaited_id),
+                            ) {
                                 self.stack[pos] = val.clone();
                             }
                         }
@@ -373,20 +372,25 @@ impl Vm {
                         )
                     });
                     if done {
-                        let val = self.scheduler.get(target_id).and_then(|t| match &t.state {
-                            crate::task::TaskState::Completed(v) => Some(v.clone()),
-                            crate::task::TaskState::Failed(err) => {
-                                return Some(Value::String(err.clone()));
-                            }
-                            _ => None,
-                        }).unwrap_or(Value::Null);
+                        let val = self
+                            .scheduler
+                            .get(target_id)
+                            .and_then(|t| match &t.state {
+                                crate::task::TaskState::Completed(v) => Some(v.clone()),
+                                crate::task::TaskState::Failed(err) => {
+                                    return Some(Value::String(err.clone()));
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or(Value::Null);
                         self.push(val);
                         self.step_ip(step);
                         return Ok(());
                     }
                     // Push the handle back — we'll replace it with the result on resume.
                     self.push(Value::TaskHandle(target_id));
-                    self.scheduler.suspend_awaiting(self.current_task, target_id);
+                    self.scheduler
+                        .suspend_awaiting(self.current_task, target_id);
                     self.step_ip(step);
                     self.yield_flag = true;
                     return Ok(());
@@ -497,23 +501,37 @@ impl Vm {
             OP_GE => self.binop(|a, b| Self::vm_cmp(a, b, |o| o != std::cmp::Ordering::Less))?,
 
             // ---- Bitwise ----
-            OP_BIT_AND => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x & y), |x, y| x & y))?,
-            OP_BIT_OR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x | y), |x, y| x | y))?,
-            OP_BIT_XOR => self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x ^ y), |x, y| x ^ y))?,
+            OP_BIT_AND => {
+                self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x & y), |x, y| x & y))?
+            }
+            OP_BIT_OR => {
+                self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x | y), |x, y| x | y))?
+            }
+            OP_BIT_XOR => {
+                self.binop(|a, b| Self::vm_bitop(a, b, |x, y| Some(x ^ y), |x, y| x ^ y))?
+            }
             OP_SHL => self.binop(|a, b| {
                 use num_traits::ToPrimitive;
                 Self::vm_bitop(
-                    a, b,
+                    a,
+                    b,
                     |x, y| y.try_into().ok().and_then(|s: u32| x.checked_shl(s)),
-                    |x, y| { let shift = y.to_usize().unwrap_or(0); x << shift },
+                    |x, y| {
+                        let shift = y.to_usize().unwrap_or(0);
+                        x << shift
+                    },
                 )
             })?,
             OP_SHR => self.binop(|a, b| {
                 use num_traits::ToPrimitive;
                 Self::vm_bitop(
-                    a, b,
+                    a,
+                    b,
                     |x, y| y.try_into().ok().and_then(|s: u32| x.checked_shr(s)),
-                    |x, y| { let shift = y.to_usize().unwrap_or(0); x >> shift },
+                    |x, y| {
+                        let shift = y.to_usize().unwrap_or(0);
+                        x >> shift
+                    },
                 )
             })?,
 
@@ -809,8 +827,10 @@ impl Vm {
                 args.reverse();
                 let current_this = self.this_stack.last().cloned().unwrap_or(Value::Null);
                 let class_name = match &current_this {
-                    Value::Map(m) => m.data.get("__class__")
-                        .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None }),
+                    Value::Map(m) => m.data.get("__class__").and_then(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    }),
                     _ => None,
                 };
                 let parent_method = match class_name {
@@ -840,9 +860,12 @@ impl Vm {
                 };
                 match parent_method {
                     Some(method) => self.call_value(method, args)?,
-                    None => return Err(VmError::new(format!(
-                        "no method '{}' found in super chain", method_name
-                    ))),
+                    None => {
+                        return Err(VmError::new(format!(
+                            "no method '{}' found in super chain",
+                            method_name
+                        )))
+                    }
                 }
                 return Ok(());
             }
@@ -858,13 +881,18 @@ impl Vm {
                     Value::Map(m) => &m.data,
                     _ => return Err(VmError::new("'new' requires a class value")),
                 };
-                let class_name = class_map.get("__class__")
-                    .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })
+                let class_name = class_map
+                    .get("__class__")
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    })
                     .unwrap_or_default();
 
                 // Runtime implements validation
                 if let Some(Value::String(iface_names)) = class_map.get("__implements__") {
-                    let defined: Vec<&str> = class_map.keys()
+                    let defined: Vec<&str> = class_map
+                        .keys()
                         .filter(|k| !k.starts_with("__"))
                         .map(|k| k.as_str())
                         .collect();
@@ -914,15 +942,14 @@ impl Vm {
             }
 
             // ---- Concurrency ----
-
             OP_SELECT_TRY_RECV => {
                 let offset = self.read_i16_operand();
                 let channel_val = self.pop();
                 match &channel_val {
                     Value::Channel(arc) => {
-                        let mut inner = arc.lock().map_err(|_| {
-                            VmError::new("channel lock poisoned")
-                        })?;
+                        let mut inner = arc
+                            .lock()
+                            .map_err(|_| VmError::new("channel lock poisoned"))?;
                         if !inner.queue.is_empty() && !inner.closed {
                             let val = inner.queue.pop_front().unwrap_or(Value::Null);
                             self.push(val);
@@ -945,9 +972,9 @@ impl Vm {
                 let channel_val = self.pop();
                 match &channel_val {
                     Value::Channel(arc) => {
-                        let mut inner = arc.lock().map_err(|_| {
-                            VmError::new("channel lock poisoned")
-                        })?;
+                        let mut inner = arc
+                            .lock()
+                            .map_err(|_| VmError::new("channel lock poisoned"))?;
                         if inner.closed {
                             return Err(VmError::new("send on closed channel"));
                         }
@@ -955,7 +982,9 @@ impl Vm {
                             inner.queue.push_back(value);
                             self.push(Value::Null); // send returns null
                         } else {
-                            return Err(VmError::new("channel full (select/try only; use async for blocking)"));
+                            return Err(VmError::new(
+                                "channel full (select/try only; use async for blocking)",
+                            ));
                         }
                     }
                     _ => return Err(VmError::new("send requires a channel")),
@@ -965,13 +994,15 @@ impl Vm {
                 let channel_val = self.pop();
                 match &channel_val {
                     Value::Channel(arc) => {
-                        let mut inner = arc.lock().map_err(|_| {
-                            VmError::new("channel lock poisoned")
-                        })?;
+                        let mut inner = arc
+                            .lock()
+                            .map_err(|_| VmError::new("channel lock poisoned"))?;
                         if let Some(val) = inner.queue.pop_front() {
                             self.push(val);
                         } else {
-                            return Err(VmError::new("recv on empty channel (use select/try or async)"));
+                            return Err(VmError::new(
+                                "recv on empty channel (use select/try or async)",
+                            ));
                         }
                     }
                     _ => return Err(VmError::new("recv requires a channel")),
@@ -981,9 +1012,9 @@ impl Vm {
                 let atomic_val = self.pop();
                 match &atomic_val {
                     Value::Atomic(inner) => {
-                        let guard = inner.lock().map_err(|_| {
-                            VmError::new("atomic lock poisoned")
-                        })?;
+                        let guard = inner
+                            .lock()
+                            .map_err(|_| VmError::new("atomic lock poisoned"))?;
                         self.push(guard.value.clone());
                     }
                     _ => return Err(VmError::new("load requires an atomic value")),
@@ -994,9 +1025,9 @@ impl Vm {
                 let atomic_val = self.pop();
                 match &atomic_val {
                     Value::Atomic(inner) => {
-                        let mut guard = inner.lock().map_err(|_| {
-                            VmError::new("atomic lock poisoned")
-                        })?;
+                        let mut guard = inner
+                            .lock()
+                            .map_err(|_| VmError::new("atomic lock poisoned"))?;
                         guard.value = new_value;
                         self.push(Value::Null);
                     }
@@ -1050,7 +1081,9 @@ impl Vm {
                     (Value::Map(map), idx) if idx.is_int() => {
                         use num_traits::ToPrimitive;
                         let i = idx.as_i64().or_else(|| idx.to_bigint()?.to_i64());
-                        let idx_usize = i.and_then(|n| if n >= 0 { Some(n as usize) } else { None }).unwrap_or(usize::MAX);
+                        let idx_usize = i
+                            .and_then(|n| if n >= 0 { Some(n as usize) } else { None })
+                            .unwrap_or(usize::MAX);
                         let keys: Vec<&String> = map.data.keys().collect();
                         if idx_usize < keys.len() {
                             self.push(Value::String(keys[idx_usize].clone()));
@@ -1126,7 +1159,9 @@ impl Vm {
             Value::BuiltinFn(name) => {
                 let result = call_builtin(&name, &args)
                     .map_err(|e| VmError::new(format!("builtin error: {:?}", e)))?;
-                let task_id = self.scheduler.spawn(Value::Null, 0, 0, vec![result.clone()]);
+                let task_id = self
+                    .scheduler
+                    .spawn(Value::Null, 0, 0, vec![result.clone()]);
                 self.scheduler.complete(task_id, result);
                 Ok(task_id)
             }
@@ -1158,12 +1193,7 @@ impl Vm {
                     for arg in args {
                         new_stack.push(arg);
                     }
-                    let task_id = self.scheduler.spawn(
-                        Value::FnObj(fn_obj),
-                        0,
-                        1,
-                        new_stack,
-                    );
+                    let task_id = self.scheduler.spawn(Value::FnObj(fn_obj), 0, 1, new_stack);
                     self.push(Value::TaskHandle(task_id));
                     return Ok(());
                 }
@@ -1196,10 +1226,7 @@ impl Vm {
                 self.push(result);
             }
             _ => {
-                return Err(VmError::new(format!(
-                    "{} is not callable",
-                    callee
-                )));
+                return Err(VmError::new(format!("{} is not callable", callee)));
             }
         }
 
@@ -1259,10 +1286,7 @@ impl Vm {
                 self.push(result);
             }
             _ => {
-                return Err(VmError::new(format!(
-                    "{} is not callable",
-                    callee
-                )));
+                return Err(VmError::new(format!("{} is not callable", callee)));
             }
         }
         Ok(())
@@ -1270,7 +1294,10 @@ impl Vm {
 
     fn do_return(&mut self) -> VmResult<()> {
         let return_val = self.pop();
-        let frame = self.frames.pop().ok_or_else(|| VmError::new("return without frame"))?;
+        let frame = self
+            .frames
+            .pop()
+            .ok_or_else(|| VmError::new("return without frame"))?;
 
         // Pop all locals belonging to this frame.
         let new_len = frame.stack_offset;
@@ -1369,10 +1396,7 @@ impl Vm {
         let constants = self.constants();
         match constants.get(idx) {
             Some(Value::String(s)) => Ok(s.clone()),
-            _ => Err(VmError::new(format!(
-                "constant {} is not a string",
-                idx
-            ))),
+            _ => Err(VmError::new(format!("constant {} is not a string", idx))),
         }
     }
 
@@ -1381,14 +1405,10 @@ impl Vm {
     // ========================================================================
 
     fn register_builtins(&mut self) {
-        self.globals.insert(
-            "print".to_string(),
-            Value::BuiltinFn("print".to_string()),
-        );
-        self.globals.insert(
-            "len".to_string(),
-            Value::BuiltinFn("len".to_string()),
-        );
+        self.globals
+            .insert("print".to_string(), Value::BuiltinFn("print".to_string()));
+        self.globals
+            .insert("len".to_string(), Value::BuiltinFn("len".to_string()));
         self.globals.insert(
             "toString".to_string(),
             Value::BuiltinFn("toString".to_string()),
@@ -1406,68 +1426,38 @@ impl Vm {
             Value::BuiltinFn("parseFloat".to_string()),
         );
         // Result constructors
-        self.globals.insert(
-            "Ok".to_string(),
-            Value::BuiltinFn("Ok".to_string()),
-        );
-        self.globals.insert(
-            "Err".to_string(),
-            Value::BuiltinFn("Err".to_string()),
-        );
+        self.globals
+            .insert("Ok".to_string(), Value::BuiltinFn("Ok".to_string()));
+        self.globals
+            .insert("Err".to_string(), Value::BuiltinFn("Err".to_string()));
         // Math
-        self.globals.insert(
-            "abs".to_string(),
-            Value::BuiltinFn("abs".to_string()),
-        );
-        self.globals.insert(
-            "min".to_string(),
-            Value::BuiltinFn("min".to_string()),
-        );
-        self.globals.insert(
-            "max".to_string(),
-            Value::BuiltinFn("max".to_string()),
-        );
-        self.globals.insert(
-            "floor".to_string(),
-            Value::BuiltinFn("floor".to_string()),
-        );
-        self.globals.insert(
-            "ceil".to_string(),
-            Value::BuiltinFn("ceil".to_string()),
-        );
-        self.globals.insert(
-            "round".to_string(),
-            Value::BuiltinFn("round".to_string()),
-        );
-        self.globals.insert(
-            "sqrt".to_string(),
-            Value::BuiltinFn("sqrt".to_string()),
-        );
-        self.globals.insert(
-            "pow".to_string(),
-            Value::BuiltinFn("pow".to_string()),
-        );
-        self.globals.insert(
-            "random".to_string(),
-            Value::BuiltinFn("random".to_string()),
-        );
+        self.globals
+            .insert("abs".to_string(), Value::BuiltinFn("abs".to_string()));
+        self.globals
+            .insert("min".to_string(), Value::BuiltinFn("min".to_string()));
+        self.globals
+            .insert("max".to_string(), Value::BuiltinFn("max".to_string()));
+        self.globals
+            .insert("floor".to_string(), Value::BuiltinFn("floor".to_string()));
+        self.globals
+            .insert("ceil".to_string(), Value::BuiltinFn("ceil".to_string()));
+        self.globals
+            .insert("round".to_string(), Value::BuiltinFn("round".to_string()));
+        self.globals
+            .insert("sqrt".to_string(), Value::BuiltinFn("sqrt".to_string()));
+        self.globals
+            .insert("pow".to_string(), Value::BuiltinFn("pow".to_string()));
+        self.globals
+            .insert("random".to_string(), Value::BuiltinFn("random".to_string()));
         // Type checking
-        self.globals.insert(
-            "typeOf".to_string(),
-            Value::BuiltinFn("typeOf".to_string()),
-        );
-        self.globals.insert(
-            "isOk".to_string(),
-            Value::BuiltinFn("isOk".to_string()),
-        );
-        self.globals.insert(
-            "isErr".to_string(),
-            Value::BuiltinFn("isErr".to_string()),
-        );
-        self.globals.insert(
-            "unwrap".to_string(),
-            Value::BuiltinFn("unwrap".to_string()),
-        );
+        self.globals
+            .insert("typeOf".to_string(), Value::BuiltinFn("typeOf".to_string()));
+        self.globals
+            .insert("isOk".to_string(), Value::BuiltinFn("isOk".to_string()));
+        self.globals
+            .insert("isErr".to_string(), Value::BuiltinFn("isErr".to_string()));
+        self.globals
+            .insert("unwrap".to_string(), Value::BuiltinFn("unwrap".to_string()));
         // Database builtins (std/db).
         #[cfg(feature = "db")]
         for name in ["db_open", "db_exec", "db_query", "db_close"] {
@@ -1481,10 +1471,19 @@ impl Vm {
         }
         // Async I/O event loop primitive (mio-backed fd readiness).
         #[cfg(feature = "async-io")]
-        self.globals
-            .insert("io_wait".to_string(), Value::BuiltinFn("io_wait".to_string()));
+        self.globals.insert(
+            "io_wait".to_string(),
+            Value::BuiltinFn("io_wait".to_string()),
+        );
         // TCP builtins (used by std/net and the HTTP server).
-        for name in ["tcp_listen", "tcp_accept", "tcp_read", "tcp_write", "tcp_close", "tcp_connect"] {
+        for name in [
+            "tcp_listen",
+            "tcp_accept",
+            "tcp_read",
+            "tcp_write",
+            "tcp_close",
+            "tcp_connect",
+        ] {
             self.globals
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
         }
@@ -1492,17 +1491,72 @@ impl Vm {
         // user code) can call them directly by name. Each is handled by
         // `call_builtin`; this exposes the name so bare calls resolve.
         for name in [
-            "abs", "assert", "atomic_add", "atomic_cas", "atomic_load", "atomic_store",
-            "atomic_sub", "bool", "ceil", "chan", "chan_close", "chan_recv", "chan_send",
-            "error", "float", "floor", "fs_exists", "fs_mkdir", "fs_remove", "fs_stat",
-            "hash", "hex_decode", "hex_encode", "int", "json_parse", "json_stringify",
-            "list_insert", "list_join", "list_pop", "list_push", "list_remove",
-            "map_delete", "map_get", "map_has", "map_keys", "map_set", "map_values",
-            "max", "min", "pow", "process_args", "process_cwd", "process_env", "process_exit",
-            "range", "regex_match", "regex_replace", "round", "sha256", "sqrt",
-            "str_charAt", "str_contains", "str_endsWith", "str_indexOf", "str_repeat",
-            "str_replace", "str_split", "str_startsWith", "str_substring", "str_toLower",
-            "str_toUpper", "str_trim", "udp_bind", "udp_close", "udp_recv", "udp_send",
+            "abs",
+            "assert",
+            "atomic_add",
+            "atomic_cas",
+            "atomic_load",
+            "atomic_store",
+            "atomic_sub",
+            "bool",
+            "ceil",
+            "chan",
+            "chan_close",
+            "chan_recv",
+            "chan_send",
+            "error",
+            "float",
+            "floor",
+            "fs_exists",
+            "fs_mkdir",
+            "fs_remove",
+            "fs_stat",
+            "hash",
+            "hex_decode",
+            "hex_encode",
+            "int",
+            "json_parse",
+            "json_stringify",
+            "list_insert",
+            "list_join",
+            "list_pop",
+            "list_push",
+            "list_remove",
+            "map_delete",
+            "map_get",
+            "map_has",
+            "map_keys",
+            "map_set",
+            "map_values",
+            "max",
+            "min",
+            "pow",
+            "process_args",
+            "process_cwd",
+            "process_env",
+            "process_exit",
+            "range",
+            "regex_match",
+            "regex_replace",
+            "round",
+            "sha256",
+            "sqrt",
+            "str_charAt",
+            "str_contains",
+            "str_endsWith",
+            "str_indexOf",
+            "str_repeat",
+            "str_replace",
+            "str_split",
+            "str_startsWith",
+            "str_substring",
+            "str_toLower",
+            "str_toUpper",
+            "str_trim",
+            "udp_bind",
+            "udp_close",
+            "udp_recv",
+            "udp_send",
         ] {
             self.globals
                 .insert(name.to_string(), Value::BuiltinFn(name.to_string()));
@@ -1558,8 +1612,12 @@ impl Vm {
             }
         }
         // Slow path: escalate to BigInt.
-        let ba = a.to_bigint().ok_or_else(|| VmError::new("not an integer"))?;
-        let bb = b.to_bigint().ok_or_else(|| VmError::new("not an integer"))?;
+        let ba = a
+            .to_bigint()
+            .ok_or_else(|| VmError::new("not an integer"))?;
+        let bb = b
+            .to_bigint()
+            .ok_or_else(|| VmError::new("not an integer"))?;
         Ok(Self::normalize_int(bigint_op(&ba, &bb)))
     }
 
@@ -1594,13 +1652,14 @@ impl Vm {
                 result
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? + match y {
-                Value::Float(b) => b,
-                _ => return Err(VmError::new("invalid operands for +")),
-            })),
-            (Value::Float(a), y) if y.is_int() => {
-                Ok(Value::Float(a + Self::int_to_f64(&y)?))
-            }
+            (x, y) if x.is_int() => Ok(Value::Float(
+                Self::int_to_f64(&x)?
+                    + match y {
+                        Value::Float(b) => b,
+                        _ => return Err(VmError::new("invalid operands for +")),
+                    },
+            )),
+            (Value::Float(a), y) if y.is_int() => Ok(Value::Float(a + Self::int_to_f64(&y)?)),
             _ => Err(VmError::new("invalid operands for +")),
         }
     }
@@ -1613,13 +1672,14 @@ impl Vm {
                 result
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? - match y {
-                Value::Float(b) => b,
-                _ => return Err(VmError::new("invalid operands for -")),
-            })),
-            (Value::Float(a), y) if y.is_int() => {
-                Ok(Value::Float(a - Self::int_to_f64(&y)?))
-            }
+            (x, y) if x.is_int() => Ok(Value::Float(
+                Self::int_to_f64(&x)?
+                    - match y {
+                        Value::Float(b) => b,
+                        _ => return Err(VmError::new("invalid operands for -")),
+                    },
+            )),
+            (Value::Float(a), y) if y.is_int() => Ok(Value::Float(a - Self::int_to_f64(&y)?)),
             _ => Err(VmError::new("invalid operands for -")),
         }
     }
@@ -1632,13 +1692,14 @@ impl Vm {
                 result
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? * match y {
-                Value::Float(b) => b,
-                _ => return Err(VmError::new("invalid operands for *")),
-            })),
-            (Value::Float(a), y) if y.is_int() => {
-                Ok(Value::Float(a * Self::int_to_f64(&y)?))
-            }
+            (x, y) if x.is_int() => Ok(Value::Float(
+                Self::int_to_f64(&x)?
+                    * match y {
+                        Value::Float(b) => b,
+                        _ => return Err(VmError::new("invalid operands for *")),
+                    },
+            )),
+            (Value::Float(a), y) if y.is_int() => Ok(Value::Float(a * Self::int_to_f64(&y)?)),
             _ => Err(VmError::new("invalid operands for *")),
         }
     }
@@ -1652,16 +1713,22 @@ impl Vm {
                 }
                 // i64 checked div returns None on overflow (i64::MIN / -1);
                 // the BigInt fallback handles that exactly.
-                Self::int_binop(&x, &y, |a, b| if b != 0 { a.checked_div(b) } else { None }, |a, b| a / b)
+                Self::int_binop(
+                    &x,
+                    &y,
+                    |a, b| if b != 0 { a.checked_div(b) } else { None },
+                    |a, b| a / b,
+                )
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? / match y {
-                Value::Float(b) => b,
-                _ => return Err(VmError::new("invalid operands for /")),
-            })),
-            (Value::Float(a), y) if y.is_int() => {
-                Ok(Value::Float(a / Self::int_to_f64(&y)?))
-            }
+            (x, y) if x.is_int() => Ok(Value::Float(
+                Self::int_to_f64(&x)?
+                    / match y {
+                        Value::Float(b) => b,
+                        _ => return Err(VmError::new("invalid operands for /")),
+                    },
+            )),
+            (Value::Float(a), y) if y.is_int() => Ok(Value::Float(a / Self::int_to_f64(&y)?)),
             _ => Err(VmError::new("invalid operands for /")),
         }
     }
@@ -1674,16 +1741,22 @@ impl Vm {
                         return Err(VmError::new("modulo by zero"));
                     }
                 }
-                Self::int_binop(&x, &y, |a, b| if b != 0 { Some(a % b) } else { None }, |a, b| a % b)
+                Self::int_binop(
+                    &x,
+                    &y,
+                    |a, b| if b != 0 { Some(a % b) } else { None },
+                    |a, b| a % b,
+                )
             }
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-            (x, y) if x.is_int() => Ok(Value::Float(Self::int_to_f64(&x)? % match y {
-                Value::Float(b) => b,
-                _ => return Err(VmError::new("invalid operands for %")),
-            })),
-            (Value::Float(a), y) if y.is_int() => {
-                Ok(Value::Float(a % Self::int_to_f64(&y)?))
-            }
+            (x, y) if x.is_int() => Ok(Value::Float(
+                Self::int_to_f64(&x)?
+                    % match y {
+                        Value::Float(b) => b,
+                        _ => return Err(VmError::new("invalid operands for %")),
+                    },
+            )),
+            (Value::Float(a), y) if y.is_int() => Ok(Value::Float(a % Self::int_to_f64(&y)?)),
             _ => Err(VmError::new("invalid operands for %")),
         }
     }
@@ -1697,7 +1770,9 @@ impl Vm {
                 let exp_i64 = y.as_i64();
                 if let Some(exp) = exp_i64.and_then(|e| e.to_u32()) {
                     // Non-negative exponent: integer result.
-                    let base = x.to_bigint().ok_or_else(|| VmError::new("not an integer"))?;
+                    let base = x
+                        .to_bigint()
+                        .ok_or_else(|| VmError::new("not an integer"))?;
                     Ok(Self::normalize_int(base.pow(exp)))
                 } else if let Some(exp) = exp_i64.and_then(|e| e.to_i32()) {
                     // Negative exponent → float result.
@@ -1841,7 +1916,12 @@ impl Vm {
             if b.as_i64() == Some(0) && b.to_bigint().map_or(false, |bb| bb == BigInt::from(0)) {
                 return Err(VmError::new("modulo by zero"));
             }
-            Self::int_binop(&a, &b, |x, y| if y != 0 { Some(x % y) } else { None }, |x, y| x % y)
+            Self::int_binop(
+                &a,
+                &b,
+                |x, y| if y != 0 { Some(x % y) } else { None },
+                |x, y| x % y,
+            )
         } else {
             Err(VmError::new("MOD_I requires int operands"))
         }
@@ -1880,10 +1960,15 @@ impl Vm {
             Value::Err(_) => "result",
             Value::Channel(_) => "channel",
             Value::Atomic(_) => "atomic",
-        }.to_string()
+        }
+        .to_string()
     }
 
-    pub(crate) fn vm_cmp(a: Value, b: Value, pred: impl Fn(std::cmp::Ordering) -> bool) -> VmResult<Value> {
+    pub(crate) fn vm_cmp(
+        a: Value,
+        b: Value,
+        pred: impl Fn(std::cmp::Ordering) -> bool,
+    ) -> VmResult<Value> {
         let ord = match (&a, &b) {
             (x, y) if x.is_int() && y.is_int() => {
                 // Compare via i64 when both fit, else via BigInt.
@@ -1965,8 +2050,12 @@ impl Vm {
             // index-based `for k in map` loop reuse the same machinery as lists,
             // producing map keys in insertion order.
             (Value::Map(map), idx) if idx.is_int() => {
-                let i = idx.as_i64().or_else(|| idx.to_bigint()?.to_usize().map(|_| 0i64));
-                let idx_usize = i.and_then(|n| if n >= 0 { Some(n as usize) } else { None }).unwrap_or(usize::MAX);
+                let i = idx
+                    .as_i64()
+                    .or_else(|| idx.to_bigint()?.to_usize().map(|_| 0i64));
+                let idx_usize = i
+                    .and_then(|n| if n >= 0 { Some(n as usize) } else { None })
+                    .unwrap_or(usize::MAX);
                 map.data
                     .keys()
                     .nth(idx_usize)
@@ -2023,7 +2112,9 @@ impl Vm {
 
     fn vm_member(&self, obj: Value, prop: &str) -> VmResult<Value> {
         match &obj {
-            Value::List(list) if prop == "length" => Ok(Value::int_from_i64(list.data.len() as i64)),
+            Value::List(list) if prop == "length" => {
+                Ok(Value::int_from_i64(list.data.len() as i64))
+            }
             Value::String(s) if prop == "length" => Ok(Value::int_from_i64(s.len() as i64)),
             Value::Map(map) => {
                 // `length` builtin: number of entries. Falls back to a user's
@@ -2044,31 +2135,31 @@ impl Vm {
                                 return Ok(method.clone());
                             }
                             // Resolve parent class via __parent_name__ or __parent__
-                            let parent = class_map.data.get("__parent__").cloned()
-                                .or_else(|| {
-                                    class_map.data.get("__parent_name__")
-                                        .and_then(|v| match v {
-                                            Value::String(name) => self.globals.get(name).cloned(),
-                                            _ => None,
-                                        })
-                                });
+                            let parent = class_map.data.get("__parent__").cloned().or_else(|| {
+                                class_map.data.get("__parent_name__").and_then(|v| match v {
+                                    Value::String(name) => self.globals.get(name).cloned(),
+                                    _ => None,
+                                })
+                            });
                             let mut current = parent;
                             while let Some(Value::Map(ref parent_map)) = current {
                                 if let Some(method) = parent_map.data.get(prop) {
                                     return Ok(method.clone());
                                 }
                                 // Resolve next parent
-                                current = parent_map.data.get("__parent__").cloned()
-                                    .or_else(|| {
-                                        parent_map.data.get("__parent_name__")
-                                            .and_then(|v| match v {
-                                                Value::String(name) => self.globals.get(name).cloned(),
-                                                _ => None,
-                                            })
+                                current =
+                                    parent_map.data.get("__parent__").cloned().or_else(|| {
+                                        parent_map.data.get("__parent_name__").and_then(|v| match v
+                                        {
+                                            Value::String(name) => self.globals.get(name).cloned(),
+                                            _ => None,
+                                        })
                                     });
                             }
                             // Trait mixin resolution via __use_traits__
-                            if let Some(Value::String(trait_names)) = class_map.data.get("__use_traits__") {
+                            if let Some(Value::String(trait_names)) =
+                                class_map.data.get("__use_traits__")
+                            {
                                 for trait_name in trait_names.split(',') {
                                     let trait_name = trait_name.trim();
                                     if let Some(trait_val) = self.globals.get(trait_name) {
@@ -2147,44 +2238,32 @@ mod tests {
 
     #[test]
     fn test_vm_variables() {
-        let result =
-            run_src("fn main() { let x = 10; let y = 20; return x + y; }").unwrap();
+        let result = run_src("fn main() { let x = 10; let y = 20; return x + y; }").unwrap();
         assert_eq!(result.as_i64(), Some(30));
     }
 
     #[test]
     fn test_vm_if_true() {
-        let result = run_src(
-            "fn main() { let x = 0; if true { x = 1; } return x; }",
-        )
-        .unwrap();
+        let result = run_src("fn main() { let x = 0; if true { x = 1; } return x; }").unwrap();
         assert_eq!(result.as_i64(), Some(1));
     }
 
     #[test]
     fn test_vm_if_false() {
-        let result = run_src(
-            "fn main() { let x = 0; if false { x = 1; } return x; }",
-        )
-        .unwrap();
+        let result = run_src("fn main() { let x = 0; if false { x = 1; } return x; }").unwrap();
         assert_eq!(result.as_i64(), Some(0));
     }
 
     #[test]
     fn test_vm_while_loop() {
-        let result = run_src(
-            "fn main() { let x = 0; while x < 5 { x += 1; } return x; }",
-        )
-        .unwrap();
+        let result = run_src("fn main() { let x = 0; while x < 5 { x += 1; } return x; }").unwrap();
         assert_eq!(result.as_i64(), Some(5));
     }
 
     #[test]
     fn test_vm_function_call() {
-        let result = run_src(
-            "fn add(a, b) { return a + b; } fn main() { return add(2, 3); }",
-        )
-        .unwrap();
+        let result =
+            run_src("fn add(a, b) { return a + b; } fn main() { return add(2, 3); }").unwrap();
         assert_eq!(result.as_i64(), Some(5));
     }
 
@@ -2199,8 +2278,7 @@ mod tests {
 
     #[test]
     fn test_vm_string_concat() {
-        let result =
-            run_src("fn main() { return \"hello\" + \" world\"; }").unwrap();
+        let result = run_src("fn main() { return \"hello\" + \" world\"; }").unwrap();
         match result {
             Value::String(s) => assert_eq!(s, "hello world"),
             _ => panic!("expected string"),
@@ -2209,15 +2287,13 @@ mod tests {
 
     #[test]
     fn test_vm_ternary() {
-        let result =
-            run_src("fn main() { let x = true ? 1 : 2; return x; }").unwrap();
+        let result = run_src("fn main() { let x = true ? 1 : 2; return x; }").unwrap();
         assert_eq!(result.as_i64(), Some(1));
     }
 
     #[test]
     fn test_vm_null_coalesce() {
-        let result =
-            run_src("fn main() { let x = null ?? 42; return x; }").unwrap();
+        let result = run_src("fn main() { let x = null ?? 42; return x; }").unwrap();
         assert_eq!(result.as_i64(), Some(42));
     }
 

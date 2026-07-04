@@ -14,6 +14,7 @@ pub mod error;
 #[cfg(feature = "async-io")]
 pub mod io_loop;
 pub mod ir;
+pub mod numeric;
 pub mod parallel;
 pub mod serialize;
 pub mod stack;
@@ -21,7 +22,6 @@ pub mod task;
 pub mod value;
 pub mod verify;
 pub mod vm;
-pub mod numeric;
 
 // ============================================================================
 // Embedded stdlib sources

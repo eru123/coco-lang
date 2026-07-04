@@ -49,10 +49,7 @@ fn build_and_run_cb(source: &str, slug: &str) -> (String, Option<i32>) {
     std::fs::write(&co_path, source).expect("write source");
 
     // Build the .cb artifact.
-    let (out, err, code) = coco(&[
-        "build",
-        &co_path.to_string_lossy(),
-    ]);
+    let (out, err, code) = coco(&["build", &co_path.to_string_lossy()]);
     assert!(
         code == Some(0),
         "coco build failed (code {:?}):\nstdout:\n{}\nstderr:\n{}",
@@ -63,10 +60,7 @@ fn build_and_run_cb(source: &str, slug: &str) -> (String, Option<i32>) {
     assert!(cb_path.exists(), ".cb artifact was not written");
 
     // Run the .cb artifact.
-    let (out, err, code) = coco(&[
-        "run",
-        &cb_path.to_string_lossy(),
-    ]);
+    let (out, err, code) = coco(&["run", &cb_path.to_string_lossy()]);
     assert!(
         code.is_some(),
         "coco run prog.cb did not exit:\nstdout:\n{}\nstderr:\n{}",
@@ -147,11 +141,7 @@ fn cb_output_matches_source_run() {
     std::fs::write(&co_path, source).expect("write source");
 
     // Source run (skip checks so the test focuses on execution parity).
-    let (src_out, _, src_code) = coco(&[
-        "run",
-        "--no-check",
-        &co_path.to_string_lossy(),
-    ]);
+    let (src_out, _, src_code) = coco(&["run", "--no-check", &co_path.to_string_lossy()]);
 
     // Build + artifact run.
     let (_out, _err, build_code) = coco(&["build", &co_path.to_string_lossy()]);

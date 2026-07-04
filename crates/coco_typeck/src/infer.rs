@@ -9,7 +9,7 @@ use crate::unify::is_assignable;
 /// Infer the type of an expression given the current environment.
 /// Returns `Ty::Unknown` for expressions we cannot resolve. Also records the
 /// inferred type into the environment's type map (keyed by the node's span) so
-/// the native codegen can specialize on statically-known types.
+/// the bytecode compiler can specialize on statically-known types.
 pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Ty {
     let ty = infer_expr_inner(expr, env);
     env.record_type(expr.span(), ty.clone());
@@ -50,12 +50,30 @@ fn infer_expr_inner(expr: &Expr, env: &TypeEnv) -> Ty {
             }
         }
         Expr::Lambda(lambda) => {
-            let params: Vec<Ty> = lambda.params.iter().map(|p| {
-                p.type_ann.as_ref().map(crate::convert::ast_type_to_ty).unwrap_or(Ty::Unknown)
-            }).collect();
-            let ret = lambda.return_type.as_ref().map(crate::convert::ast_type_to_ty).unwrap_or(Ty::Unknown);
-            let ret = if lambda.is_async { Ty::Task(Box::new(ret)) } else { ret };
-            Ty::Function { params, ret: Box::new(ret) }
+            let params: Vec<Ty> = lambda
+                .params
+                .iter()
+                .map(|p| {
+                    p.type_ann
+                        .as_ref()
+                        .map(crate::convert::ast_type_to_ty)
+                        .unwrap_or(Ty::Unknown)
+                })
+                .collect();
+            let ret = lambda
+                .return_type
+                .as_ref()
+                .map(crate::convert::ast_type_to_ty)
+                .unwrap_or(Ty::Unknown);
+            let ret = if lambda.is_async {
+                Ty::Task(Box::new(ret))
+            } else {
+                ret
+            };
+            Ty::Function {
+                params,
+                ret: Box::new(ret),
+            }
         }
         Expr::Match(_) => Ty::Unknown,
         Expr::This(_) | Expr::Dollar(_) => env.current_self().cloned().unwrap_or(Ty::Unknown),

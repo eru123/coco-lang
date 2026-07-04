@@ -1,359 +1,94 @@
 # Coco
 
-> JavaScript feel. PHP productivity. Memory-safe by default. Built for modern backends.
+**Status:** Early implementation — syntax, type checker, bytecode VM runtime, concurrency primitives, and stdlib/IO modules are functional.
 
-Coco is a planned compiled, memory-safe programming language for backend services, CLI tools, automation, and long-running worker applications.
+**Current execution model:** Bytecode VM only. `coco run` compiles and executes via the VM path. `coco build` emits a `.cb` artifact via `coco_interpreter::serialize_chunk`; `coco build --disasm` prints bytecode disassembly. The old AOT/LLVM backend and `coco build --binary` were removed.
 
-It is designed to feel familiar to JavaScript and TypeScript developers while preserving the practical backend productivity PHP is known for. Coco aims to provide strict typing, automatic memory safety, safe multi-core concurrency, secure web defaults, and static binary deployment without forcing developers to manage low-level memory details manually.
+## What is Coco?
 
-Coco is currently in the early implementation stage. Lexer, parser, formatter, bytecode VM, gradual type checker, and memory safety analyzer are functional. Source compiles to a `.cb` bytecode artifact (`coco build`). The former LLVM/AOT backend (`coco build --binary`) was removed; use `coco run --no-check program.co` or `coco build program.co` + `coco run program.cb` instead.
+Coco is a memory-safe, gradually typed language for backend services, CLI tools, and automation. It targets JS/TS/PHP developers who want memory safety without Rust's learning curve.
 
-## Project Status
-
-Coco is not yet a stable language.
-
-Current stage:
-
-```txt
-Phase 7 - bytecode VM + .cb artifacts + embedded-VM binaries (functional)
-```
-
-The interpreter is also prototyping the Adaptive Precision Cascade/Universal Numeric Substrate (`crates/coco_num`) from the cipher-of-precision paper. This layer is under active test and may still move.
-
-APC advisory hooks are intentionally optional in `coco_interpreter`. Enable with `--features apc-advisory`; default builds are unchanged and incur no runtime cost.
-
-Planned stages:
-
-```txt
-language design
-  → lexer and parser
-  → formatter
-  → bytecode VM (sole execution model)
-  → type checker
-  → automatic memory safety analyzer
-  → runtime
-  → async/concurrency system
-  → bytecode artifacts (.cb) and standalone binaries (--binary)
-  → package manager and tooling
-```
-
-## Running Coco Test Files
-
-The repository includes executable Coco programs in `tests/*.co`. Use the helper script to build the `coco` CLI once and run those files programmatically:
+## Quick start
 
 ```bash
-scripts/run-co-tests.sh
+cargo build
+cargo run -- hello.co
+cargo test
 ```
 
-By default, this discovers `tests/*.co`, builds `target/debug/coco`, and runs each file with `coco run --no-check`. The `--no-check` default keeps the runtime smoke tests useful while the type checker and safety analyzer are still catching up with every runtime-supported feature.
+## Project structure
 
-Common variants:
+- `crates/coco_cli`: CLI binary
+- `crates/coco_parser`: parser
+- `crates/coco_typeck`: gradual type checker
+- `crates/coco_interpreter`: bytecode compiler, stack VM, `.cb` serialization
+- `crates/coco_formatter`: formatter
+- `crates/coco_syntax`: AST definitions
+- `tests/`: `.co` integration tests
+
+## Build
 
 ```bash
-scripts/run-co-tests.sh --mode parse 'tests/*.co'
-scripts/run-co-tests.sh --mode typecheck tests/13-typed-code.co
-scripts/run-co-tests.sh --mode check tests/13-typed-code.co
-scripts/run-co-tests.sh --checked tests/01-hello-world.co
-scripts/run-co-tests.sh --release --verbose 'tests/*.co'
+cargo build
 ```
 
-Modes map to Coco CLI commands: `run`, `parse`, `typecheck`, and `safety`. The script's `check` mode is stricter than `coco check`: it runs `typecheck` and `safety` as failing gates so it is suitable for automation.
+## Run
 
-## Why Coco?
-
-Modern backend developers often have to choose between JavaScript/TypeScript, PHP, Go, Rust, and lower-level systems languages.
-
-Coco aims for a different balance:
-
-```txt
-JavaScript-like syntax
-PHP-like backend ergonomics
-automatic memory safety
-safe real concurrency
-strict typing
-single-binary deployment
+```bash
+cargo run -- hello.co
 ```
 
-Coco should let developers write code that feels simple while the compiler and runtime handle the difficult safety work in the background.
+## Test
 
-## Example
-
-```coco
-import { Server, Response } from "std/http";
-import { db } from "./database";
-
-class User {
-    constructor(
-        public readonly id: UserId,
-        public name: string,
-        private passwordHash: string,
-    ) {}
-
-    verify(password: string): bool {
-        return checkHash(password, $.passwordHash);
-    }
-
-    static fromRow(row: DbRow): User {
-        return new User(
-            id: UserId(row["id"]),
-            name: row["name"],
-            passwordHash: row["password_hash"],
-        );
-    }
-}
-
-async fn main(): int {
-    const app = new Server();
-
-    app.get("/users/:id", async (req) => {
-        const id = UserId.parse(req.params.id)?;
-        const user = await db.users.find(id)?;
-
-        return Response.json(user);
-    });
-
-    // Data transformation with pipe operators:
-    app.get("/users", async (req) => {
-        const activeUsers = await db.users.findAll()
-            |> $$.filter(u => u.active)
-            |> $$.map(u => ({ id: u.id, name: u.name }));
-
-        return Response.json(activeUsers);
-    });
-
-    await app.listen(3000);
-    return 0;
-}
+```bash
+cargo test
 ```
 
-## Core Goals
+Single crate tests:
 
-1. JavaScript-like surface syntax.
-2. PHP-inspired backend productivity.
-3. Automatic memory safety.
-4. Safe multi-core concurrency.
-5. Static binary deployment.
-6. Secure defaults.
-7. Excellent developer experience.
-
-## Syntax Philosophy
-
-Coco should feel closer to JavaScript and TypeScript than PHP.
-
-```coco
-const appName = "Coco";
-let counter = 0;
-
-counter += 1;
+```bash
+cargo test -p coco_interpreter
+cargo test -p coco_typeck
 ```
 
-Coco does not use PHP-style `$variables` in normal code.
+## CLI reference
 
-```coco
-let $counter = 0; // invalid in normal Coco
-```
+| Command | Notes |
+|--------|-------|
+| `coco lex FILE.co` | Tokenize |
+| `coco parse FILE.co` | Print AST |
+| `coco fmt FILE.co` | Format |
+| `coco fmt -w FILE.co` | Format in-place |
+| `coco check FILE.co` | Parse + diagnostics |
+| `coco typecheck FILE.co` | Type checking |
+| `coco safety FILE.co` | Safety analysis |
+| `coco run FILE.co` | Type-check + VM execute |
+| `coco run --no-check FILE.co` | VM execute without checks |
+| `cargo run -- build FILE.co` | Serialize `.cb` |
+| `cargo run -- build --disasm FILE.co` | Bytecode disassembly |
 
-Functions can be defined with `function`, `fn`, `f`, or arrow syntax:
+## Design goals
 
-```coco
-// Named functions:
-function add(a: int, b: int): int { return a + b; }
-fn subtract(a: int, b: int): int { return a - b; }
-f multiply(a: int, b: int): int { return a * b; }
-
-// Anonymous functions (all valid):
-const divide = function(a: int, b: int): int { return a / b; };
-const modulo = fn(a: int, b: int): int { return a % b; };
-const power = f(a: int, b: int): int { return a ** b; };
-const square = (a: int): int => a * a;
-```
-
-Class methods can use direct name, `function`, `fn`, or `f` (but NOT arrow functions):
-
-```coco
-class Math {
-    calculate(): int { /* ... */ }           // direct name
-    function compute(): int { /* ... */ }    // function keyword
-    fn process(): int { /* ... */ }          // fn keyword
-    f execute(): int { /* ... */ }           // f keyword
-    // result = (): int => { /* ... */ };    // ERROR: no arrow functions in classes
-}
-```
-
-Types use TypeScript-like annotations:
-
-```coco
-let count: int = 0;
-let name: string = "Coco";
-let user: User|null = null;
-```
-
-## Automatic Memory Safety
-
-Coco aims to provide memory-safe application behavior automatically.
-
-Developers should not have to write Rust-like ownership or borrowing syntax. Coco should not require normal application developers to choose between low-level memory wrappers just to build an API.
-
-Developers write normal Coco:
-
-```coco
-class UserProfile {
-    constructor(
-        public user: User,
-        public avatarUrl: string|null,
-    ) {}
-
-    updateAvatar(url: string): void {
-        $.avatarUrl = url;  // $ is shorthand for this
-    }
-}
-
-fn updateName(user: User, name: string): void {
-    user.name = name;
-}
-```
-
-Coco handles memory safety through compiler and runtime systems.
-
-Planned safety mechanisms:
-
-```txt
-compiler lifetime analysis
-escape analysis
-automatic object lifetime management
-copy-on-write values
-safe object references
-automatic cycle handling
-null safety checks
-bounds checking
-safe coroutine capture analysis
-runtime diagnostics in debug mode
-restricted unsafe boundaries
-```
-
-## Safe Concurrency
-
-Coco aims to support real multi-core concurrency without making developers manually manage thread-safety types.
-
-```coco
-const [user, posts, comments] = await parallel {
-    run getUser(id);
-    run getPosts(id);
-    run getComments(id);
-};
-```
-
-Unsafe shared mutation should be rejected:
-
-```coco
-let counter = 0;
-
-await parallel {
-    run {
-        counter += 1;
-    }
-
-    run {
-        counter += 1;
-    }
-}
-```
-
-Expected diagnostic:
-
-```txt
-Error: `counter` is mutated from multiple parallel tasks.
-Help: use an atomic value, a channel, or a synchronized block.
-```
-
-Safe version:
-
-```coco
-const counter = new Atomic<int>(0);
-
-await parallel {
-    run {
-        counter.add(1);
-    }
-
-    run {
-        counter.add(1);
-    }
-}
-```
+- Memory safety by default
+- Optional gradual typing
+- Safe concurrency primitives
+- Practical bytecode VM performance
 
 ## Roadmap
 
-- Phase 0: Charter and language identity
-- Phase 1: Grammar and specification
-- Phase 2: Lexer, parser, formatter
-- Phase 3: Tree-walking interpreter MVP (since removed; the bytecode VM is the sole execution model)
-- Phase 4: Type checker MVP
-- Phase 5: Automatic memory safety analyzer
-- Phase 6: Runtime memory system
-- Phase 7: Intermediate representation and VM
-- Phase 8: Automatic concurrency safety
-- Phase 9: M:N scheduler and async runtime
-- Phase 10: Async I/O and web standard library
-- Phase 11: Bytecode artifacts (`.cb`) and standalone embedded-VM binaries (replaces the former native AOT backend, which was removed)
-- Phase 12: Developer tooling
-- Phase 13: PHP compatibility and migration tools
-- Phase 14: Package registry and ecosystem
-- Phase 15: Portability and advanced targets
+Near-term:
 
-## MVP Scope
+- Finalize safe error-runtime behavior on VM paths
+- Complete project graph resolution for multi-file builds
+- Stabilize stdlib/host integration
 
-The first serious MVP should prove this:
+Deferred:
 
-```txt
-Coco can run and type-check a small memory-safe backend service using JS-like syntax.
-```
+- Runtime package management surface
+- Self-hosting compiler
+- JIT/WASM output
+- AOT/native backend research is explicit, tracked, and not currently enabled
 
-MVP includes:
+## Contributing
 
-```txt
-no $ variables
-JS-like syntax
-functions
-classes
-lists and maps
-strict types
-automatic memory safety checks
-basic runtime memory management
-result/null safety
-basic HTTP server
-basic async
-formatter
-CLI runner
-```
-
-MVP excludes:
-
-```txt
-PHP migration
-package registry
-HMR
-JIT
-WASM
-bare-metal
-old CPU support
-complete ORM
-plugin system
-self-hosting
-complex macros
-advanced generics
-```
-
-## Summary
-
-Coco is a planned language for developers who want the productivity of JavaScript and PHP, the safety expectations of modern systems languages, and the deployment simplicity of native binaries.
-
-The goal is simple to say and difficult to build:
-
-```txt
-Write backend code that feels easy.
-Get memory safety and safe concurrency automatically.
-Ship it as a fast native binary.
-```
-
-Simple surface. Strict underneath. That is Coco.
+See `CONTRIBUTING.md`.

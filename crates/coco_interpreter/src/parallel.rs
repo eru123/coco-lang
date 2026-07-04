@@ -44,7 +44,10 @@ pub fn parallel_join(
 
         handles
             .into_iter()
-            .map(|h| h.join().unwrap_or(Err("worker thread panicked".to_string())))
+            .map(|h| {
+                h.join()
+                    .unwrap_or(Err("worker thread panicked".to_string()))
+            })
             .collect()
     });
 
@@ -62,5 +65,6 @@ pub fn parallel_join(
 fn execute_run(run: ParallelRun, parent_globals: &HashMap<String, Value>) -> Result<Value, String> {
     let mut vm = Vm::new();
     vm.set_globals(parent_globals.clone());
-    vm.call_function(run.callee, run.args).map_err(|e| e.message)
+    vm.call_function(run.callee, run.args)
+        .map_err(|e| e.message)
 }

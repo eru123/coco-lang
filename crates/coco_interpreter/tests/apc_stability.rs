@@ -16,9 +16,7 @@ fn run(src: &str) -> Value {
     let mut parser = coco_parser::Parser::new(&wrapped);
     let program = parser.parse_program();
     let mut compiler = Compiler::new();
-    let chunk = compiler
-        .compile_script(&program)
-        .expect("compile error");
+    let chunk = compiler.compile_script(&program).expect("compile error");
     let mut vm = Vm::new();
     vm.run(&chunk).expect("VM error")
 }
@@ -66,9 +64,7 @@ fn modulo_by_zero_returns_runtime_error() {
     let mut parser = coco_parser::Parser::new(src);
     let program = parser.parse_program();
     let mut compiler = Compiler::new();
-    let chunk = compiler
-        .compile_script(&program)
-        .expect("compile error");
+    let chunk = compiler.compile_script(&program).expect("compile error");
     let mut vm = Vm::new();
     let result = vm.run(&chunk);
     assert!(result.is_err(), "expected runtime error for %0");
@@ -83,7 +79,8 @@ fn hang_and_improved_re_abuse() {
     assert_eq!(val.as_i64(), Some(6765));
 
     // Many short-lived allocations in a loop to stress paths touched by APC refactors.
-    let src = "fn main() { let sum = 0; let i = 0; while i < 500 { sum += i; i = i + 1; } return sum; }";
+    let src =
+        "fn main() { let sum = 0; let i = 0; while i < 500 { sum += i; i = i + 1; } return sum; }";
     let val = run(src);
     assert_eq!(val.as_i64(), Some(124750));
 }

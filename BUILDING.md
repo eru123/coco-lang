@@ -1,75 +1,91 @@
-# Building Coco
+# BUILDING.md
 
-## Prerequisites
+## Toolchain
 
-- **Rust** 1.80+ (install via [rustup](https://rustup.rs))
-- **LLVM 18** (optional, only for `--features native`)
+- Rust stable
+- Required tools: `cargo`, `rustfmt`, `clippy`
+- No system LLVM or native backend is required. The AOT/LLVM backend and
+  `--binary` flavor were removed. Use the bytecode VM and CLI tools only.
 
-## Quick Start
+## Treat `target/` as a build cache only
+
+`target/` is retained for incremental builds. Packaging, CI artifacts,
+installers, and release bundles should not ship this directory.
+
+The reproducible deliverable is a release binary, or a `.cb` artifact emitted
+by `coco build` alongside source for `coco run` workflows.
+
+## Workspace layout
+
+- crates use `path = "..."` dependencies only; avoid absolute paths
+- bytecode artifacts are emitted under the current working directory when
+  using `coco build`
+- The portable build artifact is the `.cb` file produced by
+  `coco_interpreter::serialize_chunk`
+
+## Build
 
 ```bash
-# Clone and build
-git clone https://github.com/eru123/coco-lang
-cd coco-lang
 cargo build
-
-# Run the tests
-cargo test -p coco_interpreter -p coco_typeck -p coco_parser
-
-# Run a Coco program
-cargo run -- run examples/01-hello.co
 ```
 
-## Feature Flags
-
-| Feature | Description |
-|---------|-------------|
-| `native` | LLVM AOT compilation (`coco build --native`). Requires LLVM 18. |
-| `tree-walker` | Deprecated tree-walking interpreter (not needed for development). |
-
-## Native Compilation (LLVM)
-
-For `coco build --native`:
+## Run
 
 ```bash
-# Ubuntu/Debian
-sudo apt install llvm-18-dev
-
-# macOS
-brew install llvm@18
-
-# Then build with native feature
-cargo build --features native
+cargo run -- hello.co
 ```
 
-If LLVM is not installed system-wide, the build script attempts to download
-a prebuilt LLVM 18 tarball automatically.
-
-## Running Tests
+## Tests
 
 ```bash
-# All core tests
-cargo test -p coco_lexer -p coco_parser -p coco_interpreter -p coco_typeck -p coco_safety
+cargo test
+```
 
-# CLI tests
+Interpreter tests:
+
+```bash
+cargo test -p coco_interpreter
+```
+
+CLI tests:
+
+```bash
 cargo test -p coco_cli
-
-# Run the co test suite
-bash scripts/run-co-tests.sh
 ```
 
-## Project Structure
+## Formatting
 
-| Crate | Purpose |
-|-------|---------|
-| `coco_span` | Source locations and SourceMap |
-| `coco_diagnostics` | Ariadne-based error rendering |
-| `coco_lexer` | Lexer / tokenizer |
-| `coco_syntax` | AST definitions |
-| `coco_parser` | Recursive-descent parser |
-| `coco_typeck` | Type checker |
-| `coco_safety` | Memory safety analysis |
-| `coco_interpreter` | Bytecode VM (compiler + runtime) |
-| `coco_formatter` | Code formatter |
-| `coco_codegen` | LLVM native codegen (optional) |
-| `coco_cli` | CLI tool (`coco` binary) |
+```bash
+cargo fmt
+```
+
+## Lint
+
+```bash
+cargo clippy
+```
+
+## CLI reference
+
+- `coco lex FILE.co`
+- `coco parse FILE.co`
+- `coco fmt FILE.co`
+- `coco fmt -w FILE.co`
+- `coco check FILE.co`
+- `coco typecheck FILE.co`
+- `coco safety FILE.co`
+- `coco run FILE.co`
+- `coco run --no-check FILE.co`
+- `coco build FILE.co`
+- `coco build --disasm FILE.co`
+- `coco test`
+- `coco init NAME`
+
+## Packaging notes
+
+- build with `cargo build --release`
+- install the release binary into `$PREFIX/bin`
+- do not rely on `target/` as a stable bundled or redistributable component
+- do not ship `.cb` files from `target/`; serialize artifacts to a user data
+  or app path if needed
+- no native host toolchain is needed beyond Rust

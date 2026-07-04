@@ -1,5 +1,4 @@
 /// Control flow signals and runtime errors for the interpreter.
-
 use std::path::PathBuf;
 
 use coco_span::Span;
@@ -94,11 +93,7 @@ impl RuntimeError {
                         loc
                     ));
                 } else {
-                    msg.push_str(&format!(
-                        "\n  at {} ({})",
-                        frame.function_name,
-                        loc
-                    ));
+                    msg.push_str(&format!("\n  at {} ({})", frame.function_name, loc));
                 }
             }
         }

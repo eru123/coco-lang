@@ -211,15 +211,26 @@ fn is_narrowings(var_name: &str, current_ty: &Ty, type_name: &str) -> (Narrowing
     match current_ty {
         Ty::Union(types) => {
             // True branch: narrow to the matching type
-            let then_ty = types.iter().find(|t| type_matches(t, type_name)).cloned().unwrap_or(target_ty.clone());
+            let then_ty = types
+                .iter()
+                .find(|t| type_matches(t, type_name))
+                .cloned()
+                .unwrap_or(target_ty.clone());
             // False branch: remove the matching type from the union
-            let else_types: Vec<Ty> = types.iter()
+            let else_types: Vec<Ty> = types
+                .iter()
                 .filter(|t| !type_matches(t, type_name))
                 .cloned()
                 .collect();
             let else_ty = Ty::union(else_types);
-            ((vec![(var_name.to_string(), then_ty)]),
-             (if else_ty == Ty::Never { vec![] } else { vec![(var_name.to_string(), else_ty)] }))
+            (
+                (vec![(var_name.to_string(), then_ty)]),
+                (if else_ty == Ty::Never {
+                    vec![]
+                } else {
+                    vec![(var_name.to_string(), else_ty)]
+                }),
+            )
         }
         _ => {
             // Non-union: if the type matches, true branch narrows; false branch remains same
