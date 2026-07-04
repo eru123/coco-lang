@@ -14,14 +14,15 @@
 //! The output is a `Chunk` ready to be executed by the VM.
 
 use crate::ir::{
-    Chunk, ChunkBuilder, FnObj, Label, OP_ADD, OP_BIT_AND, OP_BIT_NOT, OP_BIT_OR, OP_BIT_XOR,
-    OP_BUILD_LIST, OP_BUILD_MAP, OP_CALL, OP_CATCH, OP_CONST, OP_DEFINE_GLOBAL, OP_DIV, OP_DUP,
-    OP_EQ, OP_FALSE, OP_GE, OP_GT, OP_INDEX, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LE,
-    OP_LOAD_GLOBAL, OP_LOAD_LOCAL, OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_METHOD_CALL,
-    OP_MOD, OP_MUL, OP_NE, OP_NEG, OP_NEW, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE,
-    OP_POW, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
-    OP_STORE_MEMBER, OP_STORE_MEMBER_LOCAL, OP_STORE_INDEX_LOCAL,
-    OP_SUB, OP_SUPER_METHOD, OP_SWAP, OP_THIS, OP_THROW, OP_TRUE,
+    Chunk, ChunkBuilder, FnObj, Label, OP_ADD, OP_ADD_F, OP_ADD_I, OP_BIT_AND, OP_BIT_NOT,
+    OP_BIT_OR, OP_BIT_XOR, OP_BUILD_LIST, OP_BUILD_MAP, OP_CALL, OP_CATCH, OP_CONST,
+    OP_DEFINE_GLOBAL, OP_DIV, OP_DIV_F, OP_DIV_I, OP_DUP, OP_EQ, OP_FALSE, OP_GE, OP_GT,
+    OP_INDEX, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LE, OP_LOAD_GLOBAL, OP_LOAD_LOCAL,
+    OP_LT, OP_MAKE_CLOSURE, OP_MEMBER, OP_METHOD_CALL, OP_MOD, OP_MOD_F, OP_MOD_I, OP_MUL,
+    OP_MUL_F, OP_MUL_I, OP_NE, OP_NEG, OP_NEW, OP_NOT, OP_NULL, OP_POP, OP_POP_JUMP_IF_FALSE,
+    OP_POW, OP_POW_F, OP_RETURN, OP_SHL, OP_SHR, OP_STORE_GLOBAL, OP_STORE_INDEX, OP_STORE_LOCAL,
+    OP_STORE_MEMBER, OP_STORE_MEMBER_LOCAL, OP_STORE_INDEX_LOCAL, OP_SUB, OP_SUB_F, OP_SUB_I,
+    OP_SUPER_METHOD, OP_SWAP, OP_THIS, OP_THROW, OP_TRUE,
     OP_TRY_BEGIN, OP_TRY_END, OP_AWAIT, OP_LAZY_CALL, OP_ASYNC_CALL, OP_TRY,
     OP_SELECT_TRY_RECV, OP_TYPE_IS, OP_TYPEOF, OP_PARALLEL_RUN,
     // OP_PIPE_VAL, OP_ITER_MAP, OP_CLOSE_UPVALUE are dispatched by the VM but
@@ -107,6 +108,11 @@ pub struct Compiler {
     in_lazy: bool,
     /// Enable tree-shaking (dead function elimination) after compilation.
     pub enable_tree_shake: bool,
+    /// Inferred types keyed by AST node span (from coco_typeck). When present,
+    /// the compiler emits type-specialized arithmetic opcodes (OP_ADD_I for
+    /// int+int, OP_ADD_F for float-involved) instead of the generic OP_ADD,
+    /// skipping runtime tag dispatch for typed code. None -> generic opcodes.
+    types: Option<coco_typeck::TypeMap>,
 }
 
 impl Compiler {
@@ -120,7 +126,23 @@ impl Compiler {
             in_function: false,
             in_lazy: false,
             enable_tree_shake: false,
+            types: None,
         }
+    }
+
+    /// Attach inferred type information (from `coco_typeck::check`). When set,
+    /// arithmetic is specialized to typed opcodes where operand types are
+    /// statically known (the adaptive numeric tower's static tier). Without
+    /// this, the compiler emits generic opcodes and the VM dispatches on
+    /// runtime tags.
+    pub fn with_types(mut self, types: coco_typeck::TypeMap) -> Self {
+        self.types = Some(types);
+        self
+    }
+
+    /// Set the type map after construction (mutating builder).
+    pub fn set_types(&mut self, types: coco_typeck::TypeMap) {
+        self.types = Some(types);
     }
 
     // ========================================================================
@@ -1138,12 +1160,12 @@ impl Compiler {
         self.compile_expr(&bin.right)?;
 
         match bin.op {
-            Add => self.emit_op(OP_ADD),
-            Sub => self.emit_op(OP_SUB),
-            Mul => self.emit_op(OP_MUL),
-            Div => self.emit_op(OP_DIV),
-            Mod => self.emit_op(OP_MOD),
-            Pow => self.emit_op(OP_POW),
+            Add => self.emit_op(self.typed_arith_op(bin, OP_ADD, OP_ADD_I, OP_ADD_F)),
+            Sub => self.emit_op(self.typed_arith_op(bin, OP_SUB, OP_SUB_I, OP_SUB_F)),
+            Mul => self.emit_op(self.typed_arith_op(bin, OP_MUL, OP_MUL_I, OP_MUL_F)),
+            Div => self.emit_op(self.typed_arith_op(bin, OP_DIV, OP_DIV_I, OP_DIV_F)),
+            Mod => self.emit_op(self.typed_arith_op(bin, OP_MOD, OP_MOD_I, OP_MOD_F)),
+            Pow => self.emit_op(self.typed_arith_op(bin, OP_POW, OP_POW, OP_POW_F)),
             Eq => self.emit_op(OP_EQ),
             Ne => self.emit_op(OP_NE),
             Lt => self.emit_op(OP_LT),
@@ -1178,6 +1200,39 @@ impl Compiler {
             _ => return Err(CompileError::new(format!("unhandled binary op"))),
         }
         Ok(())
+    }
+
+    /// Pick the arithmetic opcode based on the operands' static types (the
+    /// adaptive numeric tower's static specialization tier).
+    ///
+    /// - both operands `int`/`uint` (and not unknown/mixed) -> `op_i` (i64 fast
+    ///   path with overflow -> BigInt escalation; skips runtime tag dispatch).
+    /// - either operand `float` (and the other numeric) -> `op_f` (native f64).
+    /// - otherwise (unknown/mixed/string/etc.) -> `op_generic` (runtime tag
+    ///   dispatch, handles int/float/string/bigint dynamically).
+    ///
+    /// When no type map is attached, always returns the generic opcode.
+    fn typed_arith_op(&self, bin: &BinaryExpr, op_generic: u8, op_i: u8, op_f: u8) -> u8 {
+        let types = match &self.types {
+            Some(t) => t,
+            None => return op_generic,
+        };
+        let lt = types.get(bin.left.span());
+        let rt = types.get(bin.right.span());
+        let is_int = |t: Option<&coco_typeck::types::Ty>| {
+            matches!(t, Some(coco_typeck::types::Ty::Int) | Some(coco_typeck::types::Ty::Uint))
+        };
+        let is_float = |t: Option<&coco_typeck::types::Ty>| matches!(t, Some(coco_typeck::types::Ty::Float));
+        let is_numeric = |t: Option<&coco_typeck::types::Ty>| t.map(|t| t.is_numeric()).unwrap_or(false);
+        // Both statically int -> int op (i64 fast path).
+        if is_int(lt) && is_int(rt) {
+            return op_i;
+        }
+        // Float involved and both numeric -> float op (native f64).
+        if (is_float(lt) || is_float(rt)) && is_numeric(lt) && is_numeric(rt) {
+            return op_f;
+        }
+        op_generic
     }
 
     /// Handle simple and compound assignment to an identifier target.
@@ -2027,8 +2082,13 @@ impl Compiler {
         params: &[String],
         body: &Block,
     ) -> CResult<Chunk> {
-        // Create a fresh compiler for the function body.
+        // Create a fresh compiler for the function body. Propagate the type
+        // map so function bodies also get type-specialized opcodes (spans are
+        // stable program-wide, so the parent's TypeMap covers nested bodies).
         let mut func_compiler = Compiler::new();
+        if let Some(types) = &self.types {
+            func_compiler.types = Some(types.clone());
+        }
         func_compiler.in_function = true;
         func_compiler.begin_scope();
 

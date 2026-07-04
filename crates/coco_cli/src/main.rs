@@ -416,7 +416,15 @@ fn run_with_vm(source: &str, debug: bool) {
     let mut parser = Parser::new(source);
     let program = parser.parse_program();
 
-    let mut compiler = coco_interpreter::compiler::Compiler::new();
+    // Run the type checker to obtain inferred types (keyed by span). The
+    // compiler consults this map to emit type-specialized arithmetic opcodes
+    // (the adaptive numeric tower's static tier: OP_ADD_I for int+int, OP_ADD_F
+    // for float-involved). Type errors are NOT enforced here — the `run`
+    // command's --check gate handles that; this is purely for specialization,
+    // so gradual/untyped code still compiles via generic opcodes.
+    let typeck_result = coco_typeck::check(&program);
+    let mut compiler = coco_interpreter::compiler::Compiler::new()
+        .with_types(typeck_result.types);
     let chunk = match compiler.compile_script(&program) {
         Ok(c) => c,
         Err(e) => {
@@ -495,7 +503,8 @@ fn cmd_build(file: &Path, binary: bool, disasm: bool, release: bool) {
         eprintln!("[safety warning] {} {}", err.code, err.message);
     }
 
-    let mut compiler = coco_interpreter::compiler::Compiler::new();
+    let mut compiler = coco_interpreter::compiler::Compiler::new()
+        .with_types(typeck_result.types);
     if release {
         compiler.enable_tree_shake = true;
     }
@@ -728,8 +737,10 @@ fn cmd_test(filter: Option<&str>) {
             continue;
         }
 
-        // Compile + run via VM
-        let mut compiler = coco_interpreter::compiler::Compiler::new();
+        // Compile + run via VM (with type-driven opcode specialization).
+        let typeck_result = coco_typeck::check(&program);
+        let mut compiler = coco_interpreter::compiler::Compiler::new()
+            .with_types(typeck_result.types);
         let chunk = match compiler.compile_script(&program) {
             Ok(c) => c,
             Err(e) => {
