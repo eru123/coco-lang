@@ -1576,7 +1576,7 @@ impl Vm {
         }
     }
 
-    fn vm_add(a: Value, b: Value) -> VmResult<Value> {
+    pub(crate) fn vm_add(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             (x, y) if x.is_int() && y.is_int() => {
@@ -1594,7 +1594,7 @@ impl Vm {
         }
     }
 
-    fn vm_sub(a: Value, b: Value) -> VmResult<Value> {
+    pub(crate) fn vm_sub(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
                 Self::int_binop(&x, &y, i64::checked_sub, |a, b| a - b)
@@ -1611,7 +1611,7 @@ impl Vm {
         }
     }
 
-    fn vm_mul(a: Value, b: Value) -> VmResult<Value> {
+    pub(crate) fn vm_mul(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
                 Self::int_binop(&x, &y, i64::checked_mul, |a, b| a * b)
@@ -1628,7 +1628,7 @@ impl Vm {
         }
     }
 
-    fn vm_div(a: Value, b: Value) -> VmResult<Value> {
+    pub(crate) fn vm_div(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
                 // Division by zero check (covers both Int64(0) and Int(BigInt 0)).
@@ -1651,7 +1651,7 @@ impl Vm {
         }
     }
 
-    fn vm_mod(a: Value, b: Value) -> VmResult<Value> {
+    pub(crate) fn vm_mod(a: Value, b: Value) -> VmResult<Value> {
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
                 if y.as_i64() == Some(0) {
@@ -1673,7 +1673,7 @@ impl Vm {
         }
     }
 
-    fn vm_pow(a: Value, b: Value) -> VmResult<Value> {
+    pub(crate) fn vm_pow(a: Value, b: Value) -> VmResult<Value> {
         use num_traits::ToPrimitive;
         match (a, b) {
             (x, y) if x.is_int() && y.is_int() => {
@@ -1707,7 +1707,7 @@ impl Vm {
         }
     }
 
-    fn vm_eq(a: &Value, b: &Value) -> bool {
+    pub(crate) fn vm_eq(a: &Value, b: &Value) -> bool {
         // Delegate to the shared structural-equality function so the
         // `deepEquals` builtin and `==` operator stay in sync.
         crate::value::value_eq(a, b)
@@ -1868,7 +1868,7 @@ impl Vm {
         }.to_string()
     }
 
-    fn vm_cmp(a: Value, b: Value, pred: impl Fn(std::cmp::Ordering) -> bool) -> VmResult<Value> {
+    pub(crate) fn vm_cmp(a: Value, b: Value, pred: impl Fn(std::cmp::Ordering) -> bool) -> VmResult<Value> {
         let ord = match (&a, &b) {
             (x, y) if x.is_int() && y.is_int() => {
                 // Compare via i64 when both fit, else via BigInt.
@@ -1896,7 +1896,7 @@ impl Vm {
         Ok(Value::Bool(pred(ord)))
     }
 
-    fn vm_bitop<F, G>(a: Value, b: Value, i64_op: G, bigint_op: F) -> VmResult<Value>
+    pub(crate) fn vm_bitop<F, G>(a: Value, b: Value, i64_op: G, bigint_op: F) -> VmResult<Value>
     where
         F: FnOnce(BigInt, BigInt) -> BigInt,
         G: FnOnce(i64, i64) -> Option<i64>,

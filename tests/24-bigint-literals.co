@@ -1,0 +1,32 @@
+// BigInt literal preservation: integer literals must not truncate at parse time.
+// Previously, literals larger than i64::MAX were silently truncated to 0 or
+// wrapped. They are now stored as raw text and promoted to BigInt on demand.
+
+fn main(): int {
+    // Small integers still fit in i64 fast path.
+    print(42);
+    print(-7);
+
+    // Decimal literals that exceed i64::MAX (~9.2e18).
+    const huge = 99999999999999999999;
+    print(huge);
+    print(huge + 1);
+    print(huge - 1);
+
+    // Hexadecimal literal.
+    const hex = 0xFFFFFFFFFFFFFFFF;
+    print(hex);
+    print(hex + 1);
+
+    // Binary literal.
+    const bin = 0b11111111111111111111111111111111;
+    print(bin);
+    print(bin + 1);
+
+    // Underscores are stripped before parsing.
+    const spaced = 1_000_000_000_000;
+    print(spaced);
+    print(spaced + 1);
+
+    return 0;
+}

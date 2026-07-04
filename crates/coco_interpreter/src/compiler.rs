@@ -32,7 +32,8 @@ use crate::ir::{
 use crate::value::Value;
 use coco_parser::Parser;
 use coco_syntax::*;
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
+use num_traits::ToPrimitive;
 
 // ============================================================================
 // Compile error
@@ -1026,8 +1027,9 @@ impl Compiler {
 
     fn compile_literal(&mut self, lit: &Literal) -> CResult<()> {
         match lit {
-            Literal::Int(n, _) => {
-                let idx = self.add_constant(Value::int_from_i64(*n as i64));
+            Literal::Int(s, _) => {
+                let val = Self::value_from_int_str(s);
+                let idx = self.add_constant(val);
                 self.emit_op_u16(OP_CONST, idx);
             }
             Literal::Float(n, _) => {
@@ -1177,6 +1179,16 @@ impl Compiler {
                 return Ok(());
             }
             _ => {}
+        }
+
+        // Compile-time constant folding: if both operands are literals,
+        // evaluate the operation now and emit a single CONST instruction.
+        if let (Expr::Literal(ll), Expr::Literal(lr)) = (&bin.left, &bin.right) {
+            if let Some(folded) = self.try_fold_literals(ll, lr, bin.op) {
+                let idx = self.add_constant(folded);
+                self.emit_op_u16(OP_CONST, idx);
+                return Ok(());
+            }
         }
 
         // Regular binary operations
@@ -1622,8 +1634,9 @@ impl Compiler {
                 // Load scrutinee, load literal, compare.
                 self.emit_op_u16(OP_LOAD_LOCAL, scrut_slot as u16);
                 match lit {
-                    Literal::Int(n, _) => {
-                        let idx = self.add_constant(Value::int_from_i64(*n as i64));
+                    Literal::Int(s, _) => {
+                        let val = Self::value_from_int_str(s);
+                        let idx = self.add_constant(val);
                         self.emit_op_u16(OP_CONST, idx);
                     }
                     Literal::Float(n, _) => {
@@ -2175,6 +2188,152 @@ impl Compiler {
         // Take the builder and replace with a fresh one
         std::mem::replace(&mut self.builder, ChunkBuilder::new()).finish()
     }
+
+    fn value_from_int_str(s: &str) -> Value {
+        let cleaned = s.replace('_', "");
+        if cleaned.starts_with("0x") || cleaned.starts_with("0X") {
+            if let Ok(n) = i64::from_str_radix(&cleaned[2..], 16) {
+                return Value::int_from_i64(n);
+            }
+            let digits = &cleaned[2..];
+            if let Some(n) = BigUint::parse_bytes(digits.as_bytes(), 16) {
+                return Value::from_bigint(BigInt::from(n));
+            }
+            return Value::int_from_i64(0);
+        } else if cleaned.starts_with("0b") || cleaned.starts_with("0B") {
+            if let Ok(n) = i64::from_str_radix(&cleaned[2..], 2) {
+                return Value::int_from_i64(n);
+            }
+            let digits = &cleaned[2..];
+            if let Some(n) = BigUint::parse_bytes(digits.as_bytes(), 2) {
+                return Value::from_bigint(BigInt::from(n));
+            }
+            return Value::int_from_i64(0);
+        } else if cleaned.starts_with("0o") || cleaned.starts_with("0O") {
+            if let Ok(n) = i64::from_str_radix(&cleaned[2..], 8) {
+                return Value::int_from_i64(n);
+            }
+            let digits = &cleaned[2..];
+            if let Some(n) = BigUint::parse_bytes(digits.as_bytes(), 8) {
+                return Value::from_bigint(BigInt::from(n));
+            }
+            return Value::int_from_i64(0);
+        }
+        if let Ok(n) = cleaned.parse::<i64>() {
+            Value::int_from_i64(n)
+        } else if let Ok(n) = cleaned.parse::<BigInt>() {
+            Value::from_bigint(n)
+        } else {
+            Value::int_from_i64(0)
+        }
+    }
+
+    fn try_fold_literals(&self, left: &Literal, right: &Literal, op: BinaryOp) -> Option<Value> {
+        use crate::vm::Vm;
+        use std::cmp::Ordering;
+        match op {
+            BinaryOp::Add => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_add(a, b).ok()
+            }
+            BinaryOp::Sub => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_sub(a, b).ok()
+            }
+            BinaryOp::Mul => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_mul(a, b).ok()
+            }
+            BinaryOp::Div => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_div(a, b).ok()
+            }
+            BinaryOp::Mod => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_mod(a, b).ok()
+            }
+            BinaryOp::Pow => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_pow(a, b).ok()
+            }
+            BinaryOp::Eq => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Some(Value::Bool(Vm::vm_eq(&a, &b)))
+            }
+            BinaryOp::Ne => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Some(Value::Bool(!Vm::vm_eq(&a, &b)))
+            }
+            BinaryOp::Lt => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_cmp(a, b, |o| o == Ordering::Less)
+                    .ok()
+            }
+            BinaryOp::Gt => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_cmp(a, b, |o| o == Ordering::Greater)
+                    .ok()
+            }
+            BinaryOp::Le => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_cmp(a, b, |o| o != Ordering::Greater)
+                    .ok()
+            }
+            BinaryOp::Ge => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_cmp(a, b, |o| o != Ordering::Less)
+                    .ok()
+            }
+            BinaryOp::BitAnd => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_bitop(a, b, |x, y| Some(x & y), |x, y| x & y).ok()
+            }
+            BinaryOp::BitOr => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_bitop(a, b, |x, y| Some(x | y), |x, y| x | y).ok()
+            }
+            BinaryOp::BitXor => {
+                let a = Self::literal_to_value(left)?;
+                let b = Self::literal_to_value(right)?;
+                Vm::vm_bitop(a, b, |x, y| Some(x ^ y), |x, y| x ^ y).ok()
+            }
+            _ => None,
+        }
+    }
+
+    fn literal_to_value(lit: &Literal) -> Option<Value> {
+        match lit {
+            Literal::Int(s, _) => {
+                let cleaned = s.replace('_', "");
+                if let Ok(n) = cleaned.parse::<i64>() {
+                    Some(Value::int_from_i64(n))
+                } else if let Ok(n) = cleaned.parse::<BigInt>() {
+                    Some(Value::from_bigint(n))
+                } else {
+                    None
+                }
+            }
+            Literal::Float(n, _) => Some(Value::Float(*n)),
+            Literal::String(s, _) => Some(Value::String(s.clone())),
+            Literal::Bool(b, _) => Some(Value::Bool(*b)),
+            Literal::Null(_) => Some(Value::Null),
+            Literal::Char(c, _) => Some(Value::String(c.to_string())),
+        }
+    }
 }
 
 impl Default for Compiler {
@@ -2217,7 +2376,17 @@ mod tests {
 
     #[test]
     fn test_compile_add() {
+        // `1 + 2` is folded to CONST 3 at compile time.
         let chunk = compile_src("1 + 2;");
+        let d = disassemble(&chunk, "test");
+        assert!(d.contains("CONST"));
+        assert!(d.contains("3"));
+    }
+
+    #[test]
+    fn test_compile_add_variable() {
+        // `a + 2` cannot be folded (a is a variable), so ADD is emitted.
+        let chunk = compile_src("let a = 1; a + 2;");
         let d = disassemble(&chunk, "test");
         assert!(d.contains("ADD"));
     }

@@ -913,8 +913,7 @@ impl Formatter {
     fn format_literal(&mut self, l: &Literal) {
         match l {
             Literal::Int(v, _) => {
-                let s = format!("{}", v);
-                self.write_str(&s);
+                self.write_str(v);
             }
             Literal::Float(v, _) => {
                 let s = format!("{}", v);

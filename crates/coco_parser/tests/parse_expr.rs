@@ -32,7 +32,10 @@ fn parse_const_init(src: &str) -> Expr {
 #[test]
 fn parse_integer_literal() {
     let expr = parse_expr_stmt("42;");
-    assert!(matches!(expr, Expr::Literal(Literal::Int(42, _))));
+    match expr {
+        Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "42"),
+        other => panic!("expected int literal, got {:?}", other),
+    }
 }
 
 #[test]
@@ -73,8 +76,14 @@ fn parse_binary_add() {
     match expr {
         Expr::Binary(ref b) => {
             assert_eq!(b.op, BinaryOp::Add);
-            assert!(matches!(b.left, Expr::Literal(Literal::Int(1, _))));
-            assert!(matches!(b.right, Expr::Literal(Literal::Int(2, _))));
+                    match &b.left {
+                Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "1"),
+                other => panic!("expected int literal, got {:?}", other),
+            }
+            match &b.right {
+                Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "2"),
+                other => panic!("expected int literal, got {:?}", other),
+            }
         }
         other => panic!("expected binary add, got {:?}", other),
     }
@@ -87,12 +96,21 @@ fn parse_binary_precedence() {
     match expr {
         Expr::Binary(ref b) => {
             assert_eq!(b.op, BinaryOp::Add);
-            assert!(matches!(b.left, Expr::Literal(Literal::Int(1, _))));
+            match &b.left {
+                Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "1"),
+                other => panic!("expected int literal, got {:?}", other),
+            }
             match &b.right {
                 Expr::Binary(inner) => {
                     assert_eq!(inner.op, BinaryOp::Mul);
-                    assert!(matches!(inner.left, Expr::Literal(Literal::Int(2, _))));
-                    assert!(matches!(inner.right, Expr::Literal(Literal::Int(3, _))));
+                    match &inner.left {
+                        Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "2"),
+                        other => panic!("expected int literal, got {:?}", other),
+                    }
+                    match &inner.right {
+                        Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "3"),
+                        other => panic!("expected int literal, got {:?}", other),
+                    }
                 }
                 other => panic!("expected binary mul on right, got {:?}", other),
             }
@@ -237,7 +255,10 @@ fn parse_grouped_expr() {
         Expr::Binary(ref b) => {
             assert_eq!(b.op, BinaryOp::Mul);
             assert!(matches!(b.left, Expr::Group(_)));
-            assert!(matches!(b.right, Expr::Literal(Literal::Int(3, _))));
+            match &b.right {
+                Expr::Literal(Literal::Int(s, _)) => assert_eq!(s, "3"),
+                other => panic!("expected int literal, got {:?}", other),
+            }
         }
         other => panic!("expected binary mul with group, got {:?}", other),
     }

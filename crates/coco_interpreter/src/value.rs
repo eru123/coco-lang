@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use coco_gc::CoW;
 use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 use crate::ir::FnObj;
 
@@ -217,6 +218,15 @@ impl Value {
     /// Whether this value is an integer of either representation.
     pub fn is_int(&self) -> bool {
         matches!(self, Value::Int64(_) | Value::Int(_))
+    }
+
+    /// Wrap a BigInt back into `Int64` if it fits, else keep it as `Int`.
+    pub fn from_bigint(n: BigInt) -> Value {
+        if let Some(i) = n.to_i64() {
+            Value::Int64(i)
+        } else {
+            Value::Int(n)
+        }
     }
 
 }

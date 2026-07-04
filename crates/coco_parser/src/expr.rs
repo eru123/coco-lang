@@ -140,15 +140,6 @@ pub fn parse_primitive_type(name: &str) -> Option<PrimitiveType> {
     })
 }
 
-pub fn parse_int_literal(text: &str) -> i64 {
-    let text = text.replace('_', "");
-    if text.starts_with("0x") || text.starts_with("0X") {
-        i64::from_str_radix(&text[2..], 16).unwrap_or(0)
-    } else if text.starts_with("0b") || text.starts_with("0B") {
-        i64::from_str_radix(&text[2..], 2).unwrap_or(0)
-    } else if text.starts_with("0o") || text.starts_with("0O") {
-        i64::from_str_radix(&text[2..], 8).unwrap_or(0)
-    } else {
-        text.parse().unwrap_or(0)
-    }
+pub fn parse_int_literal(text: &str) -> String {
+    text.replace('_', "")
 }

@@ -490,7 +490,7 @@ pub struct ParallelExpr {
 
 #[derive(Debug, Clone)]
 pub enum Literal {
-    Int(i64, Span),
+    Int(String, Span),
     Float(f64, Span),
     String(String, Span),
     Char(char, Span),
