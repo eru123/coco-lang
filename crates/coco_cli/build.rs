@@ -1,10 +1,12 @@
 //! Bake the workspace root path into the `coco` binary at compile time.
 //!
-//! `coco build --binary` generates a small Rust crate that depends on
-//! `coco_interpreter` by path. That path must point at the in-tree
-//! `crates/coco_interpreter` directory, which lives one level up from this
-//! crate. We compute it from `CARGO_MANIFEST_DIR` here and expose it via the
-//! `COCO_WORKSPACE_ROOT` env var so `main.rs` can read it with `env!`.
+//! The release binary reads `COCO_WORKSPACE_ROOT` at runtime so it can locate
+//! packaged runtime data compiled from the workspace. There is no `coco build
+//! --binary` output anymore; the VM is the sole execution path and releases
+//! carry `.cb` artifacts or source, not a generated native crate.
+//!
+//! We compute the workspace root from `CARGO_MANIFEST_DIR` and expose it via
+//! the `COCO_WORKSPACE_ROOT` env var so `main.rs` can read it with `env!`.
 
 use std::path::PathBuf;
 
