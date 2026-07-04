@@ -1,0 +1,26 @@
+// Match: literals, wildcard, binding, `is` type narrowing, and fallthrough behavior.
+fn main() {
+    print(match 0 { 0 => "zero", 1 => "one", _ => "other" });
+    print(match 1 { 0 => "zero", 1 => "one", _ => "other" });
+    print(match 2 { 0 => "zero", 1 => "one", _ => "other" });
+
+    const maybe: int|null = null;
+    print(match maybe {
+        null => "none",
+        x when x < 0 => "neg",
+        x => "pos",
+    });
+
+    const mixed = [1, "two", true];
+    print(match mixed[1] {
+        "two" => "string-match",
+        _ => "skip",
+    });
+
+    print(match true {
+        true => "t",
+        false => "f",
+    });
+
+    return 0;
+}

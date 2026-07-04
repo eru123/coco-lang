@@ -1,0 +1,14 @@
+// Templates: interpolation, expressions inside holes, string concatenation via +,
+// and nested access inside template parts.
+fn main() {
+    const name = "coco";
+    print(`Hello, ${name}!`);
+    print(`1 + 2 = ${1 + 2}`);
+    print(`bool = ${true}`);
+    print(`neg = ${-7}`);
+    const items = [10, 20];
+    print(`first = ${items[0]}, len = ${items.length}`);
+    print(`nested = ${`inner-${3 * 4}`}`);
+    print(`${"a"}${"b"}`);
+    return 0;
+}

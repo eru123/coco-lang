@@ -1,0 +1,55 @@
+// Classes, traits, interfaces, new, this, super, member access, and optional chain.
+interface Greeter {
+    label(): string;
+}
+
+trait Tagged {
+    tag: string;
+}
+
+class User implements Greeter {
+    name: string;
+    tag: string;
+
+    constructor(name: string, tag: string) {
+        this.name = name;
+        this.tag = tag;
+    }
+
+    label(): string {
+        return this.name + " [" + this.tag + "]";
+    }
+}
+
+class Admin extends User {
+    level: int;
+
+    constructor(name: string, level: int) {
+        super(name, "admin-" + name);
+        this.level = level;
+    }
+
+    inspect(): string {
+        return super.label() + " L" + toString(this.level);
+    }
+}
+
+fn describe(g: Greeter): string {
+    return g.label();
+}
+
+fn main() {
+    const u = new User("Ada", "alpha");
+    print(u.name);
+    print(u.label());
+    print(describe(u));
+
+    const a = new Admin("Sys", 9);
+    print(a.name);
+    print(a.tag);
+    print(a.level);
+    print(a.inspect());
+    print(a?.tag ?? "none");
+
+    return 0;
+}

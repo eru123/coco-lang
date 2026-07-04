@@ -1,0 +1,29 @@
+// Shift and bitwise-assign operators.
+fn main() {
+    const a = 1;
+    const b = a << 3;
+    const c = 16 >> 2;
+    const d = 0b1010 & 0b1100;
+    const e = 0b1010 | 0b1100;
+    const f = 0b1010 ^ 0b1100;
+    const g = ~0b0000;
+
+    var x = 8;
+    x <<= 1;   // 16
+    x >>= 2;   // 4
+    x &= 3;    // 0
+    x |= 12;   // 12
+    x ^= 5;    // 9
+    x = 0;
+    x <<= 31;
+
+    print(b);
+    print(c);
+    print(d);
+    print(e);
+    print(f);
+    print(g);
+    print(x);
+
+    return 0;
+}

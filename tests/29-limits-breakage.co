@@ -1,0 +1,66 @@
+// Stress and breakage tests: recursion depth, huge numeric constants,
+// large collection allocations, deep template nesting, and ambiguous
+// fallback behavior on overflow/long-running work.
+fn main() {
+    // 1) Big-integer literal beyond i64 must still parse and evaluate.
+    const huge = 9223372036854775808;
+    print(huge - 1);
+
+    // 2) Deep recursion should still resolve to the expected value.
+    fn fib(n) {
+        if n <= 1 { return n; }
+        return fib(n - 1) + fib(n - 2);
+    }
+    print(fib(24));
+
+    // 3) Repeated mutation and growth on a list.
+    const xs = [];
+    var i = 0;
+    while i < 200 {
+        xs.push(i * i);
+        i = i + 1;
+    }
+    print(xs.length);
+    print(xs[199]);
+
+    // 4) Map growth and mixed-type values.
+    const m = {};
+    i = 0;
+    while i < 100 {
+        const key = "k" + i;
+        m[key] = i;
+        i = i + 1;
+    }
+    print(m["k0"]);
+    print(m["k99"]);
+
+    // 5) Shallow nested templates.
+    const outer = `outer ${`inner ${1 + 2}`}`;
+    print(outer);
+
+    // 6) Chain of elvis + null coalesce on missing key access.
+    const obj: { a?: int } = {};
+    print(obj.a ?? 0);
+    print(obj.a ?: -1);
+
+    // 7) Excess bit-shift on a nonzero value.
+    const y = 1 << 60;
+    print(y);
+
+    // 8) Integer division and remainder by 1 from a large value.
+    const big = 1000000;
+    print(big / 1);
+    print(big % 1);
+
+    // 9) Loop that never breaks should still be finite here;
+    // we keep it bounded to avoid hanging CI.
+    i = 0;
+    var acc = 0;
+    while i < 1000 {
+        if i % 17 == 0 { acc = acc + i; }
+        i = i + 1;
+    }
+    print(acc);
+
+    return 0;
+}
